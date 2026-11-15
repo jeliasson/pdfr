@@ -1,0 +1,27 @@
+[Desktop Entry]
+Type=Application
+Name=pdfr
+GenericName=PDF Form Filler
+Comment=View PDFs and fill in forms
+Comment[sv]=Visa PDF-filer och fyll i blanketter
+Comment[es]=Ver PDF y rellenar formularios
+Comment[de]=PDFs ansehen und Formulare ausfüllen
+Comment[fr]=Afficher des PDF et remplir des formulaires
+Icon=io.github.kjellberg.pdfr
+Exec=pdfr %f
+TryExec=pdfr
+Terminal=false
+MimeType=application/pdf;
+Categories=Office;Viewer;
+Keywords=pdf;form;fill;viewer;document;formulario;blankett;
+StartupNotify=true
+StartupWMClass=io.github.kjellberg.pdfr
+Actions=new-window;
+
+[Desktop Action new-window]
+Name=New Window
+Name[sv]=Nytt fönster
+Name[es]=Nueva ventana
+Name[de]=Neues Fenster
+Name[fr]=Nouvelle fenêtre
+Exec=pdfr

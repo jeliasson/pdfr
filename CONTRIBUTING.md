@@ -32,7 +32,11 @@ cargo clippy --workspace --all-targets
 ```
 
 On Linux, pdfr loads OpenGL/EGL and xkbcommon at run time (present on any
-desktop) and uses the XDG desktop portal for file dialogs and printing.
+desktop) and uses the XDG desktop portals for file dialogs, printing, links
+and the light/dark preference. Without a file chooser portal (bare i3, Sway,
+dwm) it shows its own file dialog.
+
+Release packages are built only by CI (see [docs/RELEASING.md](docs/RELEASING.md)).
 
 The timing-based scrolling test (`steady_scroll_through_300_pages`) is
 reliable in release builds; in debug builds it can fail on a busy machine.
@@ -47,7 +51,11 @@ These come from the original brief and are not negotiable without discussion:
 - Pure Rust: no C or C++ libraries, no downloads at build or run time other
   than crates from crates.io. Commit `Cargo.lock`.
 - The only external program pdfr may run is the user's own AI command-line
-  tool, and it is optional.
+  tool, and it is optional. Desktop integration uses freedesktop files and
+  the XDG portals over D-Bus, never `xdg-open`, `xdg-mime` or similar.
+- The one network request besides the AI tool is the opt-in update check
+  (direct downloads only, off for package-manager installs): it asks GitHub
+  for the latest version number, sends nothing else, and installs nothing.
 - AI requests send field labels and section headings (with row numbers) only:
   never field values, other page text, images or the PDF. No tools, no
   conversation, at most one retry; replies that don't parse are discarded.
@@ -83,13 +91,27 @@ where new features go.
 - **Exact placement**: one layout routine positions text on screen and in the
   saved file (verified to within about one pixel with
   `tools/compare_screen.py`).
-- **Font**: values are always set in the bundled Noto Sans Regular.
+- **Font**: values are always set in the bundled Inter Regular, drawn on screen without hinting and with slightly heavier strokes (crisper small text).
 - **Saving** writes real form fields with appearance streams and the embedded
   font (searchable, copyable text). Detected fields become real form fields
   other viewers can edit. The first save suggests `<name>-filled.pdf`.
-- **Printing** goes through the XDG print portal over D-Bus (Linux only for
-  now; needs `xdg-desktop-portal` with a print backend such as
-  `xdg-desktop-portal-gtk`).
+- **Printing** always uses a flattened copy (`pdfr_core::flatten`): values
+  are drawn into the page content, because many printers that read PDFs
+  themselves skip form fields. Each system's own dialog is used:
+  - Linux: the XDG print portal over D-Bus (needs `xdg-desktop-portal` with a
+    print backend such as `xdg-desktop-portal-gtk`); the document's paper
+    size and orientation are passed as the starting point. Without a print
+    portal, pdfr shows its own small dialog and sends the PDF straight to
+    the local CUPS server over IPP (`app/cups.rs`, standard library only).
+  - Windows: the standard print dialog (`PrintDlgEx`); pages are rendered by
+    pdfr at the printer's resolution (up to 300 dpi) and sent with GDI, at
+    actual size, centred.
+  - macOS: PDFKit's print operation, as a sheet on the window, with paper,
+    orientation, scaling, copies, pages and preview shown.
+
+  The Windows and macOS code is compile-checked here
+  (`cargo check --target x86_64-pc-windows-gnu`, `--target
+  aarch64-apple-darwin`); test on those systems before a release.
 - If a file's structure cannot be parsed for editing, pdfr shows it read-only
   and says so in the status line.
 
@@ -154,24 +176,49 @@ cargo run --release -p pdfr-core --example runs -- form.pdf 0          # text ru
 cargo run --release -p pdfr-assist --example labels -- form.pdf        # labels, people, AI request (no call)
 ```
 
-Hidden command-line flags for automated checks: `--demo` (fill every field with
+`pdfr --register` and `--unregister` (in `--help`) add an archive install to the
+app menu. Hidden command-line flags for automated checks: `--demo` (fill every field with
 sample values), `--save <path>`, `--screenshot <png>`, `--zoom <f>`,
 `--data-dir <dir>`, `--no-ai`, `--settings <section>` (open Settings),
 `--ask-remember` (show the remember dialog) and `--hover x,y` (pretend the
 pointer is at a point on page 1). `tools/compare_screen.py` compares a
 screenshot with a render of the saved PDF.
 
+### README screenshots and videos
+
+`docs/media/` holds the README's media, made with made-up data only.
+`tools/make_demo.sh <scene>` records a scripted scene (`fill`, `remember`; see
+`crates/app/src/app/record.rs`) with the hidden `--record <dir> --script
+<name>` flags and encodes a GIF and an MP4 with ffmpeg. Screenshots use
+`--screenshot` (with `--settings`, `--hover`, `--demo` as needed).
+
+## Desktop integration
+
+`crates/app/src/system/`: the default PDF app (Linux: `mimeapps.list`;
+macOS: NSWorkspace; Windows: opens Settings → Default apps), install
+detection for update hints, `pdfr --register` / `--unregister` for archive
+installs (desktop entry, icons and `~/.local/bin/pdfr`), opening links and the
+portal colour scheme. macOS files from Finder arrive as Apple Events
+(`application:openURLs:`). Settings → General shows all of it.
+
+The app id is `io.github.kjellberg.pdfr` (Wayland app id, desktop file, icon,
+AppStream). The icon's sources are in `tools/brand/`; `cargo run -p pdfr
+--example make_icons` renders the PNG, .ico and .icns files in `assets/icon/`.
+
 ## Releases and packaging
 
-- `packaging/aur/PKGBUILD`: Arch / Omarchy (builds from the release tarball).
-- `packaging/homebrew/pdfr.rb`: formula for the personal tap.
-- `cargo deb -p pdfr`: Debian package (metadata in `crates/app/Cargo.toml`).
-- `.github/workflows/ci.yml`: tests, and release binaries for Linux, macOS and
-  Windows on tags.
+See [docs/RELEASING.md](docs/RELEASING.md). In short:
 
-Replace the `OWNER` placeholders with the GitHub account before the first
-release. Release archives must include `LICENSE.md` and
-`assets/LICENSE-NotoSans.txt`. The licences of the Rust crates pdfr is built
-with (mostly MIT and Apache-2.0) also ask for their notices to be included
-with binaries; a generated third-party notices file (for example with
-`cargo about`) should be added to the release archives.
+- `packaging/linux/`: desktop entry, AppStream metadata, `install.sh` (used by
+  every Linux package and the tarball).
+- `packaging/aur/`: `pdfr` (from source) and `pdfr-bin` (prebuilt).
+- `crates/app/Cargo.toml`: `.deb` (cargo-deb) and `.rpm` (cargo-generate-rpm).
+- `packaging/flatpak/`, `packaging/homebrew/`, `packaging/macos/`,
+  `packaging/windows/`, `packaging/winget/`.
+- `.github/workflows/`: `ci.yml`, `build-linux.yml`, `release.yml`.
+
+Release archives include `LICENSE.md` and `assets/LICENSE-Inter.txt`. The
+licences of the Rust crates pdfr is built with (mostly MIT and Apache-2.0)
+also ask for their notices to be included with binaries; a generated
+third-party notices file (for example with `cargo about`) should be added to
+the release archives.

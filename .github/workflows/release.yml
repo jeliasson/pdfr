@@ -1,0 +1,254 @@
+# Runs when a version tag is pushed (tools/release.sh makes one):
+#   1. builds and tries the Linux packages (build-linux.yml)
+#   2. publishes a GitHub release with them, SHA256SUMS and the changelog
+#   3. for stable versions, updates the AUR, the Homebrew tap and the apt/rpm
+#      repositories. Each step is skipped while its secret is missing; see
+#      docs/RELEASING.md for the one-time setup.
+# Tags with a "-" (v0.2.0-rc1) make a pre-release and publish nowhere else.
+# macOS and Windows builds are switched on with the repository variables
+# RELEASE_MACOS / RELEASE_WINDOWS once they are tested.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    name: Check version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          v=${GITHUB_REF_NAME#v}
+          cargo_v=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "${v%%-*}" != "${cargo_v%%-*}" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match Cargo.toml version $cargo_v"; exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          case "$v" in *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT";; *) echo "prerelease=false" >> "$GITHUB_OUTPUT";; esac
+
+  linux:
+    name: Linux packages
+    needs: version
+    uses: ./.github/workflows/build-linux.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+
+  macos:
+    name: macOS app
+    needs: version
+    if: vars.RELEASE_MACOS == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Build pdfr.app and the disk image
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: packaging/macos/make_app.sh ${{ needs.version.outputs.version }} dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*
+
+  windows:
+    name: Windows installer
+    needs: version
+    if: vars.RELEASE_WINDOWS == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --locked --release -p pdfr
+      - name: Build the installer
+        shell: pwsh
+        run: packaging/windows/build-msi.ps1 -Version ${{ needs.version.outputs.version }} -Out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*
+
+  release:
+    name: GitHub release
+    needs: [version, linux, macos, windows]
+    if: ${{ !cancelled() && needs.linux.result == 'success' && needs.macos.result != 'failure' && needs.windows.result != 'failure' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: "{linux-*,macos,windows}"
+          merge-multiple: true
+      - name: Checksums and notes
+        run: |
+          cd artifacts && sha256sum * > SHA256SUMS && cat SHA256SUMS && cd ..
+          v=${{ needs.version.outputs.version }}
+          awk -v v="${v%%-*}" '
+            $0 ~ "^## \\[" v "\\]" {on=1; next}
+            on && /^## / {exit}
+            on {print}' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "pdfr $v" > notes.md
+          cat >> notes.md <<'MD'
+
+          ### Install
+
+          See the [README](https://github.com/kjellberg/pdfr#install) for every distribution.
+          From this page: the `.deb` (Debian, Ubuntu), `.rpm` (Fedora, openSUSE), or the
+          `.tar.gz` for any Linux (`./pdfr --register` adds it to your app menu).
+          MD
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          body_path: notes.md
+          prerelease: ${{ needs.version.outputs.prerelease == 'true' }}
+
+  aur:
+    name: Publish to the AUR
+    needs: [version, release]
+    if: needs.version.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        pkg: [pdfr, pdfr-bin]
+    env:
+      HAS_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        if: env.HAS_KEY == 'true'
+      - name: Update the PKGBUILD
+        if: env.HAS_KEY == 'true'
+        run: |
+          v=${{ needs.version.outputs.version }}
+          base=https://github.com/kjellberg/pdfr
+          dir=packaging/aur; [ "${{ matrix.pkg }}" = pdfr-bin ] && dir=packaging/aur/pdfr-bin
+          sed -i "s/^pkgver=.*/pkgver=$v/; s/^pkgrel=.*/pkgrel=1/" $dir/PKGBUILD
+          sum() { curl -fsSL "$1" | sha256sum | cut -d' ' -f1; }
+          if [ "${{ matrix.pkg }}" = pdfr ]; then
+            sed -i "s/^sha256sums=.*/sha256sums=('$(sum $base/archive/refs/tags/v$v.tar.gz)')/" $dir/PKGBUILD
+          else
+            sed -i "s/^sha256sums_x86_64=.*/sha256sums_x86_64=('$(sum $base/releases/download/v$v/pdfr-v$v-x86_64-linux.tar.gz)')/" $dir/PKGBUILD
+            sed -i "s/^sha256sums_aarch64=.*/sha256sums_aarch64=('$(sum $base/releases/download/v$v/pdfr-v$v-aarch64-linux.tar.gz)')/" $dir/PKGBUILD
+          fi
+          cp $dir/PKGBUILD ./PKGBUILD.out
+      - uses: KSXGitHub/github-actions-deploy-aur@v4
+        if: env.HAS_KEY == 'true'
+        with:
+          pkgname: ${{ matrix.pkg }}
+          pkgbuild: ./PKGBUILD.out
+          commit_username: ${{ secrets.AUR_USERNAME }}
+          commit_email: ${{ secrets.AUR_EMAIL }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: pdfr ${{ needs.version.outputs.version }}
+
+  homebrew:
+    name: Update the Homebrew tap
+    needs: [version, release]
+    if: needs.version.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    env:
+      HAS_TOKEN: ${{ secrets.TAP_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        if: env.HAS_TOKEN == 'true'
+      - uses: actions/checkout@v4
+        if: env.HAS_TOKEN == 'true'
+        with:
+          repository: kjellberg/homebrew-tap
+          token: ${{ secrets.TAP_TOKEN }}
+          path: tap
+      - name: Bump the formula
+        if: env.HAS_TOKEN == 'true'
+        run: |
+          v=${{ needs.version.outputs.version }}
+          url=https://github.com/kjellberg/pdfr/archive/refs/tags/v$v.tar.gz
+          sha=$(curl -fsSL "$url" | sha256sum | cut -d' ' -f1)
+          mkdir -p tap/Formula
+          sed -e "s|^  url \".*\"|  url \"$url\"|" -e "s|^  sha256 \".*\"|  sha256 \"$sha\"|" \
+            packaging/homebrew/pdfr.rb > tap/Formula/pdfr.rb
+          cd tap
+          git config user.name "pdfr release"
+          git config user.email "actions@users.noreply.github.com"
+          git add Formula/pdfr.rb
+          git commit -m "pdfr $v" && git push || echo "nothing to update"
+
+  repos:
+    name: Update the apt and rpm repositories
+    needs: [version, release]
+    if: needs.version.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEY: ${{ secrets.REPO_GPG_PRIVATE_KEY != '' && secrets.PACKAGES_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        if: env.HAS_KEY == 'true'
+      - uses: actions/checkout@v4
+        if: env.HAS_KEY == 'true'
+        with:
+          repository: kjellberg/packages
+          token: ${{ secrets.PACKAGES_TOKEN }}
+          path: site
+      - uses: actions/download-artifact@v4
+        if: env.HAS_KEY == 'true'
+        with:
+          path: new
+          pattern: linux-*
+          merge-multiple: true
+      - name: Rebuild and sign the repositories
+        if: env.HAS_KEY == 'true'
+        env:
+          REPO_GPG_PRIVATE_KEY: ${{ secrets.REPO_GPG_PRIVATE_KEY }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y apt-utils createrepo-c rpm gnupg
+          echo "$REPO_GPG_PRIVATE_KEY" | gpg --batch --import
+          export GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/ {print $5; exit}')
+          tools/publish_repos.sh site new
+          cd site
+          git config user.name "pdfr release"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "pdfr ${{ needs.version.outputs.version }}" && git push
+
+  flatpak:
+    name: Flatpak bundle (check)
+    needs: version
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-25.08
+      options: --privileged
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Crate list for the offline build
+        run: |
+          curl -fsSLO https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/master/cargo/flatpak-cargo-generator.py
+          pip3 install --break-system-packages aiohttp toml tomlkit 2>/dev/null || pip3 install aiohttp toml tomlkit
+          python3 flatpak-cargo-generator.py Cargo.lock -o packaging/flatpak/cargo-sources.json
+      - uses: flathub-infra/flatpak-github-actions/flatpak-builder@master
+        with:
+          bundle: pdfr.flatpak
+          manifest-path: packaging/flatpak/io.github.kjellberg.pdfr.yml
+          cache-key: flatpak-${{ github.sha }}

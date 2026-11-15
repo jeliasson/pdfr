@@ -9,6 +9,8 @@ mod app;
 mod assist_ui;
 mod draw;
 mod icons;
+mod system;
+mod updates;
 mod theme;
 mod worker;
 
@@ -22,6 +24,9 @@ Usage: pdfr [FILE.pdf]
 Options:
   -h, --help       Show this help
   -V, --version    Show the version
+  --register       Add pdfr to the app menu, \"Open with\" and the terminal
+                   (for installs from an archive)
+  --unregister     Undo --register
 ";
 
 fn parse_args() -> Result<CliOptions, String> {
@@ -37,6 +42,23 @@ fn parse_args() -> Result<CliOptions, String> {
             "-V" | "--version" => {
                 println!("pdfr {}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0);
+            }
+            "--register" | "--unregister" => {
+                let r = if s == "--register" {
+                    system::register()
+                } else {
+                    system::unregister()
+                };
+                match r {
+                    Ok(m) => {
+                        println!("{m}");
+                        std::process::exit(0)
+                    }
+                    Err(e) => {
+                        eprintln!("pdfr: {e}");
+                        std::process::exit(1)
+                    }
+                }
             }
             // Hidden flags used for verification.
             "--demo" => o.demo = true,
@@ -56,6 +78,15 @@ fn parse_args() -> Result<CliOptions, String> {
                     x.parse().map_err(|_| "bad --hover")?,
                     y.parse().map_err(|_| "bad --hover")?,
                 ));
+            }
+            "--record" => o.record = Some(args.next().ok_or("--record needs a folder")?.into()),
+            "--script" => {
+                o.script = Some(
+                    args.next()
+                        .ok_or("--script needs a name")?
+                        .to_string_lossy()
+                        .into(),
+                )
             }
             "--ask-remember" => o.ask_remember = true,
             "--settings" => {
@@ -81,7 +112,7 @@ fn parse_args() -> Result<CliOptions, String> {
         }
     }
     // Automated runs never call the AI.
-    if o.demo || o.save.is_some() || o.screenshot.is_some() {
+    if o.demo || o.save.is_some() || o.screenshot.is_some() || o.record.is_some() {
         o.no_ai = true;
     }
     Ok(o)
@@ -95,13 +126,18 @@ fn main() -> eframe::Result<()> {
             std::process::exit(2);
         }
     };
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("pdfr")
-            .with_app_id("pdfr")
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("pdfr")
+        .with_app_id(system::APP_ID)
             .with_inner_size([1100.0, 900.0])
             .with_min_inner_size([480.0, 360.0])
-            .with_drag_and_drop(true),
+            .with_drag_and_drop(true);
+    if let Some(icon) = system::window_icon() {
+        viewport = viewport.with_icon(icon);
+    }
+    let options = eframe::NativeOptions {
+        viewport,
+        event_loop_builder: Some(Box::new(|_| system::before_event_loop())),
         ..Default::default()
     };
     eframe::run_native(

@@ -9,21 +9,21 @@ use eframe::egui::{
     self, Align, Color32, CornerRadius, Frame, Layout, Margin, RichText, Sense, Stroke, Ui, vec2,
 };
 
-pub(super) const DANGER: Color32 = Color32::from_rgb(0xd0, 0x3e, 0x3e);
+pub(crate) const DANGER: Color32 = Color32::from_rgb(0xd0, 0x3e, 0x3e);
 
 /// Colours derived from the theme palette.
-pub(super) struct Colors {
-    pub(super) text: Color32,
-    pub(super) weak: Color32,
-    pub(super) accent: Color32,
-    pub(super) card: Color32,
-    pub(super) border: Color32,
-    pub(super) hover: Color32,
-    pub(super) sidebar: Color32,
+pub(crate) struct Colors {
+    pub(crate) text: Color32,
+    pub(crate) weak: Color32,
+    pub(crate) accent: Color32,
+    pub(crate) card: Color32,
+    pub(crate) border: Color32,
+    pub(crate) hover: Color32,
+    pub(crate) sidebar: Color32,
 }
 
 impl Colors {
-    pub(super) fn new(p: &Palette) -> Colors {
+    pub(crate) fn new(p: &Palette) -> Colors {
         Colors {
             text: p.text,
             weak: p.weak_text,
@@ -37,7 +37,7 @@ impl Colors {
 }
 
 /// A rounded group of rows, with an optional small heading above it.
-pub(super) fn card(ui: &mut Ui, c: &Colors, heading: Option<&str>, body: impl FnOnce(&mut Ui)) {
+pub(crate) fn card(ui: &mut Ui, c: &Colors, heading: Option<&str>, body: impl FnOnce(&mut Ui)) {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 6.0;
         if let Some(h) = heading {
@@ -56,14 +56,14 @@ pub(super) fn card(ui: &mut Ui, c: &Colors, heading: Option<&str>, body: impl Fn
     });
 }
 
-pub(super) fn row_divider(ui: &mut Ui, c: &Colors) {
+pub(crate) fn row_divider(ui: &mut Ui, c: &Colors) {
     let w = ui.available_width();
     let (r, _) = ui.allocate_exact_size(vec2(w, 1.0), Sense::hover());
     ui.painter().rect_filled(r, 0.0, c.border);
 }
 
 /// A title and description on the left, a control on the right.
-pub(super) fn setting_row(
+pub(crate) fn setting_row(
     ui: &mut Ui,
     c: &Colors,
     title: &str,
@@ -83,7 +83,7 @@ pub(super) fn setting_row(
 }
 
 /// A radio-style row: the whole row is clickable. Returns true when clicked.
-pub(super) fn choice_row(ui: &mut Ui, c: &Colors, selected: bool, title: &str, sub: &str) -> bool {
+pub(crate) fn choice_row(ui: &mut Ui, c: &Colors, selected: bool, title: &str, sub: &str) -> bool {
     let resp = ui
         .horizontal(|ui| {
             let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
@@ -114,7 +114,7 @@ pub(super) fn choice_row(ui: &mut Ui, c: &Colors, selected: bool, title: &str, s
 }
 
 /// An on/off switch.
-pub(super) fn toggle(ui: &mut Ui, c: &Colors, on: &mut bool) -> egui::Response {
+pub(crate) fn toggle(ui: &mut Ui, c: &Colors, on: &mut bool) -> egui::Response {
     let size = vec2(40.0, 22.0);
     let (rect, mut resp) = ui.allocate_exact_size(size, Sense::click());
     if resp.clicked() {
@@ -133,7 +133,7 @@ pub(super) fn toggle(ui: &mut Ui, c: &Colors, on: &mut bool) -> egui::Response {
 }
 
 /// A small borderless icon button that shows a background on hover.
-pub(super) fn icon_button(ui: &mut Ui, c: &Colors, icon: Icon, tip: &str) -> egui::Response {
+pub(crate) fn icon_button(ui: &mut Ui, c: &Colors, icon: Icon, tip: &str) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
     if resp.hovered() {
         ui.painter().rect_filled(rect, 6.0, c.hover);
@@ -149,14 +149,14 @@ pub(super) fn icon_button(ui: &mut Ui, c: &Colors, icon: Icon, tip: &str) -> egu
         .on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-pub(super) fn note(ui: &mut Ui, c: &Colors, text: &str) {
+pub(crate) fn note(ui: &mut Ui, c: &Colors, text: &str) {
     ui.horizontal(|ui| {
         ui.add_space(2.0);
         ui.add(egui::Label::new(RichText::new(text).size(12.0).color(c.weak)).wrap());
     });
 }
 
-pub(super) fn avatar(ui: &mut Ui, c: &Colors, name: &str) {
+pub(crate) fn avatar(ui: &mut Ui, c: &Colors, name: &str) {
     let (r, _) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::hover());
     ui.painter()
         .circle_filled(r.center(), 17.0, c.accent.gamma_multiply(0.85));
@@ -178,7 +178,7 @@ pub(super) fn avatar(ui: &mut Ui, c: &Colors, name: &str) {
 
 /// The frame of panels and dialogs: the window colour, a thin border,
 /// rounded corners and the window shadow.
-pub(super) fn panel_frame(ctx: &egui::Context, pal: &Palette, c: &Colors, margin: i8) -> Frame {
+pub(crate) fn panel_frame(ctx: &egui::Context, pal: &Palette, c: &Colors, margin: i8) -> Frame {
     Frame::window(&ctx.global_style())
         .fill(pal.window)
         .stroke(Stroke::new(1.0, c.border))
@@ -188,7 +188,7 @@ pub(super) fn panel_frame(ctx: &egui::Context, pal: &Palette, c: &Colors, margin
 
 /// A rounded checkbox drawn in the accent colour. Returns the response of
 /// its square; the caller decides what a click on a whole row means.
-pub(super) fn checkbox(ui: &mut Ui, c: &Colors, checked: bool) -> egui::Response {
+pub(crate) fn checkbox(ui: &mut Ui, c: &Colors, checked: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::click());
     let p = ui.painter();
     if checked {
@@ -205,7 +205,7 @@ pub(super) fn checkbox(ui: &mut Ui, c: &Colors, checked: bool) -> egui::Response
 }
 
 /// The main action of a dialog: filled with the accent colour.
-pub(super) fn primary_button(ui: &mut Ui, c: &Colors, label: &str) -> egui::Response {
+pub(crate) fn primary_button(ui: &mut Ui, c: &Colors, label: &str) -> egui::Response {
     ui.add(
         egui::Button::new(RichText::new(label).color(Color32::WHITE).strong())
             .fill(c.accent)
@@ -217,7 +217,7 @@ pub(super) fn primary_button(ui: &mut Ui, c: &Colors, label: &str) -> egui::Resp
 }
 
 /// A secondary action: outlined.
-pub(super) fn secondary_button(ui: &mut Ui, c: &Colors, label: &str) -> egui::Response {
+pub(crate) fn secondary_button(ui: &mut Ui, c: &Colors, label: &str) -> egui::Response {
     ui.add(
         egui::Button::new(RichText::new(label).color(c.text))
             .fill(Color32::TRANSPARENT)
@@ -229,7 +229,7 @@ pub(super) fn secondary_button(ui: &mut Ui, c: &Colors, label: &str) -> egui::Re
 }
 
 /// A small text link in the accent colour.
-pub(super) fn link(ui: &mut Ui, c: &Colors, label: &str) -> egui::Response {
+pub(crate) fn link(ui: &mut Ui, c: &Colors, label: &str) -> egui::Response {
     ui.add(egui::Label::new(RichText::new(label).size(12.0).color(c.accent)).sense(Sense::click()))
         .on_hover_cursor(egui::CursorIcon::PointingHand)
 }

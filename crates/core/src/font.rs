@@ -1,6 +1,6 @@
-//! The font for typed text: Noto Sans Regular (SIL OFL 1.1), built into the
-//! binary so values always look the same, whatever fonts the PDF or the
-//! system has.
+//! The font for typed text: Inter Regular (SIL OFL 1.1), a typeface made for
+//! screens, built into the binary so values always look the same, whatever
+//! fonts the PDF or the system has.
 //!
 //! Everything that places typed text — the screen and the PDF writer — asks
 //! this module for metrics, so both agree exactly.
@@ -8,10 +8,10 @@
 use std::sync::OnceLock;
 use ttf_parser::{Face, GlyphId};
 
-pub static FONT_BYTES: &[u8] = include_bytes!("../../../assets/NotoSans-Regular.ttf");
+pub static FONT_BYTES: &[u8] = include_bytes!("../../../assets/Inter-Regular.ttf");
 
 /// PostScript name used when embedding the font.
-pub const FONT_PS_NAME: &str = "NotoSans-Regular";
+pub const FONT_PS_NAME: &str = "Inter-Regular";
 
 pub struct Font {
     face: Face<'static>,
@@ -116,8 +116,8 @@ mod tests {
     #[test]
     fn metrics_are_sane() {
         let f = font();
-        assert_eq!(f.units_per_em(), 1000.0);
-        assert!((f.cap_height() - 0.714).abs() < 0.01, "{}", f.cap_height());
+        assert_eq!(f.units_per_em(), 2048.0);
+        assert!((f.cap_height() - 0.727).abs() < 0.01, "{}", f.cap_height());
         assert!(f.advance('W', 10.0) > f.advance('i', 10.0));
         assert_eq!(f.display_char('\u{7}'), None);
         assert_eq!(f.display_char('é'), Some('é'));

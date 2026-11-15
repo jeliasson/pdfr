@@ -34,7 +34,14 @@ pub fn install_font(ctx: &egui::Context) {
     let mut defs = egui::FontDefinitions::default();
     defs.font_data.insert(
         FONT_FAMILY.into(),
-        std::sync::Arc::new(egui::FontData::from_static(pdfr_core::font::FONT_BYTES)),
+        // Form text, macOS style: no hinting, so letters keep their true
+        // shapes and even spacing at any zoom.
+        std::sync::Arc::new(
+            egui::FontData::from_static(pdfr_core::font::FONT_BYTES).tweak(egui::FontTweak {
+                hinting: Some(false),
+                ..Default::default()
+            }),
+        ),
     );
     defs.families.insert(
         FontFamily::Name(FONT_FAMILY.into()),

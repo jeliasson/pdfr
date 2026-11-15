@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata: how pdfr appears in GNOME Software, KDE Discover and Flathub. -->
+<component type="desktop-application">
+  <id>io.github.kjellberg.pdfr</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary=https://polyformproject.org/licenses/strict/1.0.0</project_license>
+  <name>pdfr</name>
+  <summary>Fill in PDF forms the way they were meant to be filled in</summary>
+  <developer id="io.github.kjellberg">
+    <name>Rasmus Kjellberg</name>
+  </developer>
+  <description>
+    <p>
+      pdfr is a fast, friendly PDF viewer for filling in forms: tax forms,
+      school applications, permits, anything with boxes to fill. Click a box,
+      type, and your text lands neatly inside it at the right size.
+    </p>
+    <ul>
+      <li>Works with fillable PDF forms, forms that are only drawn on the page, and scanned paper forms</li>
+      <li>One letter per square in rows of little boxes, automatically</li>
+      <li>The saved and printed form looks just like the screen</li>
+      <li>Remembers your details privately, and keeps each person separate</li>
+      <li>Opens instantly, even for documents with hundreds of pages</li>
+    </ul>
+    <p>Free for personal and non-commercial use.</p>
+  </description>
+  <launchable type="desktop-id">io.github.kjellberg.pdfr.desktop</launchable>
+  <icon type="stock">io.github.kjellberg.pdfr</icon>
+  <url type="homepage">https://github.com/kjellberg/pdfr</url>
+  <url type="bugtracker">https://github.com/kjellberg/pdfr/issues</url>
+  <url type="vcs-browser">https://github.com/kjellberg/pdfr</url>
+  <url type="contribute">https://github.com/kjellberg/pdfr/blob/main/CONTRIBUTING.md</url>
+  <provides>
+    <binary>pdfr</binary>
+    <mediatype>application/pdf</mediatype>
+  </provides>
+  <categories>
+    <category>Office</category>
+    <category>Viewer</category>
+  </categories>
+  <keywords>
+    <keyword>pdf</keyword>
+    <keyword>form</keyword>
+    <keyword>fill</keyword>
+  </keywords>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Text sits neatly inside each box</caption>
+      <image>https://raw.githubusercontent.com/kjellberg/pdfr/main/docs/media/form.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Remembered people, kept separate</caption>
+      <image>https://raw.githubusercontent.com/kjellberg/pdfr/main/docs/media/settings.png</image>
+    </screenshot>
+  </screenshots>
+  <branding>
+    <color type="primary" scheme_preference="light">#FFB59A</color>
+    <color type="primary" scheme_preference="dark">#8A1F45</color>
+  </branding>
+  <content_rating type="oars-1.1"/>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">480</display_length>
+  </requires>
+  <releases>
+    <release version="0.1.0" date="2026-11-15">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

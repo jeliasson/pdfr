@@ -5,6 +5,7 @@ pub mod demo;
 pub mod detect;
 pub mod edit;
 pub mod field;
+pub mod flatten;
 pub mod font;
 pub mod forms;
 pub mod geom;

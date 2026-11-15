@@ -18,6 +18,7 @@ const SIDEBAR: f32 = 190.0;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Section {
     #[default]
+    General,
     Autocomplete,
     Ai,
     People,
@@ -26,17 +27,34 @@ pub enum Section {
 }
 
 impl Section {
-    const ALL: [Section; 5] = [
+    const ALL: [Section; 6] = [
+        Section::General,
         Section::Autocomplete,
-        Section::Ai,
         Section::People,
         Section::Values,
+        Section::Ai,
         Section::Storage,
     ];
 
+    /// The sidebar heading a section sits under: everything but General is
+    /// part of autocomplete.
+    fn group(self) -> Option<&'static str> {
+        match self {
+            Section::General => None,
+            _ => Some("Autocomplete"),
+        }
+    }
+
+    /// Also found by these names (`--settings autocomplete`).
+    fn matches(self, name: &str) -> bool {
+        self.title().to_lowercase().contains(name)
+            || (self == Section::Autocomplete && name == "autocomplete")
+    }
+
     fn title(self) -> &'static str {
         match self {
-            Section::Autocomplete => "Autocomplete",
+            Section::General => "General",
+            Section::Autocomplete => "Behaviour",
             Section::Ai => "AI",
             Section::People => "People",
             Section::Values => "Memory",
@@ -46,6 +64,7 @@ impl Section {
 
     fn blurb(self) -> &'static str {
         match self {
+            Section::General => "How pdfr fits into your computer.",
             Section::Autocomplete => "How pdfr learns from the forms you fill.",
             Section::Ai => "Optional help from an AI tool already installed on this computer.",
             Section::People => {
@@ -58,6 +77,7 @@ impl Section {
 
     fn icon(self) -> Icon {
         match self {
+            Section::General => Icon::Settings,
             Section::Autocomplete => Icon::FillAll,
             Section::Ai => Icon::Sparkle,
             Section::People => Icon::Person,
@@ -92,7 +112,7 @@ impl AssistState {
         let name = name.to_lowercase();
         if let Some(s) = Section::ALL
             .into_iter()
-            .find(|s| s.title().to_lowercase().contains(&name))
+            .find(|s| s.matches(&name))
         {
             self.settings_ui.section = s;
         }
@@ -182,7 +202,24 @@ impl AssistState {
                     });
                     ui.add_space(14.0);
                     ui.spacing_mut().item_spacing.y = 2.0;
+                    let mut last_group = None;
                     for s in Section::ALL {
+                        if s.group() != last_group {
+                            last_group = s.group();
+                            if let Some(g) = last_group {
+                                ui.add_space(12.0);
+                                ui.horizontal(|ui| {
+                                    ui.add_space(10.0);
+                                    ui.label(
+                                        RichText::new(g.to_uppercase())
+                                            .size(11.0)
+                                            .strong()
+                                            .color(c.weak),
+                                    );
+                                });
+                                ui.add_space(2.0);
+                            }
+                        }
                         let selected = self.settings_ui.section == s;
                         let (rect, resp) = ui
                             .allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
@@ -246,6 +283,7 @@ impl AssistState {
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 12.0;
                 match s {
+                    Section::General => act.changed |= self.general_section(ui, c),
                     Section::Autocomplete => self.autocomplete(ui, c, act),
                     Section::Ai => self.ai(ui, c, act),
                     Section::People => self.people(ui, c, act),
@@ -321,7 +359,11 @@ impl AssistState {
                 ),
                 None => (
                     "Not found".to_string(),
-                    "Install Claude Code to use AI. Everything else works without it.",
+                    if std::path::Path::new("/.flatpak-info").exists() {
+                        "The Flatpak version can't use programs on your computer. Install pdfr from your distribution's packages to use AI."
+                    } else {
+                        "Install Claude Code to use AI. Everything else works without it."
+                    },
                 ),
             };
             setting_row(ui, c, "Tool", sub, |ui| {
@@ -617,6 +659,7 @@ impl AssistState {
         }
         if act.close {
             self.settings_open = false;
+            self.refresh_system();
             self.settings_ui.confirm_clear = false;
         }
     }

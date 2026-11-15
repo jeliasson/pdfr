@@ -1,8 +1,8 @@
 Required Notice: Copyright (c) 2026 Rasmus Kjellberg
 
 pdfr is source-available under the PolyForm Strict License 1.0.0, reproduced
-below without changes. The bundled Noto Sans font is under its own licence
-(assets/LICENSE-NotoSans.txt), and the Rust libraries pdfr is built with are
+below without changes. The bundled Inter font is under its own licence
+(assets/LICENSE-Inter.txt), and the Rust libraries pdfr is built with are
 under their own licences.
 
 ---

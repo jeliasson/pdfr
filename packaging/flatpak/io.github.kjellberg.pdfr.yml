@@ -1,0 +1,40 @@
+# Flatpak manifest (Flathub). Build locally:
+#   python3 flatpak-cargo-generator.py Cargo.lock -o packaging/flatpak/cargo-sources.json
+#   flatpak-builder --user --install --force-clean build-flatpak packaging/flatpak/io.github.kjellberg.pdfr.yml
+#
+# Files, printing, links and the colour scheme go through the desktop
+# portals, so no file system or network access is requested. Updates come
+# through Flatpak, so pdfr's own update check is off here. The optional AI
+# helper needs the user's own `claude` program, which a sandboxed app
+# cannot run; it is unavailable in this build.
+id: io.github.kjellberg.pdfr
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: pdfr
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/pdfr/cargo
+    CARGO_NET_OFFLINE: 'true'
+modules:
+  - name: pdfr
+    buildsystem: simple
+    build-commands:
+      - cargo --offline build --release --locked -p pdfr
+      - packaging/linux/install.sh target/release/pdfr "" /app
+    sources:
+      # For Flathub, replace with the release tag:
+      #   - type: git
+      #     url: https://github.com/kjellberg/pdfr.git
+      #     tag: v0.1.0
+      - type: dir
+        path: ../..
+      - cargo-sources.json

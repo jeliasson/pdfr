@@ -1,13 +1,24 @@
-# pdfr
+<p align="center">
+  <img src="assets/icon/png/pdfr-128.png" width="96" alt="The pdfr icon: a form field with &quot;pdf&quot; typed in and the cursor waiting for the r.">
+</p>
 
-**Fill in PDF forms the way they were meant to be filled in.**
+<h1 align="center">pdfr</h1>
+
+<p align="center"><b>Fill in PDF forms the way they were meant to be filled in.</b></p>
 
 pdfr is a fast, friendly PDF viewer for filling in forms: tax forms, school
 applications, permits, anything with boxes to fill. Click a box, type, and
 your text lands neatly inside it at the right size. That's it.
 
-Free for personal use. Made for [Omarchy](https://omarchy.org) first, and it
-works on Linux, macOS and Windows too.
+Free for personal use. **Made for Linux**: every distribution, every desktop,
+and right at home on [Omarchy](https://omarchy.org). macOS and Windows are
+on the way.
+
+<p align="center">
+  <img src="docs/media/fill.gif" width="720" alt="Typing into a form in pdfr: the name lands in its box, the ID number fills one letter per square, and the date flows across the day, month and year boxes.">
+  <br>
+  <sub>Click and type. <a href="docs/media/fill.mp4">Watch in higher quality</a></sub>
+</p>
 
 ---
 
@@ -32,17 +43,23 @@ pdfr fixes that.
 - **What you see is what you get.** The saved and printed form looks just like
   the screen, and other PDF apps can still open and edit it.
 
+<p align="center">
+  <img src="docs/media/form.png" width="640" alt="A filled-in form in pdfr: text sits neatly inside each box, one character per square in the ID and date boxes.">
+</p>
+
 ### Fast
 
 pdfr opens straight away. The first page is on screen in about a tenth of a
 second, even for a 300-page document, and scrolling stays smooth with no blank
 pages.
 
-### Works everywhere
+### Made for Linux
 
-pdfr was made for Omarchy first and fits right in: it follows your Omarchy
-theme and even switches live when you change it. It also runs on any Linux
-desktop, on macOS and on Windows, in light or dark mode.
+pdfr runs on any Linux distribution and desktop: GNOME, KDE Plasma, Cosmic,
+XFCE, Cinnamon, Hyprland, Sway and the rest, on Wayland or X11. It follows
+your desktop's light or dark mode, uses its own file and print dialogs, and
+shows up in your app launcher and under "Open with". On Omarchy it even
+takes on your theme and switches live when you change it.
 
 ### Remembers you, privately
 
@@ -57,67 +74,100 @@ and offer them on the next form, in any language.
 - **It stays on your computer.** Nothing is uploaded. Passwords and card
   numbers are never stored.
 
+<p align="center">
+  <img src="docs/media/remember.gif" width="720" alt="pdfr suggesting remembered names: hovering an empty box shows a sparkle button, the list offers Anna and Erik, arrow keys preview each one, and the next box already suggests Anna's job.">
+  <br>
+  <sub>Suggestions, person by person. <a href="docs/media/remember.mp4">Watch in higher quality</a></sub>
+</p>
+
 ---
 
 ## How it compares
 
-pdfr does one thing, filling in forms, and tries to do it better than anyone.
-The big PDF editors do much more. Here's an honest side-by-side.
+pdfr does one thing, filling in forms, and aims to do it better than anyone.
+The big PDF editors do a lot more. Here's an honest side-by-side.
 
-|  | **pdfr** | Adobe Acrobat | Foxit PDF Editor | PDF-XChange Editor |
+### Filling in forms
+
+|  | pdfr | Acrobat | Foxit | PDF-XChange |
 |---|:---:|:---:|:---:|:---:|
-| **Price** | Free for personal use | Free Reader; Pro about $20/month | About $11/month, or one-time | Free version; paid one-time licence |
-| **Linux** | ✅ Made for Omarchy | ❌ | ❌ | ❌ |
-| **macOS** | ✅ | ✅ | ✅ | ❌ |
-| **Windows** | ✅ | ✅ | ✅ | ✅ |
-| **Fill in fillable forms** | ✅ | ✅ | ✅ | ✅ |
-| **Finds the boxes on forms that aren't fillable** | ✅ When you open the file | ◐ "Prepare Form" step, paid | ◐ "Form Field Recognition" step | ◐ "Identify Forms", paid Plus edition |
-| **Works on scanned paper forms** | ✅ | ◐ | ◐ | ◐ |
-| **One letter per square in rows of boxes** | ✅ Automatic | ◐ Set up per field | ◐ Set up per field | ◐ Set up per field |
-| **Remembers each person's details separately** (you, partner, kids) | ✅ | ❌ | ❌ | ❌ |
-| **Print** | ◐ Linux for now | ✅ | ✅ | ✅ |
-| **Edit text and images in a PDF** | Not yet | ✅ | ✅ | ✅ |
-| **Recognise text in scans (OCR)** | Not yet | ✅ Paid | ✅ | ✅ |
-| **Comments and highlights** | Not yet | ✅ | ✅ | ✅ |
-| **Digital signatures** | Not yet | ✅ | ✅ | ✅ |
-| **Merge, split and reorder pages** | Not yet | ✅ Paid | ✅ | ✅ |
+| Fillable PDF forms | ✅ | ✅ | ✅ | ✅ |
+| Print | ✅ | ✅ | ✅ | ✅ |
+| Finds the boxes on any form, by itself | ✅ | ➖ | ➖ | ➖ |
+| Scanned paper forms | ✅ | ➖ | ➖ | ➖ |
+| One letter per square, automatically | ✅ | ➖ | ➖ | ➖ |
+| Remembers each person separately | ✅ | ❌ | ❌ | ❌ |
+| Linux | ✅ | ❌ | ❌ | ❌ |
+| macOS | 🔜 | ✅ | ✅ | ❌ |
+| Windows | 🔜 | ✅ | ✅ | ✅ |
+| Price | Free¹ | $20/mo | $11/mo | One-time² |
 
-✅ yes · ◐ partly, with an extra step or a paid edition · ❌ no
+### Everything else
 
-*Based on each company's public information and reviews, November 2026.
-Prices are approximate and in US dollars. Spotted a mistake?
-[Let us know](https://github.com/OWNER/pdfr/issues).*
+|  | pdfr | Acrobat | Foxit | PDF-XChange |
+|---|:---:|:---:|:---:|:---:|
+| Edit text and images | 🔜 | ✅ | ✅ | ✅ |
+| Read text in scans (OCR) | 🔜 | ✅ | ✅ | ✅ |
+| Comments and highlights | 🔜 | ✅ | ✅ | ✅ |
+| Digital signatures | 🔜 | ✅ | ✅ | ✅ |
+| Merge and reorder pages | 🔜 | ✅ | ✅ | ✅ |
+
+✅ Yes &nbsp;·&nbsp; ➖ Possible, but you set it up yourself (often a paid
+extra) &nbsp;·&nbsp; ❌ No &nbsp;·&nbsp; 🔜 Not yet
+
+¹ For personal use. ² Free version available. Acrobat Reader is free for
+filling in fillable forms.
+
+<sub>Based on each company's public information and reviews, November 2026.
+Prices are approximate, in US dollars.
+[Spotted a mistake?](https://github.com/kjellberg/pdfr/issues)</sub>
 
 ---
 
 ## Install
 
-**Omarchy and Arch Linux**
+**Arch, Omarchy, Manjaro, EndeavourOS** (AUR)
 
 ```sh
-yay -S pdfr
+yay -S pdfr-bin
 ```
 
-**macOS and Linux (Homebrew)**
+**Debian, Ubuntu, Linux Mint, Pop!_OS**
 
 ```sh
-brew tap OWNER/tap https://github.com/OWNER/homebrew-tap
-brew install OWNER/tap/pdfr
+curl -fsSL https://kjellberg.github.io/packages/pdfr.gpg | sudo tee /usr/share/keyrings/pdfr.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/pdfr.gpg] https://kjellberg.github.io/packages/deb stable main" | sudo tee /etc/apt/sources.list.d/pdfr.list
+sudo apt update && sudo apt install pdfr
 ```
 
-**Debian and Ubuntu**
-
-Download the `.deb` file from the
-[releases page](https://github.com/OWNER/pdfr/releases), then:
+**Fedora, RHEL, AlmaLinux, Rocky**
 
 ```sh
-sudo apt install ./pdfr_*_amd64.deb
+sudo dnf config-manager addrepo --from-repofile=https://kjellberg.github.io/packages/rpm/pdfr.repo
+sudo dnf install pdfr
 ```
 
-**Windows and others**
+**openSUSE**
 
-Download pdfr for your system from the
-[releases page](https://github.com/OWNER/pdfr/releases).
+```sh
+sudo zypper addrepo https://kjellberg.github.io/packages/rpm/pdfr.repo
+sudo zypper install pdfr
+```
+
+**Flatpak** (any distribution, including Silverblue, Bazzite and SteamOS):
+coming to Flathub.
+
+**Any other Linux**
+
+Download `pdfr-…-linux.tar.gz` from the
+[releases page](https://github.com/kjellberg/pdfr/releases), unpack it, and run
+`./pdfr --register` to add pdfr to your app menu, "Open with" and the
+terminal (no root needed).
+
+Updates arrive with your normal system updates.
+
+**Make pdfr your PDF app:** pdfr offers this the first time you start it.
+You can also turn it on later in **Settings → General**.
 
 ---
 
@@ -160,6 +210,8 @@ Download pdfr for your system from the
 - Everything pdfr remembers is kept in one file on your computer that only you
   can read. Look through it, or delete people and values, any time in
   **Settings**.
+
+  <img src="docs/media/settings.png" width="560" alt="pdfr Settings, People section: each remembered person with their role and how often they were used, with buttons to show details or forget them.">
 - **Optional AI helper.** If you have
   [Claude Code](https://claude.com/claude-code) installed, pdfr can ask it what
   an unusual box label means, or which boxes belong to which person on a
@@ -175,11 +227,9 @@ Download pdfr for your system from the
   (pdfr doesn't read scanned text yet).
 - Password-protected PDFs, signature fields and some unusual form types.
 - Alphabets beyond Latin, Greek and Cyrillic (for example Chinese or Arabic).
-- Printing on macOS and Windows is coming. Until then, save and print from
-  another app.
 
 Found a bug or a form that doesn't work?
-[Open an issue](https://github.com/OWNER/pdfr/issues). A sample PDF helps a lot
+[Open an issue](https://github.com/kjellberg/pdfr/issues). A sample PDF helps a lot
 (a blank form, never one with your personal details).
 
 ---
@@ -195,7 +245,7 @@ though: you may not copy, redistribute, sell, or publish changed versions of
 pdfr.
 
 Want to use pdfr in your business? Paid licences are planned. Get in touch
-through the [project page](https://github.com/OWNER/pdfr).
+through the [project page](https://github.com/kjellberg/pdfr).
 
 The full terms are in [LICENSE.md](LICENSE.md) (PolyForm Strict 1.0.0).
 
@@ -203,6 +253,6 @@ The full terms are in [LICENSE.md](LICENSE.md) (PolyForm Strict 1.0.0).
 
 ## Thanks
 
-pdfr types your text in [Noto Sans](https://notofonts.github.io/) (SIL Open
+pdfr types your text in [Inter](https://rsms.me/inter/) (SIL Open
 Font License) and is built on many excellent open-source Rust libraries, each
 under its own licence.

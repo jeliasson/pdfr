@@ -40,6 +40,10 @@ pub struct CliOptions {
     pub ask_remember: bool,
     /// Hidden: act as if the pointer were at this page-0 point (screenshots).
     pub hover: Option<(f32, f32)>,
+    /// Hidden: record a scripted demo scene's frames into this folder.
+    pub record: Option<PathBuf>,
+    /// Hidden: the scene to record (see `record::script`).
+    pub script: Option<String>,
 }
 
 /// One field plus app-level state, with a stable id.
@@ -187,7 +191,20 @@ pub struct App {
     applied_system_dark: Option<bool>,
     /// The open file dialog's answer arrives here (`Some` while one is open).
     dialog_rx: Option<Receiver<files::DialogResult>>,
+    /// pdfr's own file dialog, where the desktop has none.
+    builtin_dialog: Option<(egui_file_dialog::FileDialog, files::builtin::Purpose)>,
+    /// pdfr's own print dialog (straight to CUPS), where the desktop has none.
+    #[cfg(target_os = "linux")]
+    cups_dialog: Option<print::CupsDialog>,
+    /// Hidden demo recorder (`--record`).
+    rec: Option<record::Recorder>,
     egui_ctx: egui::Context,
+}
+
+/// The desktop's light/dark preference: the portal's answer where there is
+/// one (any Linux desktop), otherwise what the window system reports.
+fn system_dark(ctx: &egui::Context) -> bool {
+    crate::system::prefers_dark().unwrap_or(ctx.system_theme() == Some(egui::Theme::Dark))
 }
 
 impl App {
@@ -197,10 +214,12 @@ impl App {
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
         let (theme_tx, theme_rx) = channel();
         theme::watch(theme_tx, ctx.clone());
+        crate::system::watch_color_scheme(&ctx);
+        crate::system::set_wake(&ctx);
         let omarchy = theme::load_omarchy();
         let omarchy_active = omarchy.is_some();
         let palette = omarchy
-            .unwrap_or_else(|| Palette::builtin(ctx.system_theme() == Some(egui::Theme::Dark)));
+            .unwrap_or_else(|| Palette::builtin(system_dark(&ctx)));
         ctx.set_visuals(palette.visuals());
         let (open_tx, open_rx) = channel();
         let auto_remember = cli.save.is_some() || cli.demo || cli.screenshot.is_some();
@@ -242,6 +261,15 @@ impl App {
             assist,
             applied_system_dark: None,
             dialog_rx: None,
+            builtin_dialog: None,
+            #[cfg(target_os = "linux")]
+            cups_dialog: None,
+            rec: match (&cli.record, &cli.script) {
+                (Some(dir), Some(name)) => {
+                    record::script(name).map(|s| record::Recorder::new(s, dir.clone()))
+                }
+                _ => None,
+            },
             egui_ctx: ctx.clone(),
         };
         if let Some(s) = &cli.settings {
@@ -255,6 +283,9 @@ impl App {
 
     fn poll(&mut self, ctx: &egui::Context) {
         self.poll_dialog();
+        for p in crate::system::take_opened() {
+            self.open_from_system(p);
+        }
         while let Ok((path, res, started)) = self.open_rx.try_recv() {
             match res {
                 Ok(form) => self.finish_open(path, form, started, ctx),
@@ -264,11 +295,11 @@ impl App {
         while let Ok(p) = self.theme_rx.try_recv() {
             self.omarchy_active = p.is_some();
             self.palette = p
-                .unwrap_or_else(|| Palette::builtin(ctx.system_theme() == Some(egui::Theme::Dark)));
+                .unwrap_or_else(|| Palette::builtin(system_dark(ctx)));
             ctx.set_visuals(self.palette.visuals());
         }
         if !self.omarchy_active {
-            let dark = ctx.system_theme() == Some(egui::Theme::Dark);
+            let dark = system_dark(ctx);
             if self.applied_system_dark != Some(dark) {
                 self.applied_system_dark = Some(dark);
                 self.palette = Palette::builtin(dark);
@@ -397,6 +428,10 @@ impl App {
 }
 
 impl eframe::App for App {
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        self.record_input(raw_input);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
         if self.parent.is_none()
@@ -452,9 +487,21 @@ impl eframe::App for App {
             .frame(egui::Frame::new().fill(self.palette.canvas))
             .show(ui, |ui| self.canvas(ui));
 
+        self.builtin_dialog_ui(&ctx);
+        #[cfg(target_os = "linux")]
+        self.cups_dialog_ui(&ctx);
         self.assist.settings_window(&ctx, &self.palette);
         self.assist.consent_window(&ctx);
         self.assist.remember_window(&ctx, &self.palette);
+        let automated = self.cli.demo
+            || self.cli.save.is_some()
+            || self.cli.screenshot.is_some()
+            || self.cli.record.is_some();
+        self.assist.poll_updates(&ctx, automated);
+        self.assist.notices(&ctx, &self.palette, automated);
+        if let Some(m) = self.assist.take_system_message() {
+            self.status = m;
+        }
 
         if let Some(what) = self.confirm.clone() {
             let mut proceed = false;
@@ -497,6 +544,7 @@ impl eframe::App for App {
             }
         }
         self.automation(&ctx);
+        self.record_frame(&ctx);
     }
 }
 
@@ -504,10 +552,13 @@ mod automation;
 mod canvas;
 use files::ParentWindow;
 mod commands;
+#[cfg(target_os = "linux")]
+mod cups;
 mod editing;
 mod files;
 mod history;
 mod print;
+mod record;
 mod toolbar;
 mod view;
 

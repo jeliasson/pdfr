@@ -1,0 +1,147 @@
+# Builds the Linux release files and tries them on several distributions.
+# Called by ci.yml (every push) and release.yml (tags).
+#
+# The binaries are linked against glibc 2.31 with cargo-zigbuild, so they run
+# on Debian 11, Ubuntu 20.04, RHEL 9 and anything newer. Zig is only the
+# linker; nothing of it ends up in pdfr.
+name: Build Linux
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Version for file names (without the leading v)
+        type: string
+        required: true
+
+env:
+  CARGO_TERM_COLOR: always
+  GLIBC: "2.31"
+
+jobs:
+  build:
+    name: Build (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, deb_arch: amd64, runner: ubuntu-24.04, target: x86_64-unknown-linux-gnu }
+          - { arch: aarch64, deb_arch: arm64, runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: zig-${{ matrix.target }}
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+      - name: Install packaging tools
+        run: cargo install --locked cargo-zigbuild cargo-deb cargo-generate-rpm
+      - name: Build
+        run: cargo zigbuild --locked --release -p pdfr --target ${{ matrix.target }}.${{ env.GLIBC }}
+      - name: Check the glibc requirement
+        run: |
+          bin=target/${{ matrix.target }}/release/pdfr
+          need=$(objdump -T "$bin" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -Vu | tail -1)
+          echo "needs glibc $need"
+          [ "$(printf '%s\n%s\n' "$need" "$GLIBC" | sort -V | tail -1)" = "$GLIBC" ]
+          "$bin" --version
+      - name: Package
+        run: |
+          v=${{ inputs.version }}
+          mkdir dist
+          (cd dist && ../tools/package_linux.sh ../target/${{ matrix.target }}/release/pdfr "$v" ${{ matrix.arch }})
+          cargo deb -p pdfr --no-build --target ${{ matrix.target }} -o dist/
+          cargo generate-rpm -p crates/app --target ${{ matrix.target }} -o dist/
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  # Install each package the way users would and take a real screenshot
+  # (X11 under Xvfb with Mesa's software renderer). A blank or missing
+  # picture fails the job.
+  smoke:
+    name: Try on ${{ matrix.name }}
+    needs: build
+    runs-on: ubuntu-24.04
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu 22.04
+            image: ubuntu:22.04
+            setup: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb xauth python3 ./dist/pdfr_*_amd64.deb
+          - name: Ubuntu 24.04
+            image: ubuntu:24.04
+            setup: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb xauth python3 ./dist/pdfr_*_amd64.deb
+          - name: Debian 12
+            image: debian:12
+            setup: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb xauth python3 ./dist/pdfr_*_amd64.deb
+          - name: Fedora
+            image: fedora:latest
+            setup: dnf install -y xorg-x11-server-Xvfb xauth python3 mesa-dri-drivers ./dist/pdfr-*.x86_64.rpm
+          - name: openSUSE Tumbleweed
+            image: opensuse/tumbleweed
+            setup: zypper --non-interactive install --allow-unsigned-rpm xvfb-run python3 Mesa-dri ./dist/pdfr-*.x86_64.rpm
+          - name: Arch Linux
+            image: archlinux:latest
+            setup: pacman -Syu --noconfirm xorg-server-xvfb xorg-xauth python mesa libglvnd libxkbcommon && tar xzf dist/pdfr-*-x86_64-linux.tar.gz && ./pdfr-*/install.sh / /usr
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-x86_64
+          path: dist
+      - name: Install
+        run: ${{ matrix.setup }}
+      - name: Screenshot
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: |
+          pdfr --version
+          xvfb-run -a -s "-screen 0 1280x1000x24" timeout 120 \
+            pdfr samples/flat_form.pdf --data-dir /tmp/pdfr-data --screenshot /tmp/shot.png
+          python3 tools/check_screenshot.py /tmp/shot.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshot-${{ strategy.job-index }}
+          path: /tmp/shot.png
+          if-no-files-found: ignore
+
+  # The same under Wayland: a headless Sway session.
+  smoke-wayland:
+    name: Try under Wayland (Sway)
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-x86_64
+          path: dist
+      - name: Install
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y sway python3 ./dist/pdfr_*_amd64.deb
+      - name: Screenshot
+        env:
+          WLR_BACKENDS: headless
+          WLR_RENDERER: pixman
+          WLR_LIBINPUT_NO_DEVICES: "1"
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: |
+          export XDG_RUNTIME_DIR=$(mktemp -d)
+          sway -c /dev/null &
+          for i in $(seq 50); do [ -S "$XDG_RUNTIME_DIR/wayland-1" ] && break; sleep 0.2; done
+          WAYLAND_DISPLAY=wayland-1 timeout 120 \
+            pdfr samples/flat_form.pdf --data-dir /tmp/pdfr-data --screenshot /tmp/shot.png
+          python3 tools/check_screenshot.py /tmp/shot.png

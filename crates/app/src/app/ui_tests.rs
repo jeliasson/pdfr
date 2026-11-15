@@ -440,3 +440,19 @@ fn suggestion_button_and_arrow_keys_browse_alternatives() {
     key(&mut h, Key::ArrowUp);
     assert!(h.state().assist.list_open());
 }
+
+#[test]
+fn settings_general_section() {
+    use egui_kittest::kittest::Queryable;
+    let mut h = harness("flat_form.pdf", data_dir("general", None));
+    h.state_mut().assist.open_settings("general");
+    h.run_steps(3);
+    for label in ["General", "Default PDF app", "Terminal command", "Updates"] {
+        h.get_by_label(label);
+    }
+    // The other sections sit under the Autocomplete heading.
+    h.get_by_label("AUTOCOMPLETE");
+    h.state_mut().assist.open_settings("autocomplete");
+    h.run_steps(3);
+    h.get_by_label("When you save a filled form");
+}

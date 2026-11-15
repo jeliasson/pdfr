@@ -4,7 +4,8 @@
 
 mod remember;
 mod settings;
-mod widgets;
+mod system_ui;
+pub(crate) mod widgets;
 
 use crate::app::Doc;
 use eframe::egui::{self, Id, Rect};
@@ -63,6 +64,7 @@ pub struct AssistState {
     list: Option<List>,
     no_ai: bool,
     last_ai: Option<String>,
+    sys: system_ui::SystemUi,
 }
 
 impl AssistState {
@@ -98,6 +100,7 @@ impl AssistState {
             list: None,
             no_ai,
             last_ai: None,
+            sys: Default::default(),
         }
     }
 

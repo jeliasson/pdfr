@@ -1,0 +1,19 @@
+# Singleton manifest template (wingetcreate generates the full set).
+PackageIdentifier: kjellberg.pdfr
+PackageVersion: 0.1.0
+PackageName: pdfr
+Publisher: Rasmus Kjellberg
+License: PolyForm Strict 1.0.0 (free for personal and non-commercial use)
+LicenseUrl: https://github.com/kjellberg/pdfr/blob/main/LICENSE.md
+ShortDescription: Fill in PDF forms the way they were meant to be filled in
+PackageUrl: https://github.com/kjellberg/pdfr
+Tags: [pdf, forms, viewer]
+FileExtensions: [pdf]
+Installers:
+  - Architecture: x64
+    InstallerType: wix
+    Scope: user
+    InstallerUrl: https://github.com/kjellberg/pdfr/releases/download/v0.1.0/pdfr-v0.1.0-windows-x64.msi
+    InstallerSha256: REPLACE
+ManifestType: singleton
+ManifestVersion: 1.6.0

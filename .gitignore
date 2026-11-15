@@ -2,3 +2,8 @@
 /samples/big_300.pdf
 /samples/perf_image.pdf
 /samples/Anexo*.pdf
+/tools/brand/fonts/
+/tools/brand/out/
+/packaging/flatpak/cargo-sources.json
+/build-flatpak/
+/.flatpak-builder/

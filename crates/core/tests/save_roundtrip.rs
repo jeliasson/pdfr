@@ -291,3 +291,50 @@ fn one_builtin_font_embedded_once_across_saves() {
         "{values:?}"
     );
 }
+
+#[test]
+fn print_copy_draws_values_into_the_page() {
+    let fd = FormDoc::open(sample("flat_form.pdf")).unwrap();
+    let mut f = Field::new_text(
+        0,
+        Rect::new(300.0, 700.0, 480.0, 716.0),
+        TextMode::Single,
+        Origin::Manual,
+    );
+    f.value = "Printed Value".into();
+    let saved = save(&fd, &[f]).unwrap();
+    let flat = pdfr_core::flatten::flatten_for_print(&saved).unwrap();
+    // No form fields or widgets left...
+    let doc = lopdf::Document::load_mem(&flat).unwrap();
+    assert!(
+        doc.catalog().unwrap().get(b"AcroForm").is_err(),
+        "the form is removed"
+    );
+    let widgets = doc
+        .objects
+        .values()
+        .filter_map(|o| o.as_dict().ok())
+        .filter(|d| {
+            d.get(b"Subtype").ok().and_then(|s| s.as_name().ok()) == Some(b"Widget".as_slice())
+        })
+        .count();
+    let annotated = doc
+        .get_pages()
+        .values()
+        .filter(|p| doc.get_dictionary(**p).unwrap().has(b"Annots"))
+        .count();
+    assert_eq!(
+        annotated, 0,
+        "no annotations on the pages ({widgets} widget objects left unreferenced)"
+    );
+    // ...and the value is now page text.
+    let pdf = pdfr_core::render::open(flat).unwrap();
+    let cache = hayro::hayro_interpret::InterpreterCache::new();
+    let pages = pdf.pages();
+    let runs = pdfr_core::text::extract(pages.first().unwrap(), &cache);
+    assert!(
+        runs.iter().any(|r| r.text.contains("Printed Value")),
+        "{:?}",
+        runs.iter().map(|r| &r.text).collect::<Vec<_>>()
+    );
+}

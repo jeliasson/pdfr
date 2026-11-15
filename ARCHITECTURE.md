@@ -30,6 +30,8 @@ How pdfr is put together, and where new features go.
 | `worker.rs` | Render/detect thread pool (newest request per page wins) |
 | `assist_ui.rs` | Ghost text, suggestion list, consent and remember dialogs, settings |
 | `theme.rs` | Omarchy theme following |
+| `system/` | Desktop integration: default PDF app, app menu registration, portals (colour scheme, links, which dialogs exist), install detection, macOS open events |
+| `updates.rs` | Opt-in daily check for a newer version (notify only, pure-Rust TLS) |
 
 ### Adding a feature
 

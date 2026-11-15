@@ -24,6 +24,13 @@ pollster = "1"
 raw-window-handle = "0.6"
 hayro = "0.9"
 png = "0.18"
+# pdfr's own file dialog, for desktops without a file chooser portal.
+egui-file-dialog = { version = "0.16", default-features = false, features = ["default_fonts"] }
+serde_json = "1"
+# The opt-in update check: HTTPS with rustls on the pure-Rust RustCrypto
+# provider (no ring or aws-lc, so no C code), Mozilla's root certificates.
+ureq = { version = "3", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots"] }
+rustls-rustcrypto = { version = "0.1.0-pre.0", default-features = false, features = ["std", "tls12"] }
 
 # Printing through the desktop's print portal: D-Bus (pure Rust) and the
 # Wayland handle export that attaches the dialog to the window. All already
@@ -36,8 +43,26 @@ wayland-client = "0.31"
 wayland-backend = { version = "0.3", features = ["client_system"] }
 wayland-protocols = { version = "0.32", features = ["unstable", "client"] }
 
+# Printing on Windows: the system print dialog and GDI (Microsoft's bindings).
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Win32_UI_Controls_Dialogs", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+# Printing on macOS: PDFKit; default app and links: NSWorkspace's print operation (Apple framework bindings).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSString", "NSURL"] }
+objc2-app-kit = { version = "0.3", features = ["NSPrintOperation", "NSPrintInfo", "NSPrintPanel", "NSView", "NSWindow", "NSResponder", "NSWorkspace", "block2", "objc2-uniform-type-identifiers"] }
+objc2-uniform-type-identifiers = { version = "0.3", features = ["UTType"] }
+objc2-pdf-kit = { version = "0.3", features = ["PDFDocument", "objc2-app-kit"] }
+
+[build-dependencies]
+# Icon and version details in pdfr.exe (MSVC builds only; see build.rs).
+winresource = "0.1"
+
 [dev-dependencies]
 egui_kittest = { version = "0.37", features = ["eframe"] }
+# examples/make_icons.rs: renders the icon SVGs (no fonts or images needed).
+resvg = { version = "0.48", default-features = false }
 
 # `cargo install cargo-deb && cargo deb -p pdfr`
 [package.metadata.deb]
@@ -55,8 +80,54 @@ depends = "$auto, libgl1, libegl1, libxkbcommon0"
 recommends = "xdg-desktop-portal"
 assets = [
     ["target/release/pdfr", "usr/bin/", "755"],
-    ["../../packaging/linux/pdfr.desktop", "usr/share/applications/", "644"],
+    ["../../packaging/linux/io.github.kjellberg.pdfr.desktop", "usr/share/applications/", "644"],
+    ["../../packaging/linux/io.github.kjellberg.pdfr.metainfo.xml", "usr/share/metainfo/", "644"],
+    ["../../assets/icon/png/pdfr-16.png", "usr/share/icons/hicolor/16x16/apps/io.github.kjellberg.pdfr.png", "644"],
+    ["../../assets/icon/png/pdfr-22.png", "usr/share/icons/hicolor/22x22/apps/io.github.kjellberg.pdfr.png", "644"],
+    ["../../assets/icon/png/pdfr-24.png", "usr/share/icons/hicolor/24x24/apps/io.github.kjellberg.pdfr.png", "644"],
+    ["../../assets/icon/png/pdfr-32.png", "usr/share/icons/hicolor/32x32/apps/io.github.kjellberg.pdfr.png", "644"],
+    ["../../assets/icon/png/pdfr-48.png", "usr/share/icons/hicolor/48x48/apps/io.github.kjellberg.pdfr.png", "644"],
+    ["../../assets/icon/png/pdfr-64.png", "usr/share/icons/hicolor/64x64/apps/io.github.kjellberg.pdfr.png", "644"],
+    ["../../assets/icon/png/pdfr-128.png", "usr/share/icons/hicolor/128x128/apps/io.github.kjellberg.pdfr.png", "644"],
+    ["../../assets/icon/png/pdfr-256.png", "usr/share/icons/hicolor/256x256/apps/io.github.kjellberg.pdfr.png", "644"],
+    ["../../assets/icon/png/pdfr-512.png", "usr/share/icons/hicolor/512x512/apps/io.github.kjellberg.pdfr.png", "644"],
+    ["../../assets/icon/pdfr.svg", "usr/share/icons/hicolor/scalable/apps/io.github.kjellberg.pdfr.svg", "644"],
     ["../../README.md", "usr/share/doc/pdfr/README.md", "644"],
-    ["../../LICENSE.md", "usr/share/doc/pdfr/LICENSE.md", "644"],
-    ["../../assets/LICENSE-NotoSans.txt", "usr/share/doc/pdfr/LICENSE-NotoSans.txt", "644"],
+    ["../../assets/LICENSE-Inter.txt", "usr/share/doc/pdfr/LICENSE-Inter.txt", "644"],
 ]
+
+# `cargo install cargo-generate-rpm && cargo build --release && cargo generate-rpm -p crates/app`
+# Fedora, RHEL and its rebuilds, openSUSE.
+[package.metadata.generate-rpm]
+name = "pdfr"
+license = "LicenseRef-PolyForm-Strict-1.0.0"
+summary = "Fill in PDF forms the way they were meant to be filled in"
+url = "https://github.com/kjellberg/pdfr"
+assets = [
+    { source = "target/release/pdfr", dest = "/usr/bin/pdfr", mode = "755" },
+    { source = "../../packaging/linux/io.github.kjellberg.pdfr.desktop", dest = "/usr/share/applications/io.github.kjellberg.pdfr.desktop", mode = "644" },
+    { source = "../../packaging/linux/io.github.kjellberg.pdfr.metainfo.xml", dest = "/usr/share/metainfo/io.github.kjellberg.pdfr.metainfo.xml", mode = "644" },
+    { source = "../../assets/icon/png/pdfr-16.png", dest = "/usr/share/icons/hicolor/16x16/apps/io.github.kjellberg.pdfr.png", mode = "644" },
+    { source = "../../assets/icon/png/pdfr-22.png", dest = "/usr/share/icons/hicolor/22x22/apps/io.github.kjellberg.pdfr.png", mode = "644" },
+    { source = "../../assets/icon/png/pdfr-24.png", dest = "/usr/share/icons/hicolor/24x24/apps/io.github.kjellberg.pdfr.png", mode = "644" },
+    { source = "../../assets/icon/png/pdfr-32.png", dest = "/usr/share/icons/hicolor/32x32/apps/io.github.kjellberg.pdfr.png", mode = "644" },
+    { source = "../../assets/icon/png/pdfr-48.png", dest = "/usr/share/icons/hicolor/48x48/apps/io.github.kjellberg.pdfr.png", mode = "644" },
+    { source = "../../assets/icon/png/pdfr-64.png", dest = "/usr/share/icons/hicolor/64x64/apps/io.github.kjellberg.pdfr.png", mode = "644" },
+    { source = "../../assets/icon/png/pdfr-128.png", dest = "/usr/share/icons/hicolor/128x128/apps/io.github.kjellberg.pdfr.png", mode = "644" },
+    { source = "../../assets/icon/png/pdfr-256.png", dest = "/usr/share/icons/hicolor/256x256/apps/io.github.kjellberg.pdfr.png", mode = "644" },
+    { source = "../../assets/icon/png/pdfr-512.png", dest = "/usr/share/icons/hicolor/512x512/apps/io.github.kjellberg.pdfr.png", mode = "644" },
+    { source = "../../assets/icon/pdfr.svg", dest = "/usr/share/icons/hicolor/scalable/apps/io.github.kjellberg.pdfr.svg", mode = "644" },
+    { source = "../../LICENSE.md", dest = "/usr/share/licenses/pdfr/LICENSE.md", mode = "644", doc = true },
+    { source = "../../assets/LICENSE-Inter.txt", dest = "/usr/share/licenses/pdfr/LICENSE-Inter.txt", mode = "644", doc = true },
+    { source = "../../README.md", dest = "/usr/share/doc/pdfr/README.md", mode = "644", doc = true },
+]
+
+# OpenGL/EGL and xkbcommon are loaded at run time, so name them by soname
+# (works on Fedora and openSUSE alike).
+[package.metadata.generate-rpm.requires]
+"libEGL.so.1()(64bit)" = "*"
+"libGL.so.1()(64bit)" = "*"
+"libxkbcommon.so.0()(64bit)" = "*"
+
+[package.metadata.generate-rpm.recommends]
+xdg-desktop-portal = "*"

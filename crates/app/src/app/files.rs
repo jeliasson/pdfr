@@ -42,7 +42,9 @@ pub(super) enum DialogResult {
     Open(Option<PathBuf>),
     /// Save target, for the document opened as `generation`.
     Save(Option<PathBuf>, u64, AfterSave),
-    /// Print result: `Ok(true)` printed, `Ok(false)` cancelled.
+    /// Print result: `Ok(true)` printed, `Ok(false)` cancelled. (macOS
+    /// prints from a sheet on the window instead.)
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     Printed(Result<bool, String>),
 }
 
@@ -61,6 +63,20 @@ impl App {
             self.confirm = Some(Confirm::Open(path));
         } else {
             self.open(path);
+        }
+    }
+
+    /// A file the system asked us to open (macOS Finder): here if this
+    /// window is free, otherwise in a new pdfr window.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(super) fn open_from_system(&mut self, path: PathBuf) {
+        if self.doc.as_ref().is_none_or(|d| !d.dirty) {
+            self.open(path);
+        } else if let Ok(exe) = std::env::current_exe() {
+            // Another window of pdfr itself; never another program.
+            if let Err(e) = std::process::Command::new(exe).arg(&path).spawn() {
+                self.status = format!("Could not open {}: {e}", path.display());
+            }
         }
     }
 
@@ -146,11 +162,48 @@ impl App {
 
     /// Whether a file dialog is open (the app keeps running meanwhile).
     pub(super) fn dialog_open(&self) -> bool {
-        self.dialog_rx.is_some()
+        let cups = {
+            #[cfg(target_os = "linux")]
+            {
+                self.cups_dialog.is_some()
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                false
+            }
+        };
+        self.dialog_rx.is_some() || self.builtin_dialog.is_some() || cups
+    }
+
+    /// Draws pdfr's own file dialog (desktops without a file chooser
+    /// portal) and acts on its answer.
+    pub(super) fn builtin_dialog_ui(&mut self, ctx: &egui::Context) {
+        let Some((d, _)) = &mut self.builtin_dialog else {
+            return;
+        };
+        d.update(ctx);
+        let state = d.state();
+        let picked = match state {
+            egui_file_dialog::DialogState::Open => return,
+            egui_file_dialog::DialogState::Picked(p) => Some(p.clone()),
+            _ => None,
+        };
+        let (_, purpose) = self.builtin_dialog.take().unwrap();
+        let res = match purpose {
+            builtin::Purpose::Open => DialogResult::Open(picked),
+            builtin::Purpose::Save(g, after) => DialogResult::Save(picked, g, after),
+        };
+        self.handle_dialog(res);
     }
 
     pub(super) fn pick_and_open(&mut self) {
         if self.dialog_open() {
+            return;
+        }
+        if !native_dialogs() {
+            let mut d = builtin::dialog(None, None);
+            d.pick_file();
+            self.builtin_dialog = Some((d, builtin::Purpose::Open));
             return;
         }
         let task = self
@@ -200,6 +253,11 @@ impl App {
             }
         };
         self.dialog_rx = None;
+        self.handle_dialog(res);
+    }
+
+    /// Acts on what a file or print dialog answered.
+    pub(super) fn handle_dialog(&mut self, res: DialogResult) {
         match res {
             DialogResult::Open(Some(p)) => self.request_open(p),
             DialogResult::Save(Some(p), generation, after) => {
@@ -261,6 +319,12 @@ impl App {
             return;
         }
         let generation = doc.generation;
+        if !native_dialogs() {
+            let mut d = builtin::dialog(doc.path.parent(), Some(&Self::suggested_name(doc)));
+            d.save_file();
+            self.builtin_dialog = Some((d, builtin::Purpose::Save(generation, after)));
+            return;
+        }
         let mut dlg = self
             .file_dialog()
             .add_filter("PDF", &["pdf"])
@@ -315,5 +379,46 @@ impl App {
             Some(p) => d.set_parent(p),
             None => d,
         }
+    }
+}
+
+/// Whether the system's file dialogs can be used. On Linux they come from
+/// the desktop portal, which minimal desktops may lack; then pdfr shows its
+/// own (rfd would otherwise silently show nothing, or start another program).
+fn native_dialogs() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        crate::system::portal::has("FileChooser")
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        true
+    }
+}
+
+pub(super) mod builtin {
+    use super::AfterSave;
+    use std::path::Path;
+
+    pub enum Purpose {
+        Open,
+        Save(u64, AfterSave),
+    }
+
+    pub fn dialog(dir: Option<&Path>, name: Option<&str>) -> egui_file_dialog::FileDialog {
+        let mut d = egui_file_dialog::FileDialog::new()
+            .add_file_filter_extensions("PDF documents", vec!["pdf", "PDF"])
+            .default_file_filter("PDF documents")
+            .add_save_extension("PDF document", "pdf")
+            .default_save_extension("PDF document")
+            .default_size([760.0, 500.0])
+            .anchor(eframe::egui::Align2::CENTER_CENTER, [0.0, 0.0]);
+        if let Some(dir) = dir {
+            d = d.initial_directory(dir.to_path_buf());
+        }
+        if let Some(n) = name {
+            d = d.default_file_name(n);
+        }
+        d
     }
 }

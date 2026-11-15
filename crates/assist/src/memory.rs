@@ -30,6 +30,21 @@ pub struct Settings {
     /// What happens to typed values when a document is saved.
     #[serde(default)]
     pub remember: Remember,
+    /// Whether "open PDFs with pdfr by default?" was asked (once).
+    #[serde(default)]
+    pub default_app_asked: bool,
+    /// Look for new versions once a day. `None`: not asked yet.
+    #[serde(default)]
+    pub update_check: Option<bool>,
+    /// When versions were last looked up (Unix seconds).
+    #[serde(default)]
+    pub update_checked_at: u64,
+    /// The newest version seen ("1.2.0"), empty if none.
+    #[serde(default)]
+    pub latest_version: String,
+    /// A newer version the user dismissed; not shown again.
+    #[serde(default)]
+    pub dismissed_version: String,
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -54,6 +69,11 @@ impl Default for Settings {
             model: String::new(),
             learning_paused: false,
             remember: Remember::Ask,
+            default_app_asked: false,
+            update_check: None,
+            update_checked_at: 0,
+            latest_version: String::new(),
+            dismissed_version: String::new(),
         }
     }
 }

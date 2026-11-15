@@ -215,6 +215,7 @@ impl TempDir {
             let mut h = std::collections::hash_map::RandomState::new().build_hasher();
             h.write_u128(Instant::now().elapsed().as_nanos() ^ std::process::id() as u128);
             let dir = std::env::temp_dir().join(format!("pdfr-ai-{:016x}", h.finish()));
+            #[cfg_attr(not(unix), allow(unused_mut))]
             let mut b = std::fs::DirBuilder::new();
             #[cfg(unix)]
             {

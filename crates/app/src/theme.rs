@@ -176,6 +176,10 @@ impl Palette {
         v.widgets.hovered.weak_bg_fill = mix(self.button, self.accent, 0.25);
         v.widgets.active.weak_bg_fill = mix(self.button, self.accent, 0.45);
         v.text_cursor.stroke.color = self.accent;
+        // Slightly heavier, crisper text in both themes (as on macOS); the
+        // light-mode default renders black text on the white page thin.
+        v.text_options.color_transfer_function =
+            egui::epaint::FontColorTransferFunction::TwoCoverageMinusCoverageSq;
         v
     }
 }
