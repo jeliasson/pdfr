@@ -1,0 +1,21 @@
+[package]
+name = "pdfr-assist"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+dirs = "6"
+pdfr-core = { path = "../core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(unix)'.dependencies]
+# Bindings to the system C library already linked by std (no C code is
+# built): used to stop a timed-out AI tool's whole process group.
+libc = "0.2"
+
+[dev-dependencies]
+serde_json = "1"

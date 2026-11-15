@@ -1,0 +1,43 @@
+# Maintainer: OWNER <you@example.com>
+pkgname=pdfr
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Desktop PDF viewer and form filler with private autocomplete"
+arch=('x86_64' 'aarch64')
+url="https://github.com/OWNER/pdfr"
+license=('LicenseRef-PolyForm-Strict-1.0.0')
+# The GUI loads OpenGL/EGL and xkbcommon at run time.
+depends=('gcc-libs' 'glibc' 'libglvnd' 'libxkbcommon')
+makedepends=('cargo')
+optdepends=('claude-code: AI recognition of unusual field labels'
+            'xdg-desktop-portal: native file dialogs')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release -p pdfr
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo test --frozen --release -p pdfr-core -p pdfr-assist
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 target/release/pdfr "$pkgdir/usr/bin/pdfr"
+  install -Dm644 packaging/linux/pdfr.desktop "$pkgdir/usr/share/applications/pdfr.desktop"
+  install -Dm644 LICENSE.md "$pkgdir/usr/share/licenses/$pkgname/LICENSE.md"
+  install -Dm644 assets/LICENSE-NotoSans.txt "$pkgdir/usr/share/licenses/$pkgname/LICENSE-NotoSans.txt"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

@@ -1,0 +1,18 @@
+[package]
+name = "pdfr-core"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+hayro = "0.9"
+lopdf = "0.47"
+ttf-parser = "0.25"
+
+[dev-dependencies]
+hayro = "0.9"
+lopdf = "0.47"
+png = "0.18"
+serde_json = "1"

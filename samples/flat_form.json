@@ -1,0 +1,303 @@
+{
+ "page_size": [
+  595.0,
+  842.0
+ ],
+ "fields": [
+  {
+   "kind": "text",
+   "rect": [
+    150,
+    168,
+    545,
+    188
+   ],
+   "label": "Full name"
+  },
+  {
+   "kind": "comb",
+   "rect": [
+    150,
+    200,
+    290,
+    218
+   ],
+   "cells": 10,
+   "label": "Personal number"
+  },
+  {
+   "kind": "comb",
+   "rect": [
+    190,
+    232,
+    220,
+    250
+   ],
+   "cells": 2,
+   "label": "Date of birth"
+  },
+  {
+   "kind": "comb",
+   "rect": [
+    232,
+    232,
+    262,
+    250
+   ],
+   "cells": 2,
+   "label": "Date of birth"
+  },
+  {
+   "kind": "comb",
+   "rect": [
+    274,
+    232,
+    336,
+    250
+   ],
+   "cells": 4,
+   "label": "Date of birth"
+  },
+  {
+   "kind": "checkbox",
+   "rect": [
+    150,
+    268,
+    160,
+    278
+   ],
+   "label": "Female"
+  },
+  {
+   "kind": "checkbox",
+   "rect": [
+    240,
+    268,
+    250,
+    278
+   ],
+   "label": "Male"
+  },
+  {
+   "kind": "checkbox",
+   "rect": [
+    330,
+    268,
+    340,
+    278
+   ],
+   "label": "Other"
+  },
+  {
+   "kind": "line",
+   "rect": [
+    150,
+    314,
+    545,
+    314
+   ],
+   "label": "Occupation"
+  },
+  {
+   "kind": "line",
+   "rect": [
+    75.0,
+    340,
+    335.21,
+    341
+   ],
+   "label": "Email"
+  },
+  {
+   "kind": "comb",
+   "rect": [
+    150,
+    362,
+    250,
+    374
+   ],
+   "cells": 5,
+   "label": "Postcode"
+  },
+  {
+   "kind": "text",
+   "rect": [
+    50,
+    402,
+    300,
+    422
+   ],
+   "label": "Street address"
+  },
+  {
+   "kind": "text",
+   "rect": [
+    300,
+    402,
+    400,
+    422
+   ],
+   "label": "Postal code"
+  },
+  {
+   "kind": "text",
+   "rect": [
+    400,
+    402,
+    545,
+    422
+   ],
+   "label": "City"
+  },
+  {
+   "kind": "text",
+   "rect": [
+    50,
+    482,
+    250,
+    500
+   ],
+   "label": "Description"
+  },
+  {
+   "kind": "text",
+   "rect": [
+    250,
+    482,
+    350,
+    500
+   ],
+   "label": "Quantity"
+  },
+  {
+   "kind": "text",
+   "rect": [
+    350,
+    482,
+    445,
+    500
+   ],
+   "label": "Unit price"
+  },
+  {
+   "kind": "text",
+   "rect": [
+    445,
+    482,
+    545,
+    500
+   ],
+   "label": "Total"
+  },
+  {
+   "kind": "text",
+   "rect": [
+    50,
+    500,
+    250,
+    518
+   ],
+   "label": "Description"
+  },
+  {
+   "kind": "text",
+   "rect": [
+    250,
+    500,
+    350,
+    518
+   ],
+   "label": "Quantity"
+  },
+  {
+   "kind": "text",
+   "rect": [
+    350,
+    500,
+    445,
+    518
+   ],
+   "label": "Unit price"
+  },
+  {
+   "kind": "text",
+   "rect": [
+    445,
+    500,
+    545,
+    518
+   ],
+   "label": "Total"
+  },
+  {
+   "kind": "text",
+   "rect": [
+    50,
+    518,
+    250,
+    536
+   ],
+   "label": "Description"
+  },
+  {
+   "kind": "text",
+   "rect": [
+    250,
+    518,
+    350,
+    536
+   ],
+   "label": "Quantity"
+  },
+  {
+   "kind": "text",
+   "rect": [
+    350,
+    518,
+    445,
+    536
+   ],
+   "label": "Unit price"
+  },
+  {
+   "kind": "text",
+   "rect": [
+    445,
+    518,
+    545,
+    536
+   ],
+   "label": "Total"
+  },
+  {
+   "kind": "multi",
+   "rect": [
+    50,
+    566,
+    545,
+    676
+   ],
+   "label": "Notes"
+  },
+  {
+   "kind": "line",
+   "rect": [
+    110,
+    722,
+    300,
+    722
+   ],
+   "label": "Signature"
+  },
+  {
+   "kind": "line",
+   "rect": [
+    350,
+    722,
+    545,
+    722
+   ],
+   "label": "Date"
+  }
+ ]
+}

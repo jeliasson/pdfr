@@ -1,0 +1,62 @@
+[package]
+name = "pdfr"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "A fast desktop PDF viewer and form filler with private autocomplete"
+repository.workspace = true
+readme = "../../README.md"
+keywords = ["pdf", "forms", "viewer", "form-filler"]
+categories = ["gui"]
+
+[[bin]]
+name = "pdfr"
+path = "src/main.rs"
+
+[dependencies]
+pdfr-core = { path = "../core" }
+pdfr-assist = { path = "../assist" }
+eframe = { version = "0.37", default-features = false, features = ["glow", "x11", "wayland", "clipboard", "default_fonts", "accesskit"] }
+rfd = "0.18"
+pollster = "1"
+raw-window-handle = "0.6"
+hayro = "0.9"
+png = "0.18"
+
+# Printing through the desktop's print portal: D-Bus (pure Rust) and the
+# Wayland handle export that attaches the dialog to the window. All already
+# in the build through eframe and rfd; same versions, no new C libraries.
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "5.19", default-features = false, features = ["async-io"] }
+futures-lite = "2"
+serde = "1"
+wayland-client = "0.31"
+wayland-backend = { version = "0.3", features = ["client_system"] }
+wayland-protocols = { version = "0.32", features = ["unstable", "client"] }
+
+[dev-dependencies]
+egui_kittest = { version = "0.37", features = ["eframe"] }
+
+# `cargo install cargo-deb && cargo deb -p pdfr`
+[package.metadata.deb]
+name = "pdfr"
+maintainer = "The pdfr authors"
+copyright = "2026, Rasmus Kjellberg"
+license-file = ["../../LICENSE.md", "0"]
+extended-description = """\
+pdfr views PDFs and fills in forms: real form fields, flat forms where the \
+form is only drawn, and scanned forms. Typed text is placed exactly in the \
+boxes, and autocomplete offers the details you usually type."""
+section = "non-free/text"
+priority = "optional"
+depends = "$auto, libgl1, libegl1, libxkbcommon0"
+recommends = "xdg-desktop-portal"
+assets = [
+    ["target/release/pdfr", "usr/bin/", "755"],
+    ["../../packaging/linux/pdfr.desktop", "usr/share/applications/", "644"],
+    ["../../README.md", "usr/share/doc/pdfr/README.md", "644"],
+    ["../../LICENSE.md", "usr/share/doc/pdfr/LICENSE.md", "644"],
+    ["../../assets/LICENSE-NotoSans.txt", "usr/share/doc/pdfr/LICENSE-NotoSans.txt", "644"],
+]

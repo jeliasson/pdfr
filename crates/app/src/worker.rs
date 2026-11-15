@@ -1,0 +1,282 @@
+//! Background rendering and detection. The UI thread never renders a page.
+//!
+//! A small pool of threads shares one queue. Each thread parses its own copy
+//! of the document (hayro's render cache borrows the parsed file, so the file
+//! and cache live together on the thread's stack). The queue keeps only the
+//! newest render request per page and serves renders before detection.
+
+use eframe::egui::{self, ColorImage, TextureHandle, TextureOptions};
+use pdfr_core::field::Field;
+use pdfr_core::render::{RenderCache, page_geom, render_page};
+use std::collections::{HashMap, VecDeque};
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, Condvar, Mutex};
+
+/// Largest texture side we render (GPU limits and memory).
+pub const MAX_TEX_SIDE: f32 = 8192.0;
+
+pub enum Msg {
+    /// `requested`: the scale asked for; `scale`: the one used (capped by
+    /// the texture size limit).
+    Rendered {
+        generation: u64,
+        page: usize,
+        requested: f32,
+        scale: f32,
+        tex: TextureHandle,
+    },
+    /// A render could not be made; the page is no longer pending.
+    RenderFailed { generation: u64, page: usize },
+    Detected {
+        generation: u64,
+        page: usize,
+        fields: Vec<Field>,
+        text: Vec<pdfr_core::text::TextRun>,
+    },
+}
+
+#[derive(Default)]
+struct State {
+    generation: u64,
+    bytes: Option<Arc<Vec<u8>>>,
+    /// page -> (scale, priority); lower priority value is served first.
+    renders: HashMap<usize, (f32, f32)>,
+    detect: VecDeque<usize>,
+    quit: bool,
+}
+
+struct Shared {
+    state: Mutex<State>,
+    cv: Condvar,
+}
+
+pub struct Worker {
+    shared: Arc<Shared>,
+    pub rx: Receiver<Msg>,
+}
+
+enum Job {
+    Render(usize, f32),
+    Detect(usize),
+}
+
+impl Worker {
+    pub fn new(ctx: egui::Context) -> Worker {
+        let shared = Arc::new(Shared {
+            state: Mutex::new(State::default()),
+            cv: Condvar::new(),
+        });
+        let (tx, rx) = channel();
+        let threads = std::thread::available_parallelism()
+            .map(|n| n.get().saturating_sub(1))
+            .unwrap_or(1)
+            .clamp(1, 6);
+        for i in 0..threads {
+            let (shared, tx, ctx) = (shared.clone(), tx.clone(), ctx.clone());
+            std::thread::Builder::new()
+                .name(format!("render-{i}"))
+                .spawn(move || run(shared, tx, ctx))
+                .expect("spawn render thread");
+        }
+        Worker { shared, rx }
+    }
+
+    /// Switches to a new document. Returns its generation number.
+    pub fn set_document(&self, bytes: Arc<Vec<u8>>, pages: usize, detect: bool) -> u64 {
+        let mut s = self.shared.state.lock().unwrap();
+        s.generation += 1;
+        s.bytes = Some(bytes);
+        s.renders.clear();
+        s.detect = if detect {
+            (0..pages).collect()
+        } else {
+            VecDeque::new()
+        };
+        self.shared.cv.notify_all();
+        s.generation
+    }
+
+    /// Requests a render of `page` at `scale` (pixels per point). Replaces any
+    /// queued request for that page.
+    pub fn request(&self, page: usize, scale: f32, priority: f32) {
+        let mut s = self.shared.state.lock().unwrap();
+        s.renders.insert(page, (scale, priority));
+        self.shared.cv.notify_one();
+    }
+
+    /// Drops queued renders for pages that are no longer wanted.
+    pub fn retain(&self, keep: impl Fn(usize) -> bool) {
+        let mut s = self.shared.state.lock().unwrap();
+        s.renders.retain(|p, _| keep(*p));
+    }
+
+    /// Moves detection of these pages to the front of the queue.
+    pub fn prioritise_detection(&self, pages: &[usize]) {
+        let mut s = self.shared.state.lock().unwrap();
+        for &p in pages.iter().rev() {
+            if let Some(i) = s.detect.iter().position(|&q| q == p) {
+                s.detect.remove(i);
+                s.detect.push_front(p);
+            }
+        }
+    }
+}
+
+impl Drop for Worker {
+    fn drop(&mut self) {
+        if let Ok(mut s) = self.shared.state.lock() {
+            s.quit = true;
+        }
+        self.shared.cv.notify_all();
+    }
+}
+
+fn run(shared: Arc<Shared>, tx: Sender<Msg>, ctx: egui::Context) {
+    let mut generation = 0;
+    loop {
+        let bytes = {
+            let mut s = shared.state.lock().unwrap();
+            while !s.quit && (s.bytes.is_none() || s.generation == generation) {
+                s = shared.cv.wait(s).unwrap();
+            }
+            if s.quit {
+                return;
+            }
+            generation = s.generation;
+            s.bytes.clone().unwrap()
+        };
+        serve(&shared, &tx, &ctx, generation, &bytes);
+    }
+}
+
+fn next_job(shared: &Shared, generation: u64) -> Option<Job> {
+    let mut s = shared.state.lock().unwrap();
+    loop {
+        if s.quit || s.generation != generation {
+            return None;
+        }
+        if let Some((&page, &(scale, _))) = s.renders.iter().min_by(|a, b| a.1.1.total_cmp(&b.1.1))
+        {
+            s.renders.remove(&page);
+            return Some(Job::Render(page, scale));
+        }
+        if let Some(p) = s.detect.pop_front() {
+            return Some(Job::Detect(p));
+        }
+        s = shared.cv.wait(s).unwrap();
+    }
+}
+
+fn serve(
+    shared: &Shared,
+    tx: &Sender<Msg>,
+    ctx: &egui::Context,
+    generation: u64,
+    bytes: &Arc<Vec<u8>>,
+) {
+    let Ok(pdf) = hayro::hayro_syntax::Pdf::new(bytes.clone()) else {
+        // Unparseable for rendering: answer every job (nothing to show, no
+        // fields found) so nothing waits forever.
+        while let Some(job) = next_job(shared, generation) {
+            let msg = match job {
+                Job::Render(page, _) => Msg::RenderFailed { generation, page },
+                Job::Detect(page) => Msg::Detected {
+                    generation,
+                    page,
+                    fields: vec![],
+                    text: vec![],
+                },
+            };
+            if tx.send(msg).is_err() {
+                return;
+            }
+            ctx.request_repaint();
+        }
+        return;
+    };
+    let mut cache = RenderCache::new();
+    let text_cache = hayro::hayro_interpret::InterpreterCache::new();
+    let pages = pdf.pages();
+    while let Some(job) = next_job(shared, generation) {
+        match job {
+            Job::Render(page, requested) => {
+                let failed =
+                    |tx: &Sender<Msg>| tx.send(Msg::RenderFailed { generation, page }).is_ok();
+                let Some(p) = pages.get(page) else {
+                    if !failed(tx) {
+                        return;
+                    }
+                    continue;
+                };
+                let (w, h) = page_geom(p).display_size();
+                let scale = requested.min(MAX_TEX_SIDE / w.max(h)).max(0.05);
+                let res = catch_unwind(AssertUnwindSafe(|| render_page(p, &cache, scale)));
+                let Ok(img) = res else {
+                    cache = RenderCache::new();
+                    if !failed(tx) {
+                        return;
+                    }
+                    continue;
+                };
+                let image = ColorImage::from_rgba_premultiplied(
+                    [img.width as usize, img.height as usize],
+                    &img.rgba,
+                );
+                let tex = ctx.load_texture(format!("page-{page}"), image, TextureOptions::LINEAR);
+                if tx
+                    .send(Msg::Rendered {
+                        generation,
+                        page,
+                        requested,
+                        scale,
+                        tex,
+                    })
+                    .is_err()
+                {
+                    return;
+                }
+                ctx.request_repaint();
+            }
+            Job::Detect(page) => {
+                let Some(p) = pages.get(page) else {
+                    if tx
+                        .send(Msg::Detected {
+                            generation,
+                            page,
+                            fields: vec![],
+                            text: vec![],
+                        })
+                        .is_err()
+                    {
+                        return;
+                    }
+                    continue;
+                };
+                let res = catch_unwind(AssertUnwindSafe(|| {
+                    pdfr_core::detect::detect_page(p, &cache, page)
+                }));
+                let fields = res.unwrap_or_else(|_| {
+                    cache = RenderCache::new();
+                    vec![]
+                });
+                let text = catch_unwind(AssertUnwindSafe(|| {
+                    pdfr_core::text::extract(p, &text_cache)
+                }))
+                .unwrap_or_default();
+                if tx
+                    .send(Msg::Detected {
+                        generation,
+                        page,
+                        fields,
+                        text,
+                    })
+                    .is_err()
+                {
+                    return;
+                }
+                ctx.request_repaint();
+            }
+        }
+    }
+}
