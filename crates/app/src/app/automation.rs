@@ -86,7 +86,13 @@ impl App {
         }
         ctx.request_repaint();
         let ppp = ctx.pixels_per_point();
+        // No file: a screenshot of the empty window (theme pictures).
+        let empty = self.cli.file.is_none() && !self.cli.demo;
         match self.auto_stage {
+            0 if empty => {
+                self.auto_stage = 1;
+                self.auto_frames = 0;
+            }
             0 => {
                 let ready = self
                     .doc
@@ -126,7 +132,8 @@ impl App {
                 self.auto_frames += 1;
                 // Dialogs fade in: give them time before a screenshot.
                 let settle = if self.cli.ask_remember { 40 } else { 5 };
-                if self.all_visible_rendered(ppp) && self.auto_frames > settle {
+                let rendered = if empty { self.auto_frames > 20 } else { self.all_visible_rendered(ppp) };
+                if rendered && self.auto_frames > settle {
                     if let Some(path) = self.cli.screenshot.clone() {
                         let (tx, rx) = channel();
                         ctx.request_screenshot(move |img| {

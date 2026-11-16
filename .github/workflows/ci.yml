@@ -40,6 +40,24 @@ jobs:
         # UI tests run headless (egui_kittest); no display needed.
         run: cargo test --locked --release
 
+  # The third-party notices shipped with every package must match Cargo.lock.
+  notices:
+    name: Third-party notices
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about@0.9.3
+      - name: Notices are up to date
+        run: |
+          tools/notices.sh
+          git diff --exit-code assets/THIRD-PARTY-NOTICES.txt || {
+            echo "::error::assets/THIRD-PARTY-NOTICES.txt is out of date: run tools/notices.sh and commit it."
+            exit 1
+          }
+
   # The Linux packages, installed and started on several distributions.
   linux:
     name: Linux packages

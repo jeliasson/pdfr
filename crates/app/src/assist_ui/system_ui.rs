@@ -47,7 +47,7 @@ impl Default for SystemUi {
 enum Notice {
     /// Ask once: open PDFs with pdfr? (`register` first for archive installs.)
     DefaultApp { register: bool },
-    /// Ask once (direct installs): look for new versions?
+    /// Ask once: look for new versions?
     UpdateOptIn,
     /// A newer version is out.
     NewVersion(String),
@@ -151,84 +151,72 @@ impl AssistState {
         });
 
         card(ui, c, Some("Updates"), |ui| {
-            if let (true, Some(cmd)) = (install.managed(), install.update_hint()) {
-                setting_row(
-                    ui,
-                    c,
-                    "Updates",
-                    "pdfr is updated with the rest of your system.",
-                    |ui| {
-                        ui.label(RichText::new(cmd).monospace().size(12.0).color(c.text));
-                    },
-                );
-            } else if install.managed() {
-                setting_row(
-                    ui,
-                    c,
-                    "Updates",
-                    "pdfr is updated by your package manager.",
-                    |_| {},
-                );
-            } else if install == InstallKind::Dev {
-                setting_row(
-                    ui,
-                    c,
-                    "Development build",
-                    "Run from a Cargo build folder, so pdfr doesn\u{2019}t check for new versions.",
-                    |_| {},
-                );
-            } else {
-                let mut on = self.a.store.settings.update_check == Some(true);
-                setting_row(
-                    ui,
-                    c,
-                    "Tell me about new versions",
-                    "Once a day pdfr asks GitHub for the newest version number. Nothing else is sent, and nothing is installed.",
-                    |ui| {
-                        if toggle(ui, c, &mut on).changed() {
-                            self.a.store.settings.update_check = Some(on);
-                            changed = true;
-                        }
-                    },
-                );
-                row_divider(ui, c);
-                let latest = self.a.store.settings.latest_version.clone();
-                let status = if self.sys.checker.running() {
-                    "Checking\u{2026}".to_string()
-                } else if let Some(e) = &self.sys.check_error {
-                    format!("Could not check: {e}")
-                } else if !latest.is_empty() && updates::is_newer(&latest, updates::current()) {
-                    format!("pdfr {latest} is available.")
-                } else if self.a.store.settings.update_checked_at > 0 {
-                    "You have the newest version.".to_string()
+            if !install.checks_for_updates() {
+                let (title, sub) = if install == InstallKind::Dev {
+                    ("Development build", "Run from a Cargo build folder, so pdfr doesn\u{2019}t check for new versions.")
                 } else {
-                    "Not checked yet.".to_string()
+                    ("Updates", "Your software centre installs new versions of pdfr, or run  flatpak update")
                 };
-                let mut check = false;
-                let mut download = false;
-                setting_row(ui, c, &format!("Version {}", updates::current()), &status, |ui| {
-                    if !latest.is_empty() && updates::is_newer(&latest, updates::current()) {
-                        download = primary_button(ui, c, "Download").clicked();
-                    } else {
-                        check = ui
-                            .add_enabled_ui(!self.sys.checker.running(), |ui| {
-                                secondary_button(ui, c, "Check now")
-                            })
-                            .inner
-                            .clicked();
+                setting_row(ui, c, title, sub, |_| {});
+                return;
+            }
+            let mut on = self.a.store.settings.update_check == Some(true);
+            setting_row(
+                ui,
+                c,
+                "Tell me about new versions",
+                "Once a day pdfr asks GitHub for the newest version number. Nothing else is sent, and nothing is installed.",
+                |ui| {
+                    if toggle(ui, c, &mut on).changed() {
+                        self.a.store.settings.update_check = Some(on);
+                        changed = true;
                     }
-                });
-                if check {
-                    self.sys.manual_check = true;
-                    self.sys.check_error = None;
-                    self.sys.checker.start(ui.ctx());
+                },
+            );
+            row_divider(ui, c);
+            let latest = self.a.store.settings.latest_version.clone();
+            let newer = !latest.is_empty() && updates::is_newer(&latest, updates::current());
+            let status = if self.sys.checker.running() {
+                "Checking\u{2026}".to_string()
+            } else if let Some(e) = &self.sys.check_error {
+                format!("Could not check: {e}")
+            } else if newer {
+                match install.update_hint() {
+                    Some(_) => format!("pdfr {latest} is available. Update with the command on the right."),
+                    None if install.managed() => format!("pdfr {latest} is available from your package manager."),
+                    None => format!("pdfr {latest} is available."),
                 }
-                if download {
-                    self.open_releases();
+            } else if self.a.store.settings.update_checked_at > 0 {
+                "You have the newest version.".to_string()
+            } else {
+                "Not checked yet.".to_string()
+            };
+            let mut check = false;
+            let mut download = false;
+            setting_row(ui, c, &format!("Version {}", updates::current()), &status, |ui| {
+                if newer && let Some(cmd) = install.update_hint() {
+                    ui.label(RichText::new(cmd).monospace().size(12.0).color(c.text));
+                } else if newer && !install.managed() {
+                    download = primary_button(ui, c, "Download").clicked();
+                } else {
+                    check = ui
+                        .add_enabled_ui(!self.sys.checker.running(), |ui| {
+                            secondary_button(ui, c, "Check now")
+                        })
+                        .inner
+                        .clicked();
                 }
+            });
+            if check {
+                self.sys.manual_check = true;
+                self.sys.check_error = None;
+                self.sys.checker.start(ui.ctx());
+            }
+            if download {
+                self.open_releases();
             }
         });
-        if install.managed() || install == InstallKind::Dev {
+        if !install.checks_for_updates() {
             note(ui, c, &format!("pdfr {}.", updates::current()));
         }
         changed
@@ -260,7 +248,7 @@ impl AssistState {
         let s = &self.a.store.settings;
         if !automated
             && s.update_check == Some(true)
-            && self.sys.install == InstallKind::Direct
+            && self.sys.install.checks_for_updates()
             && now().saturating_sub(s.update_checked_at) > updates::DAY
             && !self.sys.checker.running()
         {
@@ -292,7 +280,7 @@ impl AssistState {
                 return Some(Notice::DefaultApp { register });
             }
         }
-        if direct && self.a.store.settings.update_check.is_none() {
+        if self.sys.install.checks_for_updates() && self.a.store.settings.update_check.is_none() {
             return Some(Notice::UpdateOptIn);
         }
         None
@@ -330,6 +318,7 @@ impl AssistState {
                 format!("pdfr {v} is available"),
                 match self.sys.install.update_hint() {
                     Some(cmd) => format!("Update with:  {cmd}"),
+                    None if self.sys.install.managed() => "Update it with your package manager.".to_string(),
                     None => format!("You have {}.", updates::current()),
                 },
                 if self.sys.install.managed() { "Got it" } else { "Download" },

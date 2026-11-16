@@ -114,6 +114,13 @@ impl InstallKind {
         !matches!(self, InstallKind::Direct | InstallKind::Dev)
     }
 
+    /// pdfr may look for new versions itself (after asking). Not for
+    /// development builds, and not in Flatpak: the sandbox has no network,
+    /// and software centres announce Flatpak updates already.
+    pub fn checks_for_updates(self) -> bool {
+        !matches!(self, InstallKind::Dev | InstallKind::Flatpak)
+    }
+
     /// How to update, for the "new version" notice.
     pub fn update_hint(self) -> Option<&'static str> {
         Some(match self {

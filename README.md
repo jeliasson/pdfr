@@ -10,7 +10,7 @@
   <a href="https://github.com/kjellberg/pdfr/actions/workflows/ci.yml"><img src="https://github.com/kjellberg/pdfr/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/kjellberg/pdfr/releases"><img src="https://img.shields.io/github/v/release/kjellberg/pdfr?include_prereleases&sort=semver&color=E5336D" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/Linux-first-FF9259?logo=linux&logoColor=white" alt="Linux first">
-  <a href="https://omarchy.org"><img src="https://img.shields.io/badge/made_for-Omarchy-2B1533" alt="Made for Omarchy"></a>
+  <a href="https://omarchy.org"><img src="https://img.shields.io/badge/born_on-Omarchy-2B1533" alt="Born on Omarchy"></a>
   <img src="https://img.shields.io/badge/100%25-Rust-B7410E?logo=rust&logoColor=white" alt="100% Rust">
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-free_for_personal_use-555" alt="Free for personal use"></a>
 </p>
@@ -19,9 +19,8 @@ pdfr is a fast, friendly PDF viewer for filling in forms: tax forms, school
 applications, permits, anything with boxes to fill. Click a box, type, and
 your text lands neatly inside it at the right size. That's it.
 
-Free for personal use. **Made for Linux**: every distribution, every desktop,
-and right at home on [Omarchy](https://omarchy.org). macOS and Windows are
-on the way.
+Free for personal use. **Born on [Omarchy](https://omarchy.org), fits every
+distro**: any distribution, any desktop. macOS and Windows are on the way.
 
 <p align="center">
   <img src="docs/media/fill.gif" width="720" alt="Typing into a scanned paper form in pdfr: the name lands in its box, the date flows across the day, month and year squares, the ID number fills one digit per square, and a checkbox is ticked.">
@@ -64,14 +63,14 @@ pdfr opens straight away. The first page is on screen in about a tenth of a
 second, even for a 300-page document, and scrolling stays smooth with no blank
 pages.
 
-### Made for Linux
+### Fits every distro
 
 pdfr runs on any Linux distribution and desktop: GNOME, KDE Plasma, Cosmic,
 XFCE, Cinnamon, Hyprland, Sway and the rest, on Wayland or X11. It follows
 your desktop's light or dark mode, uses its own file and print dialogs, and
 shows up in your app launcher and under "Open with".
 
-### Made for Omarchy
+### Born on Omarchy
 
 pdfr was born on [Omarchy](https://omarchy.org). It takes on your Omarchy
 theme, toolbar, highlights and all, and switches the moment you change
@@ -199,7 +198,8 @@ Download `pdfr-…-linux.tar.gz` from the
 `./pdfr --register` to add pdfr to your app menu, "Open with" and the
 terminal (no root needed).
 
-Updates arrive with your normal system updates.
+Updates arrive with your normal system updates. pdfr can also tell you when
+a new version is out (it asks first).
 
 **Make pdfr your PDF app:** pdfr offers this the first time you start it.
 You can also turn it on later in **Settings → General**.

@@ -54,8 +54,9 @@ These come from the original brief and are not negotiable without discussion:
   tool, and it is optional. Desktop integration uses freedesktop files and
   the XDG portals over D-Bus, never `xdg-open`, `xdg-mime` or similar.
 - The one network request besides the AI tool is the opt-in update check
-  (direct downloads only, off for package-manager installs): it asks GitHub
-  for the latest version number, sends nothing else, and installs nothing.
+  (asked once; not in Flatpak or development builds): it asks GitHub for the
+  latest version number once a day, sends nothing else, and installs
+  nothing. Package installs are shown their update command.
 - AI requests send field labels and section headings (with row numbers) only:
   never field values, other page text, images or the PDF. No tools, no
   conversation, at most one retry; replies that don't parse are discarded.
@@ -200,7 +201,8 @@ by position, to `samples/household_values.json`.
   uses the unscanned form, because suggestions need the printed labels as text.
 - Screenshots: `--values samples/household_values.json --screenshot out.png`
   (plus `--settings`, `--hover`, `--zoom` as needed). For the Omarchy theme
-  pictures, run with `HOME` pointing at a folder whose
+  pictures, run `pdfr --screenshot out.png` without a file (the empty window
+  shows the theme's background) and with `HOME` pointing at a folder whose
   `.config/omarchy/current/theme` links to `/usr/share/omarchy/themes/<name>`.
 - `docs/brand/social-preview.png` is the repository's social preview image
   (GitHub → Settings → Social preview; it can only be uploaded there).
@@ -230,8 +232,11 @@ See [docs/RELEASING.md](docs/RELEASING.md). In short:
   `packaging/windows/`, `packaging/winget/`.
 - `.github/workflows/`: `ci.yml`, `build-linux.yml`, `release.yml`.
 
-Release archives include `LICENSE.md` and `assets/LICENSE-Inter.txt`. The
-licences of the Rust crates pdfr is built with (mostly MIT and Apache-2.0)
-also ask for their notices to be included with binaries; a generated
-third-party notices file (for example with `cargo about`) should be added to
-the release archives.
+Every package includes `LICENSE.md`, `assets/LICENSE-Inter.txt` and
+`assets/THIRD-PARTY-NOTICES.txt`: the licences of the crates pdfr is built
+with (mostly MIT and Apache-2.0), which ask for their notices to ship with
+binaries. After changing dependencies, run `tools/notices.sh` (needs
+`cargo install cargo-about --locked --features cli`) and commit the file; CI
+fails while it is out of date. Every licence pdfr accepts is listed in
+`about.toml`: a dependency under any other licence fails the check until
+someone has looked at it.

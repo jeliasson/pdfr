@@ -23,7 +23,7 @@ lipo -create -output "$app/Contents/MacOS/pdfr" \
   target/aarch64-apple-darwin/release/pdfr target/x86_64-apple-darwin/release/pdfr
 sed "s/@VERSION@/$v/g" packaging/macos/Info.plist > "$app/Contents/Info.plist"
 cp assets/icon/pdfr.icns "$app/Contents/Resources/pdfr.icns"
-cp LICENSE.md assets/LICENSE-Inter.txt "$app/Contents/Resources/"
+cp LICENSE.md assets/LICENSE-Inter.txt assets/THIRD-PARTY-NOTICES.txt "$app/Contents/Resources/"
 
 if [ -n "${APPLE_CERTIFICATE:-}" ]; then
   kc="$RUNNER_TEMP/pdfr.keychain-db"

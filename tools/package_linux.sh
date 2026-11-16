@@ -15,7 +15,7 @@ cp "$root/packaging/linux/io.github.kjellberg.pdfr.desktop" "$root/packaging/lin
 cp "$root"/assets/icon/png/pdfr-*.png "$d/assets/icon/png/"
 rm -f "$d/assets/icon/png/pdfr-1024.png"
 cp "$root/assets/icon/pdfr.svg" "$d/assets/icon/"
-cp "$root/assets/LICENSE-Inter.txt" "$d/assets/"
+cp "$root/assets/LICENSE-Inter.txt" "$root/assets/THIRD-PARTY-NOTICES.txt" "$d/assets/"
 cp "$root/README.md" "$root/LICENSE.md" "$d/"
 tar -C "$work" -czf "$name.tar.gz" --owner=0 --group=0 "$name"
 rm -rf "$work"

@@ -96,6 +96,7 @@ assets = [
     ["../../assets/icon/pdfr.svg", "usr/share/icons/hicolor/scalable/apps/io.github.kjellberg.pdfr.svg", "644"],
     ["../../README.md", "usr/share/doc/pdfr/README.md", "644"],
     ["../../assets/LICENSE-Inter.txt", "usr/share/doc/pdfr/LICENSE-Inter.txt", "644"],
+    ["../../assets/THIRD-PARTY-NOTICES.txt", "usr/share/doc/pdfr/THIRD-PARTY-NOTICES.txt", "644"],
 ]
 
 # `cargo install cargo-generate-rpm && cargo build --release && cargo generate-rpm -p crates/app`
@@ -121,6 +122,7 @@ assets = [
     { source = "../../assets/icon/pdfr.svg", dest = "/usr/share/icons/hicolor/scalable/apps/io.github.kjellberg.pdfr.svg", mode = "644" },
     { source = "../../LICENSE.md", dest = "/usr/share/licenses/pdfr/LICENSE.md", mode = "644", doc = true },
     { source = "../../assets/LICENSE-Inter.txt", dest = "/usr/share/licenses/pdfr/LICENSE-Inter.txt", mode = "644", doc = true },
+    { source = "../../assets/THIRD-PARTY-NOTICES.txt", dest = "/usr/share/licenses/pdfr/THIRD-PARTY-NOTICES.txt", mode = "644", doc = true },
     { source = "../../README.md", dest = "/usr/share/doc/pdfr/README.md", mode = "644", doc = true },
 ]
 
