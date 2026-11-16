@@ -180,17 +180,30 @@ cargo run --release -p pdfr-assist --example labels -- form.pdf        # labels,
 app menu. Hidden command-line flags for automated checks: `--demo` (fill every field with
 sample values), `--save <path>`, `--screenshot <png>`, `--zoom <f>`,
 `--data-dir <dir>`, `--no-ai`, `--settings <section>` (open Settings),
-`--ask-remember` (show the remember dialog) and `--hover x,y` (pretend the
-pointer is at a point on page 1). `tools/compare_screen.py` compares a
+`--ask-remember` (show the remember dialog), `--hover x,y` (pretend the
+pointer is at a point on page 1) and `--values <json>` (type values at page
+positions). `tools/compare_screen.py` compares a
 screenshot with a render of the saved PDF.
 
 ### README screenshots and videos
 
-`docs/media/` holds the README's media, made with made-up data only.
-`tools/make_demo.sh <scene>` records a scripted scene (`fill`, `remember`; see
-`crates/app/src/app/record.rs`) with the hidden `--record <dir> --script
-<name>` flags and encodes a GIF and an MP4 with ffmpeg. Screenshots use
-`--screenshot` (with `--settings`, `--hover`, `--demo` as needed).
+`docs/media/` holds the README's media, made with made-up data only, on a
+fictional scanned form: `tools/gen_media_form.py` draws a household benefit
+application from the made-up Municipality of Northvale, "scans" it (skew,
+warm paper, uneven light, blur, dust, JPEG) into
+`samples/household_scanned.pdf`, and writes the values to type into it,
+by position, to `samples/household_values.json`.
+
+- Videos: `tools/make_demo.sh <fill|remember>` records a scripted scene (see
+  `crates/app/src/app/record.rs`) with the hidden `--record <dir> --script
+  <name>` flags and encodes a GIF and an MP4 with ffmpeg. The remember scene
+  uses the unscanned form, because suggestions need the printed labels as text.
+- Screenshots: `--values samples/household_values.json --screenshot out.png`
+  (plus `--settings`, `--hover`, `--zoom` as needed). For the Omarchy theme
+  pictures, run with `HOME` pointing at a folder whose
+  `.config/omarchy/current/theme` links to `/usr/share/omarchy/themes/<name>`.
+- `docs/brand/social-preview.png` is the repository's social preview image
+  (GitHub → Settings → Social preview; it can only be uploaded there).
 
 ## Desktop integration
 

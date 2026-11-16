@@ -93,7 +93,7 @@ jobs:
             setup: zypper --non-interactive install --allow-unsigned-rpm xvfb-run python3 Mesa-dri ./dist/pdfr-*.x86_64.rpm
           - name: Arch Linux
             image: archlinux:latest
-            setup: pacman -Syu --noconfirm xorg-server-xvfb xorg-xauth python mesa libglvnd libxkbcommon && tar xzf dist/pdfr-*-x86_64-linux.tar.gz && ./pdfr-*/install.sh / /usr
+            setup: pacman -Syu --noconfirm xorg-server-xvfb xorg-xauth python mesa libglvnd libxkbcommon libxkbcommon-x11 libx11 libxcursor libxrandr libxi && tar xzf dist/pdfr-*-x86_64-linux.tar.gz && ./pdfr-*/install.sh / /usr
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4

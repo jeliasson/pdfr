@@ -76,7 +76,9 @@ form is only drawn, and scanned forms. Typed text is placed exactly in the \
 boxes, and autocomplete offers the details you usually type."""
 section = "non-free/text"
 priority = "optional"
-depends = "$auto, libgl1, libegl1, libxkbcommon0"
+# OpenGL/EGL, xkbcommon and (for X11 sessions) the X libraries are loaded
+# at run time, so they are listed by hand.
+depends = "$auto, libgl1, libegl1, libxkbcommon0, libxkbcommon-x11-0, libx11-6, libx11-xcb1, libxcursor1, libxrandr2, libxi6"
 recommends = "xdg-desktop-portal"
 assets = [
     ["target/release/pdfr", "usr/bin/", "755"],
@@ -122,12 +124,19 @@ assets = [
     { source = "../../README.md", dest = "/usr/share/doc/pdfr/README.md", mode = "644", doc = true },
 ]
 
-# OpenGL/EGL and xkbcommon are loaded at run time, so name them by soname
+# OpenGL/EGL, xkbcommon and the X libraries are loaded at run time, so name
+# them by soname
 # (works on Fedora and openSUSE alike).
 [package.metadata.generate-rpm.requires]
 "libEGL.so.1()(64bit)" = "*"
 "libGL.so.1()(64bit)" = "*"
 "libxkbcommon.so.0()(64bit)" = "*"
+"libxkbcommon-x11.so.0()(64bit)" = "*"
+"libX11.so.6()(64bit)" = "*"
+"libX11-xcb.so.1()(64bit)" = "*"
+"libXcursor.so.1()(64bit)" = "*"
+"libXrandr.so.2()(64bit)" = "*"
+"libXi.so.6()(64bit)" = "*"
 
 [package.metadata.generate-rpm.recommends]
 xdg-desktop-portal = "*"

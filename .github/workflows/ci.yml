@@ -1,9 +1,17 @@
 name: CI
 
+# Changes to documentation only (README, docs, screenshots) don't need a
+# build: those paths are ignored. Anything else runs everything.
 on:
   push:
     branches: [main]
+    paths-ignore: &docs
+      - "**.md"
+      - "docs/**"
+      - "LICENSE.md"
+      - ".github/ISSUE_TEMPLATE/**"
   pull_request:
+    paths-ignore: *docs
   workflow_dispatch:
 
 permissions:

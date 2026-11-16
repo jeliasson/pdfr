@@ -31,6 +31,8 @@ const HOLE_MAX: f32 = 9.0;
 /// Dotted blanks must be at least this long (pt); dots mark a blank
 /// unambiguously, so short inline ones count.
 const MIN_DOTTED: f32 = 10.0;
+/// Solid ink pixels a box may hold and still count as empty: scanner dust.
+const SPECKS: f32 = 14.0;
 /// Write-on lines must be at least this long (pt).
 const MIN_WRITE_LINE: f32 = 30.0;
 
@@ -574,16 +576,15 @@ fn dotted_lines(m: &Masks, scale: f32) -> Vec<Seg> {
         }
         flush(chain, &mut out);
     }
-    // One dotted line covers a few pixel rows: keep one segment per line.
-    out.sort_by(|a, b| a.pos.total_cmp(&b.pos).then(a.a0.total_cmp(&b.a0)));
+    // One dotted line covers a few pixel rows, and on a skewed scan it
+    // steps from row to row in pieces: join pieces on the same line that
+    // overlap or nearly touch, into one segment per line.
+    out.sort_by(|a, b| a.a0.total_cmp(&b.a0));
     let mut kept: Vec<Seg> = Vec::new();
     for s in out {
-        if let Some(o) = kept
-            .iter_mut()
-            .rev()
-            .take(8)
-            .find(|o| (s.pos - o.pos).abs() <= 1.5 && s.a0.max(o.a0) < s.a1.min(o.a1))
-        {
+        if let Some(o) = kept.iter_mut().find(|o| {
+            (s.pos - o.pos).abs() <= 1.5 && s.a0 <= o.a1 + 3.0 && o.a0 <= s.a1 + 3.0
+        }) {
             o.a0 = o.a0.min(s.a0);
             o.a1 = o.a1.max(s.a1);
             continue;
@@ -794,11 +795,98 @@ pub struct Analysis {
 }
 
 /// Detects fillable spots on a page image. Returned fields have `page == 0`.
+/// Scans rarely have white, evenly lit paper: it is grey or warm, the light
+/// falls off towards an edge, and the binding casts a shadow. Measured
+/// against the fixed ink threshold, such paper turns into "ink" wherever it
+/// is darkest, and lines there are lost in the noise. This divides every
+/// pixel by the local paper brightness (a high percentile per 24 pt block,
+/// widened over neighbouring blocks so filled bars and dense text don't
+/// count as paper, and interpolated smoothly). Pages whose paper is already
+/// white everywhere (every vector render) are left alone: `None`.
+fn flatten_background(g: &Gray) -> Option<Vec<u8>> {
+    let (w, h) = (g.w, g.h);
+    let block = ((24.0 * g.scale) as usize).max(8);
+    let (bw, bh) = (w.div_ceil(block), h.div_ceil(block));
+    if w == 0 || h == 0 || g.px.len() < w * h {
+        return None;
+    }
+    // 90th percentile of each block (every other pixel is plenty).
+    let mut level = vec![255u8; bw * bh];
+    for by in 0..bh {
+        for bx in 0..bw {
+            let mut hist = [0u32; 256];
+            let mut n = 0u32;
+            for y in (by * block..((by + 1) * block).min(h)).step_by(2) {
+                let row = &g.px[y * w..(y + 1) * w];
+                for &p in row[bx * block..((bx + 1) * block).min(w)].iter().step_by(2) {
+                    hist[p as usize] += 1;
+                    n += 1;
+                }
+            }
+            let mut need = n / 10;
+            let mut v = 255usize;
+            while v > 0 {
+                if hist[v] > need {
+                    break;
+                }
+                need -= hist[v];
+                v -= 1;
+            }
+            level[by * bw + bx] = v as u8;
+        }
+    }
+    // Neighbourhood maximum: a block full of a filled bar or heavy print
+    // takes its neighbours' paper.
+    let mut paper = vec![0u8; bw * bh];
+    for by in 0..bh {
+        for bx in 0..bw {
+            let mut m = 0u8;
+            for y in by.saturating_sub(1)..(by + 2).min(bh) {
+                for x in bx.saturating_sub(1)..(bx + 2).min(bw) {
+                    m = m.max(level[y * bw + x]);
+                }
+            }
+            paper[by * bw + bx] = m.max(96);
+        }
+    }
+    if paper.iter().all(|&p| p >= 250) {
+        return None;
+    }
+    // Bilinear between block centres.
+    let at = |x: usize, y: usize| paper[y.min(bh - 1) * bw + x.min(bw - 1)] as f32;
+    let mut out = vec![0u8; w * h];
+    let half = block as f32 / 2.0;
+    for y in 0..h {
+        let fy = ((y as f32 - half) / block as f32).max(0.0);
+        let (y0, ty) = (fy as usize, fy.fract());
+        for x in 0..w {
+            let fx = ((x as f32 - half) / block as f32).max(0.0);
+            let (x0, tx) = (fx as usize, fx.fract());
+            let top = at(x0, y0) * (1.0 - tx) + at(x0 + 1, y0) * tx;
+            let bot = at(x0, y0 + 1) * (1.0 - tx) + at(x0 + 1, y0 + 1) * tx;
+            let bg = top * (1.0 - ty) + bot * ty;
+            let v = g.px[y * w + x] as f32 * 255.0 / bg;
+            out[y * w + x] = v.min(255.0) as u8;
+        }
+    }
+    Some(out)
+}
+
 pub fn detect(g: &Gray) -> Vec<Field> {
     detect_with_analysis(g).0
 }
 
 pub fn detect_with_analysis(g: &Gray) -> (Vec<Field>, Analysis) {
+    // Scans: even out the paper first, so one ink threshold fits the page.
+    let flat = flatten_background(g);
+    let flat_g;
+    let g = match &flat {
+        Some(px) => {
+            flat_g = Gray { w: g.w, h: g.h, px, scale: g.scale };
+            &flat_g
+        }
+        None => g,
+    };
     let s = g.scale;
     let prof = std::env::var_os("PDFR_PROFILE").is_some();
     let t0 = std::time::Instant::now();
@@ -864,7 +952,8 @@ pub fn detect_with_analysis(g: &Gray) -> (Vec<Field>, Analysis) {
         );
         let area = (inner.width() * inner.height() * s * s).max(1.0);
         let ink = solid_in(&inner);
-        if (ink as f32) <= (area * 0.002).max(4.0) {
+        // A few specks (scanner dust) still count as empty.
+        if (ink as f32) <= (area * 0.002).max(SPECKS) {
             empties.push(Empty { r: *b });
             continue;
         }
@@ -885,19 +974,33 @@ pub fn detect_with_analysis(g: &Gray) -> (Vec<Field>, Analysis) {
         }) {
             continue;
         }
+        // The label is the first band of ink rows from the top (gaps of up
+        // to 3 pt between its lines). Below it there may only be specks.
         let (x0, x1) = (px(inner.x0), px(inner.x1));
-        let mut top = None;
-        let mut bottom = None;
-        for y in px(inner.y0)..px(inner.y1) {
-            if m.count(x0, y, x1, y + 1) > 0 {
-                top.get_or_insert(y);
-                bottom = Some(y);
-            }
-        }
-        let (Some(t), Some(bm)) = (top, bottom) else {
+        let y_start = px(inner.y0);
+        let rows: Vec<u32> = (y_start..px(inner.y1))
+            .map(|y| m.count(x0, y, x1, y + 1))
+            .collect();
+        let Some(first) = rows.iter().position(|&c| c > 0) else {
             continue;
         };
-        let (t, bm) = (t as f32 / s, (bm + 1) as f32 / s);
+        let gap = (3.0 * s) as usize;
+        let mut last = first;
+        for (i, &c) in rows.iter().enumerate().skip(first) {
+            if c > 0 {
+                last = i;
+            } else if i - last > gap {
+                break;
+            }
+        }
+        let below: u32 = rows.get(last + 1..).map_or(0, |r| r.iter().sum());
+        if below as f32 > (area * 0.002).max(SPECKS) {
+            continue;
+        }
+        let (t, bm) = (
+            (y_start + first as i64) as f32 / s,
+            (y_start + last as i64 + 1) as f32 / s,
+        );
         let h = b.height();
         let free = b.y1 - bm;
         if t - b.y0 < 0.4 * h && bm - b.y0 < 0.6 * h && free >= (0.4 * h).max(9.0) {

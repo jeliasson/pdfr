@@ -89,6 +89,7 @@ fn parse_args() -> Result<CliOptions, String> {
                 )
             }
             "--ask-remember" => o.ask_remember = true,
+            "--values" => o.values = Some(args.next().ok_or("--values needs a file")?.into()),
             "--settings" => {
                 o.settings = Some(
                     args.next()
@@ -112,7 +113,7 @@ fn parse_args() -> Result<CliOptions, String> {
         }
     }
     // Automated runs never call the AI.
-    if o.demo || o.save.is_some() || o.screenshot.is_some() || o.record.is_some() {
+    if o.demo || o.values.is_some() || o.save.is_some() || o.screenshot.is_some() || o.record.is_some() {
         o.no_ai = true;
     }
     Ok(o)

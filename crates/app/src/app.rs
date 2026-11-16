@@ -44,6 +44,8 @@ pub struct CliOptions {
     pub record: Option<PathBuf>,
     /// Hidden: the scene to record (see `record::script`).
     pub script: Option<String>,
+    /// Hidden: values to type at page positions (screenshots).
+    pub values: Option<PathBuf>,
 }
 
 /// One field plus app-level state, with a stable id.

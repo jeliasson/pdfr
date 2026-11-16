@@ -118,3 +118,24 @@ fn real_form_text_page_has_no_false_boxes_outside_widgets() {
     // perf_text is a dense text page: no fields at all.
     assert!(detect("perf_text.pdf").is_empty());
 }
+
+/// A realistic scan (warm paper, uneven light, skew, blur, JPEG and
+/// scanner dust; tools/gen_media_form.py): every place a value goes must
+/// be inside a detected field.
+#[test]
+fn scanned_household_form_finds_every_field() {
+    let fields = detect("household_scanned.pdf");
+    let vals: Value = serde_json::from_slice(&sample("household_values.json")).unwrap();
+    let mut missed = Vec::new();
+    for v in vals.as_array().unwrap() {
+        let (x, y) = (v["x"].as_f64().unwrap() as f32, v["y"].as_f64().unwrap() as f32);
+        let hit = fields.iter().any(|f| {
+            let r = f.rect;
+            r.x0 - 2.0 <= x && x <= r.x1 + 2.0 && r.y0 - 6.0 <= y && y <= r.y1 + 6.0
+        });
+        if !hit {
+            missed.push(v["value"].to_string());
+        }
+    }
+    assert!(missed.is_empty(), "no field for: {missed:?}");
+}

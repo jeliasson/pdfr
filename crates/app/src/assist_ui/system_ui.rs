@@ -169,6 +169,14 @@ impl AssistState {
                     "pdfr is updated by your package manager.",
                     |_| {},
                 );
+            } else if install == InstallKind::Dev {
+                setting_row(
+                    ui,
+                    c,
+                    "Development build",
+                    "Run from a Cargo build folder, so pdfr doesn\u{2019}t check for new versions.",
+                    |_| {},
+                );
             } else {
                 let mut on = self.a.store.settings.update_check == Some(true);
                 setting_row(
@@ -220,7 +228,7 @@ impl AssistState {
                 }
             }
         });
-        if install.managed() {
+        if install.managed() || install == InstallKind::Dev {
             note(ui, c, &format!("pdfr {}.", updates::current()));
         }
         changed
@@ -261,7 +269,10 @@ impl AssistState {
     }
 
     fn notice(&mut self) -> Option<Notice> {
-        if self.sys.notice_closed || self.sys.started.elapsed().as_secs_f32() < 2.0 {
+        if self.sys.notice_closed
+            || self.sys.install == InstallKind::Dev
+            || self.sys.started.elapsed().as_secs_f32() < 2.0
+        {
             return None;
         }
         let s = &self.a.store.settings;

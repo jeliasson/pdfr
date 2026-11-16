@@ -24,38 +24,41 @@ pub enum Step {
 pub fn script(name: &str) -> Option<Vec<Step>> {
     use Step::*;
     Some(match name {
-        // Click and type: text lands in the boxes, one letter per square,
-        // flowing across date groups.
+        // On the scanned household form (samples/household_scanned.pdf):
+        // click and type; text lands in the boxes, one letter per square,
+        // the date flowing across its three groups.
         "fill" => vec![
             Wait(0.8),
-            MoveTo(330.0, 178.0, 0.7),
+            MoveTo(150.0, 158.0, 0.7),
             Wait(0.2),
             Click,
             Type("Anna Lindqvist", 11.0),
             Wait(0.4),
-            Press(Key::Tab),
-            Type("850312432A", 7.0),
-            Wait(0.4),
-            Press(Key::Tab),
+            MoveTo(358.0, 159.0, 0.5),
+            Click,
             Type("12031985", 6.0),
-            Wait(0.5),
-            MoveTo(154.0, 273.0, 0.6),
+            Wait(0.4),
+            MoveTo(60.0, 193.0, 0.6),
+            Click,
+            Type("198503124328", 8.0),
+            Wait(0.4),
+            MoveTo(409.5, 303.5, 0.6),
             Wait(0.2),
             Click,
             Wait(0.4),
-            MoveTo(330.0, 302.0, 0.5),
+            MoveTo(150.0, 232.0, 0.6),
             Click,
-            Type("Engineer", 10.0),
+            Type("Storgatan 12", 10.0),
             Wait(1.5),
         ],
-        // Remembered people: ghost text, Tab to accept, the hover button,
-        // browsing alternatives and clearing.
+        // Remembered people: the hover button, browsing alternatives, a
+        // suggestion taken with Tab, and clearing.
         "remember" => vec![
             Wait(0.8),
-            // Hover the empty name: the ✨ button appears; open the list.
-            MoveTo(330.0, 178.0, 0.7),
+            // Hover the empty name: the sparkle button appears; open the list.
+            MoveTo(150.0, 158.0, 0.7),
             Wait(0.4),
-            MoveTo(538.0, 178.0, 0.5),
+            MoveTo(329.0, 158.0, 0.5),
             Wait(0.5),
             Click,
             Wait(0.9),
@@ -66,15 +69,15 @@ pub fn script(name: &str) -> Option<Vec<Step>> {
             Wait(0.7),
             Press(Key::Enter),
             Wait(0.7),
-            // The next field already knows this person's job: Tab takes it.
-            MoveTo(330.0, 302.0, 0.6),
+            // The e-mail already knows this person: Tab takes it.
+            MoveTo(150.0, 302.0, 0.6),
             Wait(0.2),
             Click,
             Wait(1.1),
             Press(Key::Tab),
             Wait(0.8),
-            // ✕ clears a filled field.
-            MoveTo(538.0, 178.0, 0.7),
+            // The clear button empties a filled field.
+            MoveTo(329.0, 158.0, 0.7),
             Wait(0.6),
             Click,
             Wait(1.5),

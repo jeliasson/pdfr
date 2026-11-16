@@ -99,14 +99,19 @@ pub enum InstallKind {
     Package,
     Homebrew,
     Flatpak,
-    /// A downloaded archive or installer, or a build from source.
+    /// A downloaded archive or installer, or a build from source that was
+    /// copied somewhere.
     Direct,
+    /// Run from a Cargo `target` folder (`cargo run`). Never offers to
+    /// register itself, become the default app or check for updates: it
+    /// would point the desktop at a binary that changes with every build.
+    Dev,
 }
 
 impl InstallKind {
     /// Updates come through a package manager.
     pub fn managed(self) -> bool {
-        self != InstallKind::Direct
+        !matches!(self, InstallKind::Direct | InstallKind::Dev)
     }
 
     /// How to update, for the "new version" notice.
@@ -117,13 +122,26 @@ impl InstallKind {
             InstallKind::Rpm => "sudo dnf upgrade",
             InstallKind::Homebrew => "brew upgrade pdfr",
             InstallKind::Flatpak => "flatpak update",
-            InstallKind::Package | InstallKind::Direct => return None,
+            InstallKind::Package | InstallKind::Direct | InstallKind::Dev => return None,
         })
     }
 }
 
 pub fn install_kind() -> InstallKind {
+    let exe = std::env::current_exe().and_then(|p| p.canonicalize());
+    if exe.is_ok_and(|p| in_cargo_target(&p)) {
+        return InstallKind::Dev;
+    }
     os::install_kind()
+}
+
+/// Whether `exe` lies in a Cargo build folder: a `target` folder next to
+/// a `Cargo.toml`.
+fn in_cargo_target(exe: &std::path::Path) -> bool {
+    exe.ancestors().any(|a| {
+        a.file_name().is_some_and(|n| n == "target")
+            && a.parent().is_some_and(|p| p.join("Cargo.toml").is_file())
+    })
 }
 
 /// Whether `pdfr` can be typed in a terminal.
@@ -217,5 +235,15 @@ mod tests {
         let i = window_icon().expect("icon");
         assert_eq!((i.width, i.height), (256, 256));
         assert_eq!(i.rgba.len(), 256 * 256 * 4);
+    }
+
+    #[test]
+    fn cargo_builds_are_development_builds() {
+        // This test binary itself lives in the workspace's target folder.
+        let exe = std::env::current_exe().unwrap().canonicalize().unwrap();
+        assert!(in_cargo_target(&exe));
+        assert_eq!(install_kind(), InstallKind::Dev);
+        assert!(!in_cargo_target(std::path::Path::new("/usr/bin/pdfr")));
+        assert!(!in_cargo_target(std::path::Path::new("/tmp/target/pdfr")));
     }
 }

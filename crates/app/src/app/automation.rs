@@ -4,9 +4,83 @@
 use super::*;
 
 impl App {
+    /// `--values file.json`: `[{"page":0,"x":..,"y":..,"value":"text"|true}]`
+    /// with display-space points; each value goes into the smallest field
+    /// at its point (README screenshots with made-up data).
+    fn fill_values(&mut self, path: &std::path::Path) {
+        let list: Vec<serde_json::Value> = std::fs::read(path)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
+        for v in list {
+            let Some(doc) = self.doc.as_ref() else { return };
+            let page = v["page"].as_u64().unwrap_or(0) as usize;
+            let (x, y) = (
+                v["x"].as_f64().unwrap_or(0.0) as f32,
+                v["y"].as_f64().unwrap_or(0.0) as f32,
+            );
+            let best = doc
+                .entries
+                .iter()
+                .filter(|e| {
+                    let r = e.f.rect;
+                    e.f.page == page
+                        && r.x0 - 2.0 <= x
+                        && x <= r.x1 + 2.0
+                        && r.y0 - 6.0 <= y
+                        && y <= r.y1 + 6.0
+                })
+                .min_by(|a, b| {
+                    let area = |e: &Entry| e.f.rect.width() * e.f.rect.height();
+                    area(a).total_cmp(&area(b))
+                })
+                .map(|e| e.id);
+            let Some(mut id) = best else {
+                println!("PDFR_VALUES no field at {x},{y}");
+                continue;
+            };
+            match &v["value"] {
+                serde_json::Value::Bool(b) => {
+                    let doc = self.doc.as_mut().unwrap();
+                    let i = doc.index_of(id).unwrap();
+                    doc.entries[i].f.checked = *b;
+                }
+                serde_json::Value::String(t) => {
+                    // Like typing: what does not fit a row of boxes carries
+                    // on in the next group (dates, IBANs).
+                    let mut rest: String = t.clone();
+                    loop {
+                        let doc = self.doc.as_mut().unwrap();
+                        let i = doc.index_of(id).unwrap();
+                        let f = &mut doc.entries[i].f;
+                        let cap = f.capacity().unwrap_or(usize::MAX);
+                        let comb = f.kind.is_comb();
+                        f.value = rest.chars().take(cap).collect();
+                        rest = rest.chars().skip(cap).collect();
+                        if rest.is_empty() || !comb {
+                            break;
+                        }
+                        match self.adjacent_comb(id, true) {
+                            Some(next) => id = next,
+                            None => break,
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        if let Some(doc) = self.doc.as_mut() {
+            doc.dirty = true;
+        }
+    }
+
     /// Hidden CLI automation: --demo, --save, --screenshot.
     pub(super) fn automation(&mut self, ctx: &egui::Context) {
-        if self.cli.demo || self.cli.save.is_some() || self.cli.screenshot.is_some() {
+        if self.cli.demo
+            || self.cli.values.is_some()
+            || self.cli.save.is_some()
+            || self.cli.screenshot.is_some()
+        {
         } else {
             return;
         }
@@ -36,6 +110,9 @@ impl App {
                             e.f = f;
                         }
                         doc.dirty = true;
+                    }
+                    if let Some(path) = self.cli.values.clone() {
+                        self.fill_values(&path);
                     }
                     if self.cli.ask_remember {
                         let doc = self.doc.as_mut().unwrap();

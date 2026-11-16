@@ -6,6 +6,15 @@
 
 <p align="center"><b>Fill in PDF forms the way they were meant to be filled in.</b></p>
 
+<p align="center">
+  <a href="https://github.com/kjellberg/pdfr/actions/workflows/ci.yml"><img src="https://github.com/kjellberg/pdfr/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/kjellberg/pdfr/releases"><img src="https://img.shields.io/github/v/release/kjellberg/pdfr?include_prereleases&sort=semver&color=E5336D" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/Linux-first-FF9259?logo=linux&logoColor=white" alt="Linux first">
+  <a href="https://omarchy.org"><img src="https://img.shields.io/badge/made_for-Omarchy-2B1533" alt="Made for Omarchy"></a>
+  <img src="https://img.shields.io/badge/100%25-Rust-B7410E?logo=rust&logoColor=white" alt="100% Rust">
+  <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-free_for_personal_use-555" alt="Free for personal use"></a>
+</p>
+
 pdfr is a fast, friendly PDF viewer for filling in forms: tax forms, school
 applications, permits, anything with boxes to fill. Click a box, type, and
 your text lands neatly inside it at the right size. That's it.
@@ -15,9 +24,9 @@ and right at home on [Omarchy](https://omarchy.org). macOS and Windows are
 on the way.
 
 <p align="center">
-  <img src="docs/media/fill.gif" width="720" alt="Typing into a form in pdfr: the name lands in its box, the ID number fills one letter per square, and the date flows across the day, month and year boxes.">
+  <img src="docs/media/fill.gif" width="720" alt="Typing into a scanned paper form in pdfr: the name lands in its box, the date flows across the day, month and year squares, the ID number fills one digit per square, and a checkbox is ticked.">
   <br>
-  <sub>Click and type. <a href="docs/media/fill.mp4">Watch in higher quality</a></sub>
+  <sub>Click and type, even on a scanned paper form. <a href="docs/media/fill.mp4">Watch in higher quality</a></sub>
 </p>
 
 ---
@@ -44,7 +53,9 @@ pdfr fixes that.
   the screen, and other PDF apps can still open and edit it.
 
 <p align="center">
-  <img src="docs/media/form.png" width="640" alt="A filled-in form in pdfr: text sits neatly inside each box, one character per square in the ID and date boxes.">
+  <img src="docs/media/scanned.jpg" width="680" alt="A scanned, slightly crooked paper form filled in with pdfr: names, an address and an e-mail sit in their boxes, dates and ID numbers fill one character per square, a household table and checkboxes are filled in.">
+  <br>
+  <sub>A scanned paper form (slightly crooked, grainy) filled in with pdfr. Every box was found automatically.</sub>
 </p>
 
 ### Fast
@@ -58,8 +69,32 @@ pages.
 pdfr runs on any Linux distribution and desktop: GNOME, KDE Plasma, Cosmic,
 XFCE, Cinnamon, Hyprland, Sway and the rest, on Wayland or X11. It follows
 your desktop's light or dark mode, uses its own file and print dialogs, and
-shows up in your app launcher and under "Open with". On Omarchy it even
-takes on your theme and switches live when you change it.
+shows up in your app launcher and under "Open with".
+
+### Made for Omarchy
+
+pdfr was born on [Omarchy](https://omarchy.org). It takes on your Omarchy
+theme, toolbar, highlights and all, and switches the moment you change
+themes. It opens from Super+Space, and it feels like it came with the system.
+
+<table>
+  <tr>
+    <td><img src="docs/media/omarchy-tokyo-night.jpg" alt="pdfr in the Tokyo Night theme"></td>
+    <td><img src="docs/media/omarchy-catppuccin-latte.jpg" alt="pdfr in the Catppuccin Latte theme"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Tokyo Night</sub></td>
+    <td align="center"><sub>Catppuccin Latte</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/omarchy-everforest.jpg" alt="pdfr in the Everforest theme"></td>
+    <td><img src="docs/media/omarchy-ristretto.jpg" alt="pdfr in the Ristretto theme"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Everforest</sub></td>
+    <td align="center"><sub>Ristretto</sub></td>
+  </tr>
+</table>
 
 ### Remembers you, privately
 
@@ -75,7 +110,7 @@ and offer them on the next form, in any language.
   numbers are never stored.
 
 <p align="center">
-  <img src="docs/media/remember.gif" width="720" alt="pdfr suggesting remembered names: hovering an empty box shows a sparkle button, the list offers Anna and Erik, arrow keys preview each one, and the next box already suggests Anna's job.">
+  <img src="docs/media/remember.gif" width="720" alt="pdfr suggesting remembered names: hovering an empty box shows a sparkle button, the list offers Anna and Erik, arrow keys preview each one, and the e-mail box already suggests Anna's address.">
   <br>
   <sub>Suggestions, person by person. <a href="docs/media/remember.mp4">Watch in higher quality</a></sub>
 </p>

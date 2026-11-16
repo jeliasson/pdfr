@@ -8,8 +8,9 @@ pkgdesc="Fill in PDF forms the way they were meant to be filled in"
 arch=('x86_64' 'aarch64')
 url="https://github.com/kjellberg/pdfr"
 license=('LicenseRef-PolyForm-Strict-1.0.0')
-# The GUI loads OpenGL/EGL and xkbcommon at run time.
-depends=('gcc-libs' 'glibc' 'libglvnd' 'libxkbcommon' 'hicolor-icon-theme')
+# The GUI loads OpenGL/EGL, xkbcommon and (on X11) the X libraries at run time.
+depends=('gcc-libs' 'glibc' 'libglvnd' 'libxkbcommon' 'libxkbcommon-x11'
+         'libx11' 'libxcursor' 'libxrandr' 'libxi' 'hicolor-icon-theme')
 makedepends=('cargo')
 optdepends=('claude-code: AI recognition of unusual field labels'
             'xdg-desktop-portal: native file and print dialogs')
