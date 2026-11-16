@@ -170,18 +170,18 @@ jobs:
     if: needs.version.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
     env:
-      HAS_TOKEN: ${{ secrets.TAP_TOKEN != '' }}
+      HAS_KEY: ${{ secrets.TAP_DEPLOY_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
-        if: env.HAS_TOKEN == 'true'
+        if: env.HAS_KEY == 'true'
       - uses: actions/checkout@v4
-        if: env.HAS_TOKEN == 'true'
+        if: env.HAS_KEY == 'true'
         with:
           repository: kjellberg/homebrew-tap
-          token: ${{ secrets.TAP_TOKEN }}
+          ssh-key: ${{ secrets.TAP_DEPLOY_KEY }}
           path: tap
       - name: Bump the formula
-        if: env.HAS_TOKEN == 'true'
+        if: env.HAS_KEY == 'true'
         run: |
           v=${{ needs.version.outputs.version }}
           url=https://github.com/kjellberg/pdfr/archive/refs/tags/v$v.tar.gz
@@ -201,7 +201,7 @@ jobs:
     if: needs.version.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
     env:
-      HAS_KEY: ${{ secrets.REPO_GPG_PRIVATE_KEY != '' && secrets.PACKAGES_TOKEN != '' }}
+      HAS_KEY: ${{ secrets.REPO_GPG_PRIVATE_KEY != '' && secrets.PACKAGES_DEPLOY_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
         if: env.HAS_KEY == 'true'
@@ -209,7 +209,7 @@ jobs:
         if: env.HAS_KEY == 'true'
         with:
           repository: kjellberg/packages
-          token: ${{ secrets.PACKAGES_TOKEN }}
+          ssh-key: ${{ secrets.PACKAGES_DEPLOY_KEY }}
           path: site
       - uses: actions/download-artifact@v4
         if: env.HAS_KEY == 'true'

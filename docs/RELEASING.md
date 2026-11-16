@@ -54,23 +54,26 @@ one at a time.
 
 ### Homebrew tap
 
-1. Create the public repository `kjellberg/homebrew-tap`.
-2. Make a fine-grained token with contents write access to it, saved as the secret
-   `TAP_TOKEN`.
+1. The public repository `kjellberg/homebrew-tap`.
+2. A deploy key with write access on it; its private half is the secret
+   `TAP_DEPLOY_KEY`.
 
 ### apt and rpm repositories
 
-1. Create the public repository `kjellberg/packages` and turn on GitHub Pages
-   (branch `main`, root). It is served at <https://kjellberg.github.io/packages>.
-2. Make a signing key just for this (no passphrase, so CI can use it):
+1. The public repository `kjellberg/packages` with GitHub Pages on (branch
+   `main`, root). It is served at <https://kjellberg.github.io/packages>.
+2. A signing key just for this (RSA, which apt, dnf and zypper all accept; no
+   passphrase, so CI can use it), as the secret `REPO_GPG_PRIVATE_KEY`:
 
    ```sh
-   gpg --batch --passphrase '' --quick-gen-key "pdfr packages" ed25519 sign never
-   gpg --armor --export-secret-keys "pdfr packages"   # → secret REPO_GPG_PRIVATE_KEY
+   gpg --batch --passphrase '' --quick-gen-key "pdfr packages" rsa4096 sign never
+   gpg --armor --export-secret-keys "pdfr packages"
    ```
 
-3. A token with contents write access to `kjellberg/packages`, saved as
-   `PACKAGES_TOKEN`.
+   Keep a copy somewhere safe (a password manager): GitHub secrets can't be
+   read back, and a new key means every user has to import it again.
+3. A deploy key with write access on `kjellberg/packages`; its private half
+   is the secret `PACKAGES_DEPLOY_KEY`.
 
 ### Flathub
 
