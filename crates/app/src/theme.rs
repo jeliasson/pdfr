@@ -166,7 +166,12 @@ impl Palette {
         };
         v.panel_fill = self.toolbar;
         v.window_fill = self.window;
-        v.extreme_bg_color = self.canvas;
+        // Text boxes sit a step darker (or lighter) than the window.
+        v.extreme_bg_color = if self.dark {
+            mix(self.window, Color32::BLACK, 0.25)
+        } else {
+            mix(self.window, Color32::WHITE, 0.6)
+        };
         v.faint_bg_color = self.window;
         v.override_text_color = Some(self.text);
         v.selection.bg_fill = self.accent.gamma_multiply(0.6);
@@ -236,7 +241,9 @@ pub fn from_omarchy(text: &str, light_marker: bool, name: &str) -> Option<Palett
         Color32::from_gray(90)
     };
     let toolbar = c("dark_background").unwrap_or_else(|| mix(bg, toward, 0.08));
-    let canvas = c("darker_background").unwrap_or_else(|| mix(bg, toward, 0.18));
+    // The document area wears the theme's own background, so pdfr looks
+    // like the rest of the desktop; white pages stand out on it anyway.
+    let canvas = bg;
     let button = c("lighter_background").unwrap_or_else(|| mix(bg, fg, 0.12));
     let accent = c("accent")
         .or_else(|| c("blue"))
