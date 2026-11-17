@@ -102,6 +102,18 @@ first release and after big changes.
 | Sway, i3 without portals | Wayland / X11 | pdfr's own file dialog, printing message |
 | Any | HiDPI and fractional scaling | sharp text, correct sizes |
 
+## AUR status
+
+AUR account registration was paused when 0.1.0 shipped, so the
+`AUR_SSH_PRIVATE_KEY` secret is unset and the AUR job skips. Once the account
+exists (public key: the `rasmus-macbook-ed25519` key in 1Password), set the
+secret again and restore the `yay -S pdfr-bin` line in the README and on
+pdfr.app:
+
+```bash
+op read "op://Personal/rasmus-macbook-ed25519/private key?ssh-format=openssh" | gh secret set AUR_SSH_PRIVATE_KEY
+```
+
 ## macOS
 
 Released since 0.1.0 (`RELEASE_MACOS=true`), unsigned: the app is signed ad

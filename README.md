@@ -160,11 +160,16 @@ Prices are approximate, in US dollars.
 
 ## Install
 
-**Arch, Omarchy, Manjaro, EndeavourOS** (AUR)
+**Arch, Omarchy, Manjaro, EndeavourOS**
 
 ```sh
-yay -S pdfr-bin
+mkdir -p ~/.local/opt && curl -fsSL https://github.com/kjellberg/pdfr/releases/download/v0.1.0/pdfr-v0.1.0-x86_64-linux.tar.gz | tar xz -C ~/.local/opt
+~/.local/opt/pdfr-v0.1.0-x86_64-linux/pdfr --register
 ```
+
+This adds pdfr to your app launcher, "Open with" and the terminal, and pdfr
+tells you when a new version is out. The AUR package (`yay -S pdfr-bin`)
+follows as soon as the AUR opens new accounts again.
 
 **Debian, Ubuntu, Linux Mint, Pop!_OS**
 
