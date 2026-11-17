@@ -5,6 +5,8 @@ version's section into its GitHub release notes.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-17
+
 ### Added
 
 - First public release.
