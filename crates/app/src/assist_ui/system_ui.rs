@@ -182,7 +182,7 @@ impl AssistState {
                 format!("Could not check: {e}")
             } else if newer {
                 match install.update_hint() {
-                    Some(_) => format!("pdfr {latest} is available. Update with the command on the right."),
+                    Some(cmd) => format!("pdfr {latest} is available. Update in a terminal with:  {cmd}"),
                     None if install.managed() => format!("pdfr {latest} is available from your package manager."),
                     None => format!("pdfr {latest} is available."),
                 }
@@ -195,7 +195,10 @@ impl AssistState {
             let mut download = false;
             setting_row(ui, c, &format!("Version {}", updates::current()), &status, |ui| {
                 if newer && let Some(cmd) = install.update_hint() {
-                    ui.label(RichText::new(cmd).monospace().size(12.0).color(c.text));
+                    if primary_button(ui, c, "Copy command").clicked() {
+                        ui.ctx().copy_text(cmd.to_string());
+                        self.sys.msg = Some((true, "Copied. Paste it into a terminal to update.".into()));
+                    }
                 } else if newer && !install.managed() {
                     download = primary_button(ui, c, "Download").clicked();
                 } else {
@@ -321,7 +324,11 @@ impl AssistState {
                     None if self.sys.install.managed() => "Update it with your package manager.".to_string(),
                     None => format!("You have {}.", updates::current()),
                 },
-                if self.sys.install.managed() { "Got it" } else { "Download" },
+                match self.sys.install.update_hint() {
+                    Some(_) => "Copy command",
+                    None if self.sys.install.managed() => "Got it",
+                    None => "Download",
+                },
                 "Later",
             ),
         };
@@ -362,8 +369,15 @@ impl AssistState {
                 }
             }
             Notice::NewVersion(v) => {
-                if yes && !self.sys.install.managed() {
-                    self.open_releases();
+                if yes {
+                    match self.sys.install.update_hint() {
+                        Some(cmd) => {
+                            ctx.copy_text(cmd.to_string());
+                            self.sys.msg = Some((true, "Copied. Paste it into a terminal to update.".into()));
+                        }
+                        None if !self.sys.install.managed() => self.open_releases(),
+                        None => {}
+                    }
                 }
                 self.a.store.settings.dismissed_version = v;
             }

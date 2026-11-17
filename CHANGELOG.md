@@ -16,8 +16,10 @@ version's section into its GitHub release notes.
   optional AI helper (Claude Code) that sees field labels only.
 - Printing with the system's print dialog.
 - App icon, app menu entry, "Open with" and a default-app setting.
-- Packages for Arch (AUR), Debian and Ubuntu, Fedora and openSUSE, Flatpak,
-  Homebrew, and a tarball for any Linux.
-- macOS app (Apple silicon and Intel), as a disk image. Not notarized yet.
-- An opt-in check for new versions, asked once. Package installs are told
-  the command that updates them.
+- One install line for Linux and macOS
+  (`curl -fsSL https://pdfr.app/install.sh | sh`) that also updates.
+- macOS app (Apple silicon and Intel). Not notarized yet.
+- Downloads: a disk image for macOS, a tarball for any Linux, and `.deb` and
+  `.rpm` packages.
+- An opt-in check for new versions, asked once. The notice shows the line
+  that updates pdfr, with a button to copy it.

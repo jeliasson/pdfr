@@ -160,60 +160,26 @@ Prices are approximate, in US dollars.
 
 ## Install
 
-**Arch, Omarchy, Manjaro, EndeavourOS**
+On **Linux** (any distribution, x86_64 or ARM) and **macOS** (Apple silicon
+or Intel, macOS 12 or newer), in a terminal:
 
 ```sh
-mkdir -p ~/.local/opt && curl -fsSL https://github.com/kjellberg/pdfr/releases/download/v0.1.0/pdfr-v0.1.0-x86_64-linux.tar.gz | tar xz -C ~/.local/opt
-~/.local/opt/pdfr-v0.1.0-x86_64-linux/pdfr --register
+curl -fsSL https://pdfr.app/install.sh | sh
 ```
 
-This adds pdfr to your app launcher, "Open with" and the terminal, and pdfr
-tells you when a new version is out. The AUR package (`yay -S pdfr-bin`)
-follows as soon as the AUR opens new accounts again.
+**Run the same line again to update.** No root needed. On Linux, pdfr goes in
+`~/.local/share/pdfr` and adds itself to your app menu, "Open with" and the
+terminal. On macOS it goes in Applications. pdfr can also tell you when a new
+version is out (it asks first), with the line to run.
 
-**Debian, Ubuntu, Linux Mint, Pop!_OS**
+To remove it: `curl -fsSL https://pdfr.app/install.sh | sh -s -- --uninstall`
 
-```sh
-curl -fsSL https://kjellberg.github.io/packages/pdfr.gpg | sudo tee /usr/share/keyrings/pdfr.gpg >/dev/null
-echo "deb [signed-by=/usr/share/keyrings/pdfr.gpg] https://kjellberg.github.io/packages/deb stable main" | sudo tee /etc/apt/sources.list.d/pdfr.list
-sudo apt update && sudo apt install pdfr
-```
-
-**Fedora, RHEL, AlmaLinux, Rocky**
-
-```sh
-sudo dnf config-manager addrepo --from-repofile=https://kjellberg.github.io/packages/rpm/pdfr.repo
-sudo dnf install pdfr
-```
-
-**openSUSE**
-
-```sh
-sudo zypper addrepo https://kjellberg.github.io/packages/rpm/pdfr.repo
-sudo zypper install pdfr
-```
-
-**Flatpak** (any distribution, including Silverblue, Bazzite and SteamOS):
-coming to Flathub.
-
-**Any other Linux**
-
-Download `pdfr-…-linux.tar.gz` from the
-[releases page](https://github.com/kjellberg/pdfr/releases), unpack it, and run
-`./pdfr --register` to add pdfr to your app menu, "Open with" and the
-terminal (no root needed).
-
-Updates arrive with your normal system updates. pdfr can also tell you when
-a new version is out (it asks first).
-
-**macOS** (Apple silicon and Intel, macOS 12 or newer)
-
-Download `pdfr-…-macos.dmg` from the
-[releases page](https://github.com/kjellberg/pdfr/releases/latest), open it and
-drag pdfr to Applications. pdfr isn't notarized by Apple yet, so the first time
-you open it macOS says it can't check it: click **Done**, then go to **System
-Settings → Privacy & Security**, scroll down and click **Open Anyway**. You
-only do this once.
+Rather download it yourself? The
+[releases page](https://github.com/kjellberg/pdfr/releases/latest) has the
+`.dmg` for macOS (it isn't notarized yet, so the first time, click **Done**,
+then **System Settings → Privacy & Security → Open Anyway**), the `.tar.gz`
+for any Linux (`./pdfr --register` adds it to your app menu), and `.deb` and
+`.rpm` packages.
 
 **Make pdfr your PDF app:** pdfr offers this the first time you start it.
 You can also turn it on later in **Settings → General**.

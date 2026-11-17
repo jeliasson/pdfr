@@ -102,13 +102,26 @@ first release and after big changes.
 | Sway, i3 without portals | Wayland / X11 | pdfr's own file dialog, printing message |
 | Any | HiDPI and fractional scaling | sharp text, correct sizes |
 
-## AUR status
+## The installer and the package managers
 
-AUR account registration was paused when 0.1.0 shipped, so the
-`AUR_SSH_PRIVATE_KEY` secret is unset and the AUR job skips. Once the account
-exists (public key: the `rasmus-macbook-ed25519` key in 1Password), set the
-secret again and restore the `yay -S pdfr-bin` line in the README and on
-pdfr.app:
+Since 0.1.0 pdfr ships through one installer, `packaging/install.sh`, served at
+`https://pdfr.app/install.sh` (the site proxies the newest release's
+`install.sh` asset, which the release job stamps with its version). It
+installs and updates on Linux and macOS, and checks every download against
+`SHA256SUMS`. After each release the `installer` job runs it on Linux and
+macOS: install, run again, uninstall.
+
+The package-manager channels (AUR, Homebrew tap, apt/rpm repositories) are
+built but switched off: their jobs run only when the repository variable
+`PUBLISH_PACKAGES` is `true`. To turn them on:
+
+```bash
+gh variable set PUBLISH_PACKAGES --body true
+```
+
+The AUR also needs its key again (AUR registration was paused when 0.1.0
+shipped; the account's public key is the `rasmus-macbook-ed25519` key in
+1Password):
 
 ```bash
 op read "op://Personal/rasmus-macbook-ed25519/private key?ssh-format=openssh" | gh secret set AUR_SSH_PRIVATE_KEY
@@ -117,7 +130,8 @@ op read "op://Personal/rasmus-macbook-ed25519/private key?ssh-format=openssh" | 
 ## macOS
 
 Released since 0.1.0 (`RELEASE_MACOS=true`), unsigned: the app is signed ad
-hoc, and users click **Open Anyway** once (README, Install). The build has its
+hoc. The installer downloads it with curl, which macOS doesn't quarantine, so
+it opens straight away; from the `.dmg`, users click **Open Anyway** once. The build has its
 own workflow, `.github/workflows/build-macos.yml`, which mounts the disk image
 and starts the app; run it by hand with
 `gh workflow run build-macos.yml -f version=0.0.0-test` to try a change.

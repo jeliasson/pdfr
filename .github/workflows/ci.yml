@@ -58,6 +58,13 @@ jobs:
             exit 1
           }
 
+  installer:
+    name: Installer script
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck -s sh packaging/install.sh
+
   # The Linux packages, installed and started on several distributions.
   linux:
     name: Linux packages

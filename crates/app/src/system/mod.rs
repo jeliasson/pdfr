@@ -27,6 +27,10 @@ use windows as os;
 pub const APP_ID: &str = "io.github.kjellberg.pdfr";
 pub const RELEASES_URL: &str = "https://github.com/kjellberg/pdfr/releases";
 
+/// Installs pdfr, or updates it in place, on Linux and macOS
+/// (`packaging/install.sh`, served at pdfr.app).
+pub const INSTALL_COMMAND: &str = "curl -fsSL https://pdfr.app/install.sh | sh";
+
 /// The icon, pre-rendered at the sizes desktops ask for.
 pub const ICONS: &[(u32, &[u8])] = &[
     (16, include_bytes!("../../../../assets/icon/png/pdfr-16.png")),
@@ -99,8 +103,9 @@ pub enum InstallKind {
     Package,
     Homebrew,
     Flatpak,
-    /// A downloaded archive or installer, or a build from source that was
-    /// copied somewhere.
+    /// Installed with `install.sh`, a downloaded archive or disk image, or a
+    /// build from source that was copied somewhere. On Linux and macOS the
+    /// install command updates it.
     Direct,
     /// Run from a Cargo `target` folder (`cargo run`). Never offers to
     /// register itself, become the default app or check for updates: it
@@ -129,6 +134,7 @@ impl InstallKind {
             InstallKind::Rpm => "sudo dnf upgrade",
             InstallKind::Homebrew => "brew upgrade pdfr",
             InstallKind::Flatpak => "flatpak update",
+            InstallKind::Direct if cfg!(unix) => INSTALL_COMMAND,
             InstallKind::Package | InstallKind::Direct | InstallKind::Dev => return None,
         })
     }
@@ -242,6 +248,15 @@ mod tests {
         let i = window_icon().expect("icon");
         assert_eq!((i.width, i.height), (256, 256));
         assert_eq!(i.rgba.len(), 256 * 256 * 4);
+    }
+
+    #[test]
+    fn downloaded_installs_update_with_the_install_line() {
+        if cfg!(unix) {
+            assert_eq!(InstallKind::Direct.update_hint(), Some(INSTALL_COMMAND));
+        }
+        assert_eq!(InstallKind::Dev.update_hint(), None);
+        assert!(InstallKind::Direct.checks_for_updates());
     }
 
     #[test]

@@ -1,9 +1,12 @@
 # Runs when a version tag is pushed (tools/release.sh makes one):
 #   1. builds and tries the Linux packages (build-linux.yml)
-#   2. publishes a GitHub release with them, SHA256SUMS and the changelog
-#   3. for stable versions, updates the AUR, the Homebrew tap and the apt/rpm
-#      repositories. Each step is skipped while its secret is missing; see
-#      docs/RELEASING.md for the one-time setup.
+#   2. publishes a GitHub release with them, the macOS app, install.sh (the
+#      installer pdfr.app serves), SHA256SUMS and the changelog
+#   3. runs the released installer on Linux and macOS
+#   4. for stable versions, and only while the variable PUBLISH_PACKAGES is
+#      true, updates the AUR, the Homebrew tap and the apt/rpm repositories.
+#      Each of those is also skipped while its secret is missing; see
+#      docs/RELEASING.md.
 # Tags with a "-" (v0.2.0-rc1) make a pre-release and publish nowhere else.
 # macOS and Windows builds are switched on with the repository variables
 # RELEASE_MACOS / RELEASE_WINDOWS once they are tested.
@@ -89,8 +92,11 @@ jobs:
           merge-multiple: true
       - name: Checksums and notes
         run: |
-          cd artifacts && sha256sum * > SHA256SUMS && cat SHA256SUMS && cd ..
           v=${{ needs.version.outputs.version }}
+          # The installer pdfr.app serves, with this version stamped in.
+          sed "s/^VERSION=\"@VERSION@\"$/VERSION=\"$v\"/" packaging/install.sh > artifacts/install.sh
+          grep -q "^VERSION=\"$v\"$" artifacts/install.sh
+          cd artifacts && sha256sum * > SHA256SUMS && cat SHA256SUMS && cd ..
           awk -v v="${v%%-*}" '
             $0 ~ "^## \\[" v "\\]" {on=1; next}
             on && /^## / {exit}
@@ -98,11 +104,16 @@ jobs:
           [ -s notes.md ] || echo "pdfr $v" > notes.md
           cat >> notes.md <<'MD'
 
-          ### Install
+          ### Install or update
 
-          See the [README](https://github.com/kjellberg/pdfr#install) for every distribution.
-          From this page: the `.deb` (Debian, Ubuntu), `.rpm` (Fedora, openSUSE), or the
-          `.tar.gz` for any Linux (`./pdfr --register` adds it to your app menu).
+          On Linux and macOS:
+
+          ```sh
+          curl -fsSL https://pdfr.app/install.sh | sh
+          ```
+
+          Or download a file below: the `.dmg` for macOS, the `.tar.gz` for any Linux
+          (`./pdfr --register` adds it to your app menu), or the `.deb` / `.rpm`.
           MD
       - uses: softprops/action-gh-release@v2
         with:
@@ -110,10 +121,36 @@ jobs:
           body_path: notes.md
           prerelease: ${{ needs.version.outputs.prerelease == 'true' }}
 
+  # The released installer, run the way users run it: install, run again
+  # (up to date), uninstall.
+  installer:
+    name: Try the installer (${{ matrix.os }})
+    needs: [version, release]
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Install, update, uninstall
+        env:
+          V: ${{ needs.version.outputs.version }}
+        run: |
+          set -eux
+          curl -fsSL "https://github.com/${{ github.repository }}/releases/download/v$V/install.sh" -o install.sh
+          sh install.sh
+          export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
+          pdfr --version
+          sh install.sh | tee second.txt
+          if [ "$V" = "${V%%-*}" ]; then grep -q "up to date" second.txt; fi
+          sh install.sh --uninstall
+          ! command -v pdfr
+
   aur:
     name: Publish to the AUR
     needs: [version, release]
-    if: needs.version.outputs.prerelease == 'false'
+    if: needs.version.outputs.prerelease == 'false' && vars.PUBLISH_PACKAGES == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -151,7 +188,7 @@ jobs:
   homebrew:
     name: Update the Homebrew tap
     needs: [version, release]
-    if: needs.version.outputs.prerelease == 'false'
+    if: needs.version.outputs.prerelease == 'false' && vars.PUBLISH_PACKAGES == 'true'
     runs-on: ubuntu-latest
     env:
       HAS_KEY: ${{ secrets.TAP_DEPLOY_KEY != '' }}
@@ -182,7 +219,7 @@ jobs:
   repos:
     name: Update the apt and rpm repositories
     needs: [version, release]
-    if: needs.version.outputs.prerelease == 'false'
+    if: needs.version.outputs.prerelease == 'false' && vars.PUBLISH_PACKAGES == 'true'
     runs-on: ubuntu-latest
     env:
       HAS_KEY: ${{ secrets.REPO_GPG_PRIVATE_KEY != '' && secrets.PACKAGES_DEPLOY_KEY != '' }}
