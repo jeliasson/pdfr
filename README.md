@@ -20,7 +20,7 @@ applications, permits, anything with boxes to fill. Click a box, type, and
 your text lands neatly inside it at the right size. That's it.
 
 Free for personal use. **Born on [Omarchy](https://omarchy.org), fits every
-distro**: any distribution, any desktop. macOS and Windows are on the way.
+distro**: any distribution, any desktop. Now on macOS too; Windows is on the way.
 
 <p align="center">
   <img src="docs/media/fill.gif" width="720" alt="Typing into a scanned paper form in pdfr: the name lands in its box, the date flows across the day, month and year squares, the ID number fills one digit per square, and a checkbox is ticked.">
@@ -132,7 +132,7 @@ The big PDF editors do a lot more. Here's an honest side-by-side.
 | One letter per square, automatically | ✅ | ➖ | ➖ | ➖ |
 | Remembers each person separately | ✅ | ❌ | ❌ | ❌ |
 | Linux | ✅ | ❌ | ❌ | ❌ |
-| macOS | 🔜 | ✅ | ✅ | ❌ |
+| macOS | ✅ | ✅ | ✅ | ❌ |
 | Windows | 🔜 | ✅ | ✅ | ✅ |
 | Price | Free¹ | $20/mo | $11/mo | One-time² |
 
@@ -201,6 +201,15 @@ terminal (no root needed).
 Updates arrive with your normal system updates. pdfr can also tell you when
 a new version is out (it asks first).
 
+**macOS** (Apple silicon and Intel, macOS 12 or newer)
+
+Download `pdfr-…-macos.dmg` from the
+[releases page](https://github.com/kjellberg/pdfr/releases/latest), open it and
+drag pdfr to Applications. pdfr isn't notarized by Apple yet, so the first time
+you open it macOS says it can't check it: click **Done**, then go to **System
+Settings → Privacy & Security**, scroll down and click **Open Anyway**. You
+only do this once.
+
 **Make pdfr your PDF app:** pdfr offers this the first time you start it.
 You can also turn it on later in **Settings → General**.
 
@@ -262,6 +271,8 @@ You can also turn it on later in **Settings → General**.
   (pdfr doesn't read scanned text yet).
 - Password-protected PDFs, signature fields and some unusual form types.
 - Alphabets beyond Latin, Greek and Cyrillic (for example Chinese or Arabic).
+- macOS is new: the app isn't notarized yet (see [Install](#install)) and
+  hasn't seen many Macs. Reports are very welcome.
 
 Found a bug or a form that doesn't work?
 [Open an issue](https://github.com/kjellberg/pdfr/issues). A sample PDF helps a lot

@@ -102,9 +102,13 @@ first release and after big changes.
 | Sway, i3 without portals | Wayland / X11 | pdfr's own file dialog, printing message |
 | Any | HiDPI and fractional scaling | sharp text, correct sizes |
 
-## macOS (later, on a Mac)
+## macOS
 
-The code builds in CI (`cargo test` on macOS); the app bundle is prepared:
+Released since 0.1.0 (`RELEASE_MACOS=true`), unsigned: the app is signed ad
+hoc, and users click **Open Anyway** once (README, Install). The build has its
+own workflow, `.github/workflows/build-macos.yml`, which mounts the disk image
+and starts the app; run it by hand with
+`gh workflow run build-macos.yml -f version=0.0.0-test` to try a change.
 
 - `packaging/macos/Info.plist`: bundle id `io.github.kjellberg.pdfr`, opens PDFs,
   so it appears under "Open With".
@@ -114,11 +118,11 @@ The code builds in CI (`cargo test` on macOS); the app bundle is prepared:
 - `packaging/homebrew/pdfr-cask.rb`: the cask (`brew install --cask pdfr`), which
   also puts `pdfr` on the PATH.
 
-To finish: run `make_app.sh` on the Mac, open the app, and check opening from
+Still to check on a real Mac: opening from
 Finder (double-click, Open With, dropping on the Dock icon), the default-app
-button, printing, and the menu bar. Then set the repository variable
-`RELEASE_MACOS=true`. Signing needs an Apple Developer ID ($99/year); without
-it, recommend the Homebrew cask.
+button, printing, and the menu bar. Notarizing needs an Apple Developer ID
+($99/year) and the six `APPLE_*` secrets; `make_app.sh` then signs and
+notarizes by itself.
 
 ## Windows (later, on a PC)
 

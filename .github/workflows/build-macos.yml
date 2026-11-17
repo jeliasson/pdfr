@@ -1,0 +1,58 @@
+name: macOS app
+
+# pdfr.app (Apple silicon and Intel in one), as a .zip and a .dmg. Called by
+# release.yml; also runnable by hand to try the macOS build without a release:
+#   gh workflow run build-macos.yml -f version=0.0.0-test
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to stamp into the app
+        default: 0.0.0-test
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Build pdfr.app and the disk image
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: packaging/macos/make_app.sh ${{ inputs.version }} dist
+      - name: Try it
+        # Mount the disk image, check the app is universal and signed, and
+        # start it far enough to print its version.
+        run: |
+          set -euo pipefail
+          v=${{ inputs.version }}
+          mnt=$(hdiutil attach "dist/pdfr-v$v-macos.dmg" -nobrowse | tail -1 | awk -F'\t' '{print $NF}')
+          app="$mnt/pdfr.app"
+          lipo -archs "$app/Contents/MacOS/pdfr"
+          lipo -archs "$app/Contents/MacOS/pdfr" | grep -q arm64
+          lipo -archs "$app/Contents/MacOS/pdfr" | grep -q x86_64
+          codesign --verify --deep --strict "$app"
+          plutil -lint "$app/Contents/Info.plist"
+          "$app/Contents/MacOS/pdfr" --version
+          hdiutil detach "$mnt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*

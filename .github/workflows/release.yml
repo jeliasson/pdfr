@@ -49,26 +49,10 @@ jobs:
     name: macOS app
     needs: version
     if: vars.RELEASE_MACOS == 'true'
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
-      - uses: Swatinem/rust-cache@v2
-      - name: Build pdfr.app and the disk image
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-        run: packaging/macos/make_app.sh ${{ needs.version.outputs.version }} dist
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos
-          path: dist/*
+    uses: ./.github/workflows/build-macos.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+    secrets: inherit
 
   windows:
     name: Windows installer

@@ -16,5 +16,6 @@ version's section into its GitHub release notes.
 - App icon, app menu entry, "Open with" and a default-app setting.
 - Packages for Arch (AUR), Debian and Ubuntu, Fedora and openSUSE, Flatpak,
   Homebrew, and a tarball for any Linux.
+- macOS app (Apple silicon and Intel), as a disk image. Not notarized yet.
 - An opt-in check for new versions, asked once. Package installs are told
   the command that updates them.

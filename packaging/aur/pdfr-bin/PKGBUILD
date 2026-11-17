@@ -1,4 +1,4 @@
-# Maintainer: Rasmus Kjellberg <ADD-YOUR-EMAIL>
+# Maintainer: Rasmus Kjellberg <2277443+kjellberg@users.noreply.github.com>
 # The prebuilt release binaries: installs in seconds, no Rust needed.
 # The release workflow updates pkgver and sha256sums and pushes to the AUR.
 pkgname=pdfr-bin
