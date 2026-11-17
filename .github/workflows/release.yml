@@ -145,7 +145,7 @@ jobs:
           sh install.sh | tee second.txt
           if [ "$V" = "${V%%-*}" ]; then grep -q "up to date" second.txt; fi
           sh install.sh --uninstall
-          ! command -v pdfr
+          hash -r; ! command -v pdfr
 
   aur:
     name: Publish to the AUR
