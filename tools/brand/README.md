@@ -1,7 +1,7 @@
 # Brand sources
 
-The app icon is a form field where "pdf" has been typed and the caret waits
-for the "r". The finished, path-only SVGs live in `assets/icon/`; nothing
+The app icon is a form field where "pdfr" has just been typed (the "r" in
+coral, like the wordmark), with the caret after it. The finished, path-only SVGs live in `assets/icon/`; nothing
 here is needed to build pdfr.
 
 To change the icon:
