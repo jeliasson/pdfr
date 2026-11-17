@@ -6,6 +6,8 @@
 
 <p align="center"><b>Fill in PDF forms the way they were meant to be filled in.</b></p>
 
+<p align="center"><a href="https://pdfr.app"><b>pdfr.app</b></a> · <a href="#install">Install</a> · <a href="https://github.com/kjellberg/pdfr/releases">Releases</a></p>
+
 <p align="center">
   <a href="https://github.com/kjellberg/pdfr/actions/workflows/ci.yml"><img src="https://github.com/kjellberg/pdfr/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/kjellberg/pdfr/releases"><img src="https://img.shields.io/github/v/release/kjellberg/pdfr?include_prereleases&sort=semver&color=E5336D" alt="Latest release"></a>
@@ -21,6 +23,7 @@ your text lands neatly inside it at the right size. That's it.
 
 Free for personal use. **Born on [Omarchy](https://omarchy.org), fits every
 distro**: any distribution, any desktop. Now on macOS too; Windows is on the way.
+See it in action and install it at **[pdfr.app](https://pdfr.app)**.
 
 <p align="center">
   <img src="docs/media/fill.gif" width="720" alt="Typing into a scanned paper form in pdfr: the name lands in its box, the date flows across the day, month and year squares, the ID number fills one digit per square, and a checkbox is ticked.">
