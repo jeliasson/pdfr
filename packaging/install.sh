@@ -51,7 +51,7 @@ fetch() {
 }
 
 latest() {
-	curl -fsSL --proto '=https' --tlsv1.2 "https://api.github.com/repos/$REPO/releases/latest" |
+	curl -fsSL --proto '=https' --tlsv1.2 "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null |
 		sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' | head -n 1
 }
 
@@ -219,7 +219,7 @@ if [ -z "$want" ]; then
 	esac
 fi
 want=${want#v}
-[ -n "$want" ] || die "could not find the newest version (is GitHub reachable?)"
+[ -n "$want" ] || die "could not find a pdfr release (no stable release yet, or GitHub is unreachable). See https://github.com/$REPO/releases"
 base="https://github.com/$REPO/releases/download/v$want"
 
 tmp=$(mktemp -d 2>/dev/null || mktemp -d -t pdfr)
