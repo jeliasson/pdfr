@@ -33,6 +33,7 @@
       <Component Id="Licences" Guid="*">
         <File Source="..\..\LICENSE.md" />
         <File Source="..\..\assets\LICENSE-Inter.txt" />
+        <File Source="..\..\assets\LICENSE-GreatVibes.txt" />
         <File Source="..\..\assets\THIRD-PARTY-NOTICES.txt" />
         <RegistryValue Root="HKCU" Key="Software\pdfr" Name="Licences" Type="integer" Value="1" KeyPath="yes" />
       </Component>

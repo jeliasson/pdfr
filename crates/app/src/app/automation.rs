@@ -124,6 +124,12 @@ impl App {
                         let doc = self.doc.as_mut().unwrap();
                         self.assist.show_remember_dialog(doc);
                     }
+                    if let Some(name) = self.cli.sign.clone() {
+                        self.open_sign(false, None);
+                        if let Some(d) = self.sign.as_mut() {
+                            d.type_name(&name);
+                        }
+                    }
                     self.auto_stage = 1;
                     self.auto_frames = 0;
                 }
@@ -131,8 +137,16 @@ impl App {
             1 => {
                 self.auto_frames += 1;
                 // Dialogs fade in: give them time before a screenshot.
-                let settle = if self.cli.ask_remember { 40 } else { 5 };
-                let rendered = if empty { self.auto_frames > 20 } else { self.all_visible_rendered(ppp) };
+                let settle = if self.cli.ask_remember || self.cli.sign.is_some() {
+                    40
+                } else {
+                    5
+                };
+                let rendered = if empty {
+                    self.auto_frames > 20
+                } else {
+                    self.all_visible_rendered(ppp)
+                };
                 if rendered && self.auto_frames > settle {
                     if let Some(path) = self.cli.screenshot.clone() {
                         let (tx, rx) = channel();

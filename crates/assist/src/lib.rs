@@ -363,7 +363,7 @@ impl Assistant {
         let mut meanings: Vec<Option<Meaning>> = vec![None; fields.len()];
         let mut unresolved = Vec::new();
         for (i, f) in fields.iter().enumerate() {
-            if f.kind.is_toggle() || f.kind.is_password() {
+            if f.kind.is_toggle() || f.kind.is_signature() || f.kind.is_password() {
                 continue;
             }
             let Some(label) = &info[i].label else {
@@ -629,7 +629,7 @@ impl Assistant {
     /// Suggestions for field `i`, most confident first. Fit to the field.
     pub fn suggestions(&self, an: &Analysis, fields: &[Field], i: usize) -> Vec<String> {
         let f = &fields[i];
-        if f.read_only || f.kind.is_toggle() || f.kind.is_password() {
+        if f.read_only || f.kind.is_toggle() || f.kind.is_signature() || f.kind.is_password() {
             return vec![];
         }
         let same_form = self
@@ -800,7 +800,7 @@ impl Assistant {
         order.sort_by_key(|&i| (an.person.get(i).copied().flatten().unwrap_or(usize::MAX), i));
         for i in order {
             let f = &sim[i];
-            if !f.is_empty() || f.read_only || f.kind.is_toggle() {
+            if !f.is_empty() || f.read_only || f.kind.is_toggle() || f.kind.is_signature() {
                 continue;
             }
             if let Some(v) = self.confident(an, &sim, i) {
@@ -1020,6 +1020,7 @@ impl Assistant {
     fn learnable(f: &Field, skip: bool) -> bool {
         !(skip
             || f.kind.is_toggle()
+            || f.kind.is_signature()
             || f.kind.is_password()
             || f.value.trim().is_empty()
             || is_card_number(&f.value))

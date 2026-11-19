@@ -452,6 +452,9 @@ pub fn save(fd: &FormDoc, fields: &[Field]) -> Result<Vec<u8>, SaveError> {
         return Err(SaveError::ReadOnly);
     };
     let mut d = orig.clone();
+    // pdfr's earlier signature annotations are written afresh from `fields`
+    // (they may have been moved, resized or removed).
+    crate::signature::remove_all(&mut d, &fd.page_ids);
     let originals: HashMap<ObjId, &Field> = fd
         .fields
         .iter()
@@ -522,16 +525,21 @@ pub fn save(fd: &FormDoc, fields: &[Field]) -> Result<Vec<u8>, SaveError> {
                             *e = Some(state);
                         }
                     }
+                    FieldKind::Signature { .. } => {}
                 }
             }
             Origin::Detected | Origin::Manual => {
                 if f.is_empty() {
                     continue; // detected fields are saved only if filled
                 }
-                new_count += 1;
                 let Some(&page_id) = fd.page_ids.get(f.page) else {
                     continue;
                 };
+                if f.kind.is_signature() {
+                    crate::signature::write(&mut d, page_id, f, &geom);
+                    continue;
+                }
+                new_count += 1;
                 let mut k = new_count;
                 let name = loop {
                     let n = format!("pdfr_p{}_{}", f.page + 1, k);
@@ -614,7 +622,9 @@ pub fn save(fd: &FormDoc, fields: &[Field]) -> Result<Vec<u8>, SaveError> {
                         let wid = d.add_object(w);
                         attach(&mut d, page_id, form, wid)?;
                     }
-                    FieldKind::Radio { .. } | FieldKind::Choice { .. } => {
+                    FieldKind::Radio { .. }
+                    | FieldKind::Choice { .. }
+                    | FieldKind::Signature { .. } => {
                         // Detection never produces these.
                         let _ = (FF_RADIO, FF_NO_TOGGLE_OFF);
                     }

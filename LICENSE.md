@@ -15,8 +15,8 @@ below without changes. In short:
 - **You may not distribute pdfr or changed versions of it**, including
   versions changed to remove the registration reminder.
 
-The bundled Inter font is under its own licence (assets/LICENSE-Inter.txt),
-and the Rust libraries pdfr is built with are under their own licences
+The bundled Inter and Great Vibes fonts are under their own licences
+(assets/LICENSE-Inter.txt, assets/LICENSE-GreatVibes.txt), and the Rust libraries pdfr is built with are under their own licences
 (assets/THIRD-PARTY-NOTICES.txt).
 
 ---

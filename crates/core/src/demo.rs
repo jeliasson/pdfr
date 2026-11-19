@@ -30,6 +30,7 @@ pub fn fill_demo(fields: &mut [Field]) {
                 }
             }
             FieldKind::Checkbox { .. } => f.checked = i % 2 == 0,
+            FieldKind::Signature { .. } => {}
             FieldKind::Radio { group, .. } => {
                 if radio_groups.insert(group.clone()) {
                     f.checked = true;

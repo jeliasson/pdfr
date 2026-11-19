@@ -45,6 +45,10 @@ pub struct Settings {
     /// A newer version the user dismissed; not shown again.
     #[serde(default)]
     pub dismissed_version: String,
+    /// New signatures are locked into the page when saving, instead of
+    /// being annotations other PDF apps can move.
+    #[serde(default)]
+    pub lock_signatures: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -74,6 +78,7 @@ impl Default for Settings {
             update_checked_at: 0,
             latest_version: String::new(),
             dismissed_version: String::new(),
+            lock_signatures: false,
         }
     }
 }
@@ -86,6 +91,21 @@ pub struct Usage {
     /// Per call: (labels sent, input tokens, output tokens).
     #[serde(default)]
     pub log: Vec<(usize, u64, u64)>,
+}
+
+/// A signature or initials kept for next time (only when the user asks).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct SavedSignature {
+    pub id: u64,
+    /// The person it belongs to (`Profile::id`), if chosen.
+    #[serde(default)]
+    pub person: Option<u64>,
+    #[serde(default)]
+    pub initials: bool,
+    /// The drawing, as `pdfr_core::signature::Ink::encode` text.
+    pub ink: String,
+    #[serde(default)]
+    pub last_used: u64,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -112,6 +132,9 @@ pub struct Store {
     pub settings: Settings,
     #[serde(default)]
     pub usage: Usage,
+    /// Signatures and initials saved for next time.
+    #[serde(default)]
+    pub signatures: Vec<SavedSignature>,
 }
 
 pub fn now() -> u64 {
@@ -251,6 +274,40 @@ impl Store {
         self.values.clear();
         self.forms.clear();
         self.profiles.clear();
+        self.signatures.clear();
+    }
+
+    /// Keeps a signature (or initials) for next time; returns its id.
+    pub fn add_signature(&mut self, person: Option<u64>, initials: bool, ink: String) -> u64 {
+        // The same drawing saved twice is kept once.
+        if let Some(s) = self
+            .signatures
+            .iter_mut()
+            .find(|s| s.ink == ink && s.initials == initials)
+        {
+            s.person = person.or(s.person);
+            s.last_used = now();
+            return s.id;
+        }
+        let id = self.signatures.iter().map(|s| s.id).max().unwrap_or(0) + 1;
+        self.signatures.push(SavedSignature {
+            id,
+            person,
+            initials,
+            ink,
+            last_used: now(),
+        });
+        id
+    }
+
+    pub fn touch_signature(&mut self, id: u64) {
+        if let Some(s) = self.signatures.iter_mut().find(|s| s.id == id) {
+            s.last_used = now();
+        }
+    }
+
+    pub fn forget_signature(&mut self, id: u64) {
+        self.signatures.retain(|s| s.id != id);
     }
 
     pub fn forget_profile(&mut self, id: u64) {
@@ -268,6 +325,7 @@ impl Store {
             }
         }
         self.profiles.retain(|p| p.id != id);
+        self.signatures.retain(|s| s.person != Some(id));
     }
 
     pub fn vocabulary(&self) -> Vec<String> {

@@ -10,6 +10,7 @@ pub(super) const BOX_KEYS: &[(&str, &str)] = &[
     ("Take the suggestion", "Tab, Enter or →"),
     ("Browse suggestions", "↑ / ↓"),
     ("Tick a checkbox", "Space"),
+    ("Remove a selected signature", "Delete"),
     ("Open a drop-down", "Space, Enter or Alt+↓"),
     ("Pick in a drop-down", "↑ / ↓ or a letter, Enter"),
     ("Delete a word", "Ctrl+Backspace"),
@@ -28,6 +29,7 @@ impl App {
             || self.license.modal_open()
             || self.overlay.is_some()
             || self.hints.is_some()
+            || self.sign.is_some()
     }
 
     pub fn focus_field(&mut self, id: u64, caret_end: bool, ctx: &egui::Context) {
@@ -134,6 +136,10 @@ impl App {
             };
             let field = doc.entries[i].f.clone();
             let editable = doc.form.editable() && !field.read_only;
+            // A selected signature takes keys only (Delete removes it).
+            if field.kind.is_signature() && !matches!(ev, Event::Key { .. }) {
+                continue;
+            }
             match ev {
                 Event::Text(t) => {
                     if editable && field.kind.is_fixed_choice() {
@@ -195,7 +201,12 @@ impl App {
         if self
             .doc
             .as_ref()
-            .and_then(|d| d.index_of(fid).map(|i| d.entries[i].f.kind.is_toggle()))
+            .and_then(|d| {
+                d.index_of(fid).map(|i| {
+                    let k = &d.entries[i].f.kind;
+                    k.is_toggle() || k.is_signature()
+                })
+            })
             .unwrap_or(false)
         {
             return;
@@ -252,6 +263,18 @@ impl App {
             return;
         }
         if editable && self.choice_key(key, m, field) {
+            return;
+        }
+        if field.kind.is_signature() {
+            match key {
+                Key::Delete | Key::Backspace if editable => self.remove_field(fid),
+                Key::Tab | Key::Enter => self.move_focus(shift, ctx),
+                Key::Escape => {
+                    self.focus = None;
+                    ctx.memory_mut(|mm| mm.surrender_focus(Id::unique(EDITOR_ID)));
+                }
+                _ => {}
+            }
             return;
         }
         match key {

@@ -338,3 +338,103 @@ fn print_copy_draws_values_into_the_page() {
         runs.iter().map(|r| &r.text).collect::<Vec<_>>()
     );
 }
+
+/// Pixels in `r` (display points, page rendered at 1 px/pt) drawn in ink.
+fn inked_pixels(bytes: &[u8], r: Rect) -> usize {
+    let pdf = pdfr_core::render::open(bytes.to_vec()).unwrap();
+    let pages = pdf.pages();
+    let cache = pdfr_core::render::RenderCache::new();
+    let img = pdfr_core::render::render_page(pages.first().unwrap(), &cache, 1.0);
+    let mut n = 0;
+    for y in r.y0 as u32..r.y1 as u32 {
+        for x in r.x0 as u32..r.x1 as u32 {
+            let i = ((y * img.width + x) * 4) as usize;
+            let p = &img.rgba[i..i + 3];
+            // Ink is dark and bluish.
+            if p[2] as i32 > p[0] as i32 + 20 && p[0] < 160 {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+#[test]
+fn signatures_saved_editable_or_locked_on_every_rotation() {
+    use pdfr_core::signature::Ink;
+    use std::sync::Arc;
+    for name in ["flat_form.pdf", "flat_rotated.pdf"] {
+        let fd = FormDoc::open(sample(name)).unwrap();
+        let ink = Arc::new(Ink::typed("Anna Lindqvist"));
+        let drawn = Arc::new(Ink::from_drawing(
+            &[vec![[0.0, 10.0], [20.0, 0.0], [40.0, 12.0], [60.0, 2.0]]],
+            2.0,
+        ));
+        let r1 = ink.fit(&Rect::new(300.0, 600.0, 500.0, 640.0));
+        let r2 = drawn.fit(&Rect::new(60.0, 700.0, 200.0, 740.0));
+        let editable = Field::new_signature(0, r1, ink.clone(), false);
+        let locked = Field::new_signature(0, r2, drawn.clone(), true);
+        let bytes = save(&fd, &[editable.clone(), locked]).unwrap();
+        assert!(
+            inked_pixels(&bytes, r1) > 50,
+            "{name}: editable signature drawn"
+        );
+        assert!(
+            inked_pixels(&bytes, r2) > 20,
+            "{name}: locked signature drawn"
+        );
+
+        // Only the editable one comes back as a field, where it was put.
+        let fd2 = FormDoc::open(bytes.clone()).unwrap();
+        let sigs: Vec<&Field> = fd2
+            .fields
+            .iter()
+            .filter(|f| f.kind.is_signature())
+            .collect();
+        assert_eq!(sigs.len(), 1, "{name}");
+        for (a, b) in [
+            (sigs[0].rect.x0, r1.x0),
+            (sigs[0].rect.y0, r1.y0),
+            (sigs[0].rect.x1, r1.x1),
+            (sigs[0].rect.y1, r1.y1),
+        ] {
+            assert!((a - b).abs() < 0.01, "{name}: {:?} vs {r1:?}", sigs[0].rect);
+        }
+        let FieldKind::Signature { ink: back, .. } = &sigs[0].kind else {
+            unreachable!()
+        };
+        assert_eq!(back.fill.len(), ink.fill.len());
+        // The page render leaves it out (it is drawn live on screen).
+        assert_eq!(inked_pixels(&fd2.render_bytes(), r1), 0, "{name}");
+        assert!(
+            inked_pixels(&fd2.render_bytes(), r2) > 20,
+            "{name}: locked stays"
+        );
+
+        // Saving again moves it instead of adding a second one...
+        let mut moved = sigs[0].clone();
+        moved.rect = Rect::new(r1.x0, r1.y0 - 100.0, r1.x1, r1.y1 - 100.0);
+        let bytes3 = save(&fd2, &[moved]).unwrap();
+        let fd3 = FormDoc::open(bytes3.clone()).unwrap();
+        assert_eq!(
+            fd3.fields.iter().filter(|f| f.kind.is_signature()).count(),
+            1
+        );
+        assert_eq!(inked_pixels(&bytes3, r1), 0, "{name}: old place empty");
+        // ...and removing it removes it.
+        let bytes4 = save(&fd3, &[]).unwrap();
+        let fd4 = FormDoc::open(bytes4).unwrap();
+        assert!(!fd4.fields.iter().any(|f| f.kind.is_signature()));
+    }
+}
+
+#[test]
+fn print_copy_keeps_signatures() {
+    use pdfr_core::signature::Ink;
+    let fd = FormDoc::open(sample("flat_form.pdf")).unwrap();
+    let ink = std::sync::Arc::new(Ink::typed("Erik"));
+    let r = ink.fit(&Rect::new(300.0, 600.0, 450.0, 640.0));
+    let saved = save(&fd, &[Field::new_signature(0, r, ink, false)]).unwrap();
+    let flat = pdfr_core::flatten::flatten_for_print(&saved).unwrap();
+    assert!(inked_pixels(&flat, r) > 30);
+}

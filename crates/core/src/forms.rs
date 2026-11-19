@@ -37,6 +37,8 @@ pub struct FormDoc {
     pub fields: Vec<Field>,
     /// Why the document is read-only, if it is.
     pub read_only_reason: Option<String>,
+    /// Empty signature fields (`/FT /Sig`) the file asks to be signed.
+    pub sign_here: Vec<(usize, crate::geom::Rect)>,
 }
 
 #[derive(Debug)]
@@ -72,6 +74,7 @@ impl FormDoc {
             page_ids: vec![],
             fields: vec![],
             read_only_reason: None,
+            sign_here: vec![],
         };
         match Document::load_mem(&bytes) {
             Ok(doc) if doc.is_encrypted() => return Err(OpenError::Encrypted),
@@ -82,6 +85,9 @@ impl FormDoc {
                         Some("the page tree could not be read consistently".into());
                 } else {
                     fd.fields = read_fields(&doc, &ids, &fd.pages);
+                    fd.fields
+                        .extend(crate::signature::read(&doc, &ids, &fd.pages));
+                    fd.sign_here = crate::signature::sign_here_spots(&doc, &ids, &fd.pages);
                     fd.page_ids = ids;
                     fd.doc = Some(doc);
                 }
@@ -104,10 +110,13 @@ impl FormDoc {
         let Some(doc) = &self.doc else {
             return self.bytes.clone();
         };
-        if self.fields.iter().all(|f| !f.is_real()) {
+        let signed = self.fields.iter().any(|f| f.kind.is_signature());
+        if !signed && self.fields.iter().all(|f| !f.is_real()) {
             return self.bytes.clone();
         }
         let mut d = doc.clone();
+        // Signatures are drawn live on top (they can be moved).
+        crate::signature::remove_all(&mut d, &self.page_ids);
         for f in &self.fields {
             let Origin::AcroForm { widget, .. } = f.origin else {
                 continue;

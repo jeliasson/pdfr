@@ -232,8 +232,8 @@ See [docs/RELEASING.md](docs/RELEASING.md). In short:
   `packaging/windows/`, `packaging/winget/`.
 - `.github/workflows/`: `ci.yml`, `build-linux.yml`, `release.yml`.
 
-Every package includes `LICENSE.md`, `assets/LICENSE-Inter.txt` and
-`assets/THIRD-PARTY-NOTICES.txt`: the licences of the crates pdfr is built
+Every package includes `LICENSE.md`, `assets/LICENSE-Inter.txt`,
+`assets/LICENSE-GreatVibes.txt` and `assets/THIRD-PARTY-NOTICES.txt`: the licences of the crates pdfr is built
 with (mostly MIT and Apache-2.0), which ask for their notices to ship with
 binaries. After changing dependencies, run `tools/notices.sh` (needs
 `cargo install cargo-about --locked --features cli`) and commit the file; CI

@@ -38,6 +38,8 @@ pub struct CliOptions {
     pub settings: Option<String>,
     /// Hidden: show the remember dialog after loading (screenshots).
     pub ask_remember: bool,
+    /// Hidden: show the signing dialog with this name typed (screenshots).
+    pub sign: Option<String>,
     /// Hidden: act as if the pointer were at this page-0 point (screenshots).
     pub hover: Option<(f32, f32)>,
     /// Hidden: record a scripted demo scene's frames into this folder.
@@ -154,6 +156,8 @@ enum Tool {
     None,
     AddText,
     AddCheckbox,
+    /// Putting down the signature in `App::placing`.
+    PlaceSignature,
 }
 
 pub struct App {
@@ -178,6 +182,13 @@ pub struct App {
     overlay: Option<palette::Overlay>,
     /// Ctrl+L jump labels, while shown.
     hints: Option<hints::Hints>,
+    /// The signing dialog, while open.
+    sign: Option<signature::SignDialog>,
+    /// The signature being placed (with `Tool::PlaceSignature`).
+    placing: Option<Arc<pdfr_core::signature::Ink>>,
+    placing_initials: bool,
+    /// A placed signature being moved or resized.
+    sig_drag: Option<signature::SigDrag>,
     pub palette: Palette,
     omarchy_active: bool,
     theme_rx: Receiver<Option<Palette>>,
@@ -260,6 +271,10 @@ impl App {
             choice_sel_shown: None,
             overlay: None,
             hints: None,
+            sign: None,
+            placing: None,
+            placing_initials: false,
+            sig_drag: None,
             palette,
             omarchy_active,
             theme_rx,
@@ -531,11 +546,13 @@ impl eframe::App for App {
         self.assist.poll_updates(&ctx, automated);
         self.assist.notices(&ctx, &self.palette, automated);
         self.overlay_ui(&ctx);
+        self.sign_window(&ctx);
         // The reminder waits while anything else asks for attention.
         let busy = self.confirm.is_some()
             || self.assist.modal_open()
             || self.assist.settings_open
             || self.overlay.is_some()
+            || self.sign.is_some()
             || self.dialog_open();
         self.license.tick(&ctx, busy);
         self.license.windows(&ctx, &self.palette);
@@ -604,7 +621,7 @@ impl eframe::App for App {
 }
 
 mod automation;
-mod canvas;
+pub(crate) mod canvas;
 use files::ParentWindow;
 mod commands;
 #[cfg(target_os = "linux")]
@@ -616,6 +633,7 @@ mod history;
 mod palette;
 mod print;
 mod record;
+mod signature;
 mod toolbar;
 mod view;
 

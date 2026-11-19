@@ -133,6 +133,7 @@ The big PDF editors do a lot more. Here's an honest side-by-side.
 | Finds the boxes on any form, by itself | ✅ | ➖ | ➖ | ➖ |
 | Scanned paper forms | ✅ | ➖ | ➖ | ➖ |
 | One letter per square, automatically | ✅ | ➖ | ➖ | ➖ |
+| Sign with a drawn or typed signature | ✅ | ✅ | ✅ | ✅ |
 | Remembers each person separately | ✅ | ❌ | ❌ | ❌ |
 | Linux | ✅ | ❌ | ❌ | ❌ |
 | macOS | ✅ | ✅ | ✅ | ❌ |
@@ -194,9 +195,11 @@ You can also turn it on later in **Settings → General**.
 1. **Open a PDF:** drag it onto the window, press **Ctrl+O**, or run
    `pdfr form.pdf`.
 2. **Click a box and type.** Press **Tab** to jump to the next box.
-3. **Save:** press **Ctrl+S**. pdfr never overwrites your original file without
+3. **Sign:** press **Ctrl+I**, draw or type your signature, and click where
+   it goes. pdfr can keep it for next time.
+4. **Save:** press **Ctrl+S**. pdfr never overwrites your original file without
    asking. The first time, it suggests a new name like `form-filled.pdf`.
-4. **Print:** press **Ctrl+P**.
+5. **Print:** press **Ctrl+P**.
 
 ### Handy tricks
 
@@ -223,6 +226,7 @@ into a box is ever taken as a command.
 | Jump to any box you can see (letters appear on each) | Ctrl+L, then the letters |
 | Find a box by its label | Ctrl+F |
 | Tick a checkbox | Space or click |
+| Sign (draw or type, then click where it goes) | Ctrl+I |
 | Open and pick in a drop-down | Space or Alt+↓, then ↑ / ↓ or a letter, Enter |
 | Take the suggestion | Tab |
 | Browse suggestions | ↑ / ↓ (or Ctrl+J / Ctrl+K) |

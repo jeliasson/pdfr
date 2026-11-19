@@ -40,8 +40,7 @@ fn flatten_page(d: &mut Document, page: ObjectId) {
         _ => return,
     };
     let mut keep: Vec<Object> = Vec::new();
-    let mut draw = String::new();
-    let mut xobjects: Vec<(String, ObjectId)> = Vec::new();
+    let mut items: Vec<(ObjectId, [f32; 6])> = Vec::new();
     for a in annots {
         let Some(dict) = deref(d, &a).and_then(|o| o.as_dict().ok()).cloned() else {
             continue;
@@ -67,7 +66,47 @@ fn flatten_page(d: &mut Document, page: ObjectId) {
         let Some(m) = placement(d, ap, &rect) else {
             continue;
         };
-        let name = format!("PdfrFlat{}", xobjects.len());
+        items.push((ap, m));
+    }
+    if items.is_empty() && keep.len() == count_annots(d, page) {
+        return;
+    }
+    draw_on_page(d, page, "PdfrFlat", &items);
+    if let Ok(p) = d.get_dictionary_mut(page) {
+        if keep.is_empty() {
+            p.remove(b"Annots");
+        } else {
+            p.set("Annots", Object::Array(keep));
+        }
+    }
+}
+
+/// Draws form XObjects into a page's content after everything else, each
+/// with its placement matrix. The page's own content is wrapped in q … Q so
+/// its graphics state cannot shift what is drawn after it. XObject names
+/// start with `prefix` and never reuse a name the page already has.
+pub(crate) fn draw_on_page(
+    d: &mut Document,
+    page: ObjectId,
+    prefix: &str,
+    items: &[(ObjectId, [f32; 6])],
+) {
+    // Resources (possibly inherited from the page tree) plus our XObjects.
+    let mut res = inherited_resources(d, page);
+    let mut xo = match res.get(b"XObject").ok().and_then(|o| deref(d, o)) {
+        Some(Object::Dictionary(x)) => x.clone(),
+        _ => Dictionary::new(),
+    };
+    let mut draw = String::new();
+    let mut k = 0usize;
+    for &(ap, m) in items {
+        let name = loop {
+            let n = format!("{prefix}{k}");
+            k += 1;
+            if !xo.has(n.as_bytes()) {
+                break n;
+            }
+        };
         let _ = std::fmt::Write::write_fmt(
             &mut draw,
             format_args!(
@@ -81,23 +120,9 @@ fn flatten_page(d: &mut Document, page: ObjectId) {
             ),
         );
         ensure_form_xobject(d, ap);
-        xobjects.push((name, ap));
-    }
-    if xobjects.is_empty() && keep.len() == count_annots(d, page) {
-        return;
-    }
-    // Resources (possibly inherited from the page tree) plus our XObjects.
-    let mut res = inherited_resources(d, page);
-    let mut xo = match res.get(b"XObject").ok().and_then(|o| deref(d, o)) {
-        Some(Object::Dictionary(x)) => x.clone(),
-        _ => Dictionary::new(),
-    };
-    for (n, id) in &xobjects {
-        xo.set(n.as_bytes().to_vec(), Object::Reference(*id));
+        xo.set(name.into_bytes(), Object::Reference(ap));
     }
     res.set("XObject", Object::Dictionary(xo));
-    // The page's own content runs inside q … Q so its state cannot shift
-    // the appearances drawn after it.
     let mut contents: Vec<Object> = vec![Object::Reference(
         d.add_object(Stream::new(Dictionary::new(), b"q\n".to_vec())),
     )];
@@ -121,11 +146,6 @@ fn flatten_page(d: &mut Document, page: ObjectId) {
     if let Ok(p) = d.get_dictionary_mut(page) {
         p.set("Resources", Object::Dictionary(res));
         p.set("Contents", Object::Array(contents));
-        if keep.is_empty() {
-            p.remove(b"Annots");
-        } else {
-            p.set("Annots", Object::Array(keep));
-        }
     }
 }
 
@@ -168,7 +188,7 @@ fn normal_appearance(d: &Document, annot: &Dictionary) -> Option<ObjectId> {
 
 /// The matrix that puts the appearance's box (after its own `/Matrix`)
 /// onto the annotation rectangle (PDF 32000-1, 12.5.5).
-fn placement(d: &Document, ap: ObjectId, rect: &[f32]) -> Option<[f32; 6]> {
+pub(crate) fn placement(d: &Document, ap: ObjectId, rect: &[f32]) -> Option<[f32; 6]> {
     let Ok(Object::Stream(s)) = d.get_object(ap) else {
         return None;
     };

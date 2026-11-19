@@ -31,6 +31,7 @@ pub enum Icon {
     Search,
     Brain,
     Key,
+    Signature,
 }
 
 /// Maps the 24×24 design grid into a rectangle.
@@ -193,6 +194,26 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             spark(18.0, 6.0, 2.5);
             spark(12.0, 4.0, 1.5);
             spark(20.0, 13.0, 1.5);
+        }
+        Icon::Signature => {
+            // A pen's loop over the line it signs on.
+            line(&[(3.0, 19.5), (21.0, 19.5)]);
+            line(&[
+                (4.0, 15.0),
+                (5.5, 10.5),
+                (7.5, 6.5),
+                (9.0, 6.0),
+                (9.2, 9.0),
+                (7.8, 14.5),
+                (9.0, 15.0),
+                (11.0, 11.0),
+                (12.5, 10.0),
+                (12.8, 13.0),
+                (14.5, 12.0),
+                (16.5, 11.0),
+                (17.5, 13.0),
+                (20.0, 12.0),
+            ]);
         }
         Icon::Close => {
             line(&[(6.0, 6.0), (18.0, 18.0)]);

@@ -1,6 +1,8 @@
 //! The field model shared by real (AcroForm) fields and detected fields.
 
 use crate::geom::Rect;
+use crate::signature::Ink;
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Align {
@@ -61,6 +63,9 @@ pub enum FieldKind {
         options: Vec<(String, String)>,
         editable: bool,
     },
+    /// A hand-drawn or typed signature placed by the user. `lock` draws it
+    /// into the page content when saving instead of as an annotation.
+    Signature { ink: Arc<Ink>, lock: bool },
 }
 
 impl FieldKind {
@@ -85,6 +90,9 @@ impl FieldKind {
     pub fn is_toggle(&self) -> bool {
         matches!(self, FieldKind::Checkbox { .. } | FieldKind::Radio { .. })
     }
+    pub fn is_signature(&self) -> bool {
+        matches!(self, FieldKind::Signature { .. })
+    }
     /// A drop-down whose value must be one of its options (no free text).
     pub fn is_fixed_choice(&self) -> bool {
         matches!(self, FieldKind::Choice { editable: false, .. })
@@ -101,6 +109,7 @@ impl FieldKind {
             FieldKind::Checkbox { .. } => "x",
             FieldKind::Radio { .. } => "r",
             FieldKind::Choice { .. } => "d",
+            FieldKind::Signature { .. } => "s",
         }
     }
 }
@@ -207,7 +216,9 @@ impl Field {
     }
 
     pub fn is_empty(&self) -> bool {
-        if self.kind.is_toggle() {
+        if self.kind.is_signature() {
+            false
+        } else if self.kind.is_toggle() {
             !self.checked
         } else {
             self.value.is_empty()

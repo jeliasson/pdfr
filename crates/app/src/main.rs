@@ -9,10 +9,11 @@ mod app;
 mod assist_ui;
 mod draw;
 mod icons;
+mod ink;
 mod license_ui;
 mod system;
-mod updates;
 mod theme;
+mod updates;
 mod worker;
 
 use app::{App, CliOptions};
@@ -90,6 +91,14 @@ fn parse_args() -> Result<CliOptions, String> {
                 )
             }
             "--ask-remember" => o.ask_remember = true,
+            "--sign" => {
+                o.sign = Some(
+                    args.next()
+                        .ok_or("--sign needs a name")?
+                        .to_string_lossy()
+                        .into(),
+                )
+            }
             "--values" => o.values = Some(args.next().ok_or("--values needs a file")?.into()),
             "--settings" => {
                 o.settings = Some(

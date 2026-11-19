@@ -90,6 +90,10 @@ impl App {
             }
         }
 
+        if doc.form.editable() {
+            self.draw_sign_spots(&painter, &rects);
+        }
+
         // Fields.
         let editable_doc = doc.form.editable();
         let hover_id = if self.tool == Tool::None {
@@ -114,6 +118,11 @@ impl App {
                 continue;
             }
             let focused = focus_id == Some(e.id);
+            if let FieldKind::Signature { .. } = &f.kind {
+                let hovered = hover_id == Some(e.id) && editable_doc;
+                self.draw_signature(&painter, &rects, f, r, focused, hovered);
+                continue;
+            }
             if editable_doc && !f.read_only {
                 // Every fillable spot keeps its tint, filled or not, so the
                 // fields stay visible. Screen only: never saved or printed.
@@ -204,6 +213,26 @@ impl App {
             );
         }
 
+        // The signature being placed follows the pointer.
+        if self.tool == Tool::PlaceSignature
+            && let (Some(p), Some(ink)) = (pointer, self.placing.clone())
+            && let Some((page, pr)) = self.placement_at(&rects, p)
+            && let Some(page_rect) = rects.get(page)
+        {
+            let r = PageXf {
+                origin: page_rect.min,
+                zoom: self.zoom,
+            }
+            .rect(&pr);
+            crate::ink::paint(&painter, &ink, r, Color32::from_white_alpha(170));
+            painter.rect_stroke(
+                r.expand(2.0),
+                2.0,
+                Stroke::new(1.0, pal.accent.gamma_multiply(0.6)),
+                egui::StrokeKind::Middle,
+            );
+        }
+
         // The hovered field's floating button (clear / suggestions).
         let on_button = hover_id.is_some_and(|hid| self.field_button(ui, &rects, hid, &ctx));
 
@@ -219,20 +248,38 @@ impl App {
             ctx.set_cursor_icon(CursorIcon::Crosshair);
         } else if on_button {
             // The button sets its own pointer.
+        } else if self.sig_drag.is_some() {
+            ctx.set_cursor_icon(CursorIcon::Grabbing);
+        } else if let Some(p) = pointer
+            && let Some(e) = self
+                .focused_entry()
+                .filter(|e| e.f.kind.is_signature() && editable_doc)
+            && self
+                .sig_handle(&rects, &e.f)
+                .is_some_and(|h| h.expand(3.0).contains(p))
+        {
+            ctx.set_cursor_icon(CursorIcon::ResizeNwSe);
         } else if let Some(p) = pointer
             && let Some((id, ..)) = self.field_at(&rects, p)
         {
-            // A text caret only where text goes; boxes to tick get the plain pointer.
-            let toggle = self
+            // A text caret only where text goes; boxes to tick get the plain
+            // pointer; a signature can be picked up.
+            let kind = self
                 .doc
                 .as_ref()
                 .and_then(|d| d.entries.iter().find(|e| e.id == id))
-                .is_some_and(|e| e.f.kind.is_toggle());
-            ctx.set_cursor_icon(if toggle {
-                CursorIcon::Default
-            } else {
-                CursorIcon::Text
+                .map(|e| e.f.kind.clone());
+            ctx.set_cursor_icon(match kind {
+                Some(k) if k.is_toggle() => CursorIcon::Default,
+                Some(k) if k.is_signature() && editable_doc => CursorIcon::Grab,
+                Some(k) if k.is_signature() => CursorIcon::Default,
+                _ => CursorIcon::Text,
             });
+        } else if let Some(p) = pointer
+            && editable_doc
+            && self.sign_target_at(&rects, p).is_some_and(|t| !t.on_line)
+        {
+            ctx.set_cursor_icon(CursorIcon::PointingHand);
         }
         self.context_menu(&resp);
         self.choice_popup(&ctx, &rects);
@@ -268,6 +315,7 @@ impl App {
             // Esc puts down an add-box tool.
             if self.tool != Tool::None && ctx.input(|i| i.key_pressed(Key::Escape)) {
                 self.tool = Tool::None;
+                self.placing = None;
             }
             if ctx.input(|i| i.key_pressed(Key::Tab)) {
                 let back = ctx.input(|i| i.modifiers.shift);
@@ -470,7 +518,19 @@ impl App {
                 }
                 return;
             }
+            Tool::PlaceSignature if editable => {
+                if clicked
+                    && let Some((page, r)) = self.placement_at(rects, p)
+                    && let Some(ink) = self.placing.clone()
+                {
+                    self.place_signature(page, r, ink);
+                }
+                return;
+            }
             _ => {}
+        }
+        if self.sig_mouse(resp, rects, p) {
+            return;
         }
         if resp.secondary_clicked() {
             self.ctx_field = self.field_at(rects, p).map(|h| h.0);
@@ -546,6 +606,12 @@ impl App {
                         self.focus = None;
                         self.choice_open = None;
                         self.assist.close_list();
+                        // The PDF's own "sign here" spot opens the signing dialog.
+                        if editable
+                            && let Some(t) = self.sign_target_at(rects, p).filter(|t| !t.on_line)
+                        {
+                            self.open_sign(false, Some(t));
+                        }
                     }
                 }
             }
@@ -565,12 +631,47 @@ impl App {
                     d.entries[i].no_memory,
                     d.entries[i].f.label.clone(),
                     d.form.editable() && !d.entries[i].f.read_only,
+                    match &d.entries[i].f.kind {
+                        FieldKind::Signature { lock, .. } => Some(*lock),
+                        _ => None,
+                    },
                 )
             })
         });
-        let Some((real, no_mem, label, editable)) = info else {
+        let Some((real, no_mem, label, editable, sig_lock)) = info else {
             return;
         };
+        if let Some(locked) = sig_lock {
+            let mut remove = false;
+            let mut lock = false;
+            let shown = resp.context_menu(|ui| {
+                if editable && ui.button("Remove signature").clicked() {
+                    remove = true;
+                }
+                if editable
+                    && ui
+                        .checkbox(&mut locked.clone(), "Lock into the page when saved")
+                        .on_hover_text(
+                            "Locked: part of the page, other PDF apps can't move or delete it.\nOff: a signature other PDF apps can still move.",
+                        )
+                        .clicked()
+                {
+                    lock = true;
+                }
+                if remove || lock {
+                    ui.close();
+                }
+            });
+            if remove {
+                self.remove_field(id);
+            } else if lock {
+                self.toggle_lock(id);
+            }
+            if shown.is_none() || remove || lock {
+                self.ctx_field = None;
+            }
+            return;
+        }
         let shown = resp.context_menu(|ui| {
             if let Some(l) = &label {
                 ui.label(egui::RichText::new(l).weak());

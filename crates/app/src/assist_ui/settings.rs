@@ -107,6 +107,7 @@ struct Actions {
     changed: bool,
     forget_value: Option<(String, String)>,
     forget_person: Option<u64>,
+    forget_signature: Option<u64>,
     clear: bool,
     close: bool,
 }
@@ -423,6 +424,7 @@ impl AssistState {
     }
 
     fn people(&mut self, ui: &mut Ui, c: &Colors, act: &mut Actions) {
+        self.saved_signatures(ui, c, act);
         if self.a.store.profiles.is_empty() {
             empty(
                 ui,
@@ -529,6 +531,51 @@ impl AssistState {
         });
     }
 
+    /// Signatures and initials kept for next time, each with its person.
+    fn saved_signatures(&mut self, ui: &mut Ui, c: &Colors, act: &mut Actions) {
+        if self.a.store.signatures.is_empty() {
+            return;
+        }
+        let names: std::collections::HashMap<u64, String> = self
+            .a
+            .store
+            .profiles
+            .iter()
+            .map(|p| (p.id, p.title()))
+            .collect();
+        card(ui, c, Some("Signatures"), |ui| {
+            for (i, s) in self.a.store.signatures.iter().enumerate() {
+                if i > 0 {
+                    row_divider(ui, c);
+                }
+                let Some(ink) = pdfr_core::signature::Ink::decode(&s.ink) else {
+                    continue;
+                };
+                let ink = std::sync::Arc::new(ink);
+                ui.horizontal(|ui| {
+                    let (r, _) = ui.allocate_exact_size(vec2(120.0, 40.0), Sense::hover());
+                    ui.painter().rect_filled(r, 4.0, Color32::WHITE);
+                    crate::ink::paint(ui.painter(), &ink, r.shrink(4.0), Color32::WHITE);
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 1.0;
+                        let what = if s.initials { "Initials" } else { "Signature" };
+                        ui.label(RichText::new(what).strong().color(c.text));
+                        let who = s
+                            .person
+                            .and_then(|p| names.get(&p).cloned())
+                            .unwrap_or_else(|| "Nobody in particular".into());
+                        ui.label(RichText::new(who).size(12.0).color(c.weak));
+                    });
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if icon_button(ui, c, Icon::Trash, "Delete").clicked() {
+                            act.forget_signature = Some(s.id);
+                        }
+                    });
+                });
+            }
+        });
+    }
+
     fn values(&mut self, ui: &mut Ui, c: &Colors, act: &mut Actions) {
         if self.a.store.values.is_empty() {
             empty(
@@ -621,7 +668,7 @@ impl AssistState {
                 if confirming {
                     "This cannot be undone. Click again to delete."
                 } else {
-                    "Deletes all remembered people, values and forms. Settings are kept."
+                    "Deletes all remembered people, signatures, values and forms. Settings are kept."
                 },
                 |ui| {
                     let label = if confirming {
@@ -651,6 +698,10 @@ impl AssistState {
         if let Some(id) = act.forget_person {
             self.a.store.forget_profile(id);
             self.settings_ui.people_open.remove(&id);
+            changed = true;
+        }
+        if let Some(id) = act.forget_signature {
+            self.a.store.forget_signature(id);
             changed = true;
         }
         if act.clear {

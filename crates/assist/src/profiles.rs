@@ -116,7 +116,7 @@ pub fn group_people(
     // Anchor keys seen in the current person, with the field that set them.
     let mut seen: Vec<(String, usize)> = Vec::new();
     for (i, f) in fields.iter().enumerate() {
-        if f.kind.is_toggle() {
+        if f.kind.is_toggle() || f.kind.is_signature() {
             continue;
         }
         let Some(m) = meanings.get(i).cloned().flatten() else {

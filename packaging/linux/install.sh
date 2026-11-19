@@ -22,5 +22,6 @@ done
 install -Dm644 "$root/assets/icon/pdfr.svg" "$share/icons/hicolor/scalable/apps/$id.svg"
 install -Dm644 "$root/LICENSE.md" "$share/licenses/pdfr/LICENSE.md"
 install -Dm644 "$root/assets/LICENSE-Inter.txt" "$share/licenses/pdfr/LICENSE-Inter.txt"
+install -Dm644 "$root/assets/LICENSE-GreatVibes.txt" "$share/licenses/pdfr/LICENSE-GreatVibes.txt"
 install -Dm644 "$root/assets/THIRD-PARTY-NOTICES.txt" "$share/licenses/pdfr/THIRD-PARTY-NOTICES.txt"
 install -Dm644 "$root/README.md" "$share/doc/pdfr/README.md"

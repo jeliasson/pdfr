@@ -124,7 +124,9 @@ impl AssistState {
 
         card(ui, c, Some("Opening PDFs"), |ui| {
             let sub = match &default {
-                DefaultApp::Pdfr => "PDF files you open from your files or browser open in pdfr.".to_string(),
+                DefaultApp::Pdfr => {
+                    "PDF files you open from your files or browser open in pdfr.".to_string()
+                }
                 DefaultApp::Other(name) => format!("PDF files open in {name} now."),
                 DefaultApp::Unknown => "Choose the app that opens PDF files.".to_string(),
             };
@@ -222,8 +224,12 @@ impl AssistState {
                 format!("Could not check: {e}")
             } else if newer {
                 match install.update_hint() {
-                    Some(cmd) => format!("pdfr {latest} is available. Update in a terminal with:  {cmd}"),
-                    None if install.managed() => format!("pdfr {latest} is available from your package manager."),
+                    Some(cmd) => {
+                        format!("pdfr {latest} is available. Update in a terminal with:  {cmd}")
+                    }
+                    None if install.managed() => {
+                        format!("pdfr {latest} is available from your package manager.")
+                    }
                     None => format!("pdfr {latest} is available."),
                 }
             } else if self.a.store.settings.update_checked_at > 0 {
@@ -233,23 +239,30 @@ impl AssistState {
             };
             let mut check = false;
             let mut download = false;
-            setting_row(ui, c, &format!("Version {}", updates::current()), &status, |ui| {
-                if newer && let Some(cmd) = install.update_hint() {
-                    if primary_button(ui, c, "Copy command").clicked() {
-                        ui.ctx().copy_text(cmd.to_string());
-                        self.sys.msg = Some((true, "Copied. Paste it into a terminal to update.".into()));
+            setting_row(
+                ui,
+                c,
+                &format!("Version {}", updates::current()),
+                &status,
+                |ui| {
+                    if newer && let Some(cmd) = install.update_hint() {
+                        if primary_button(ui, c, "Copy command").clicked() {
+                            ui.ctx().copy_text(cmd.to_string());
+                            self.sys.msg =
+                                Some((true, "Copied. Paste it into a terminal to update.".into()));
+                        }
+                    } else if newer && !install.managed() {
+                        download = primary_button(ui, c, "Download").clicked();
+                    } else {
+                        check = ui
+                            .add_enabled_ui(!self.sys.checker.running(), |ui| {
+                                secondary_button(ui, c, "Check now")
+                            })
+                            .inner
+                            .clicked();
                     }
-                } else if newer && !install.managed() {
-                    download = primary_button(ui, c, "Download").clicked();
-                } else {
-                    check = ui
-                        .add_enabled_ui(!self.sys.checker.running(), |ui| {
-                            secondary_button(ui, c, "Check now")
-                        })
-                        .inner
-                        .clicked();
-                }
-            });
+                },
+            );
             if check {
                 self.sys.manual_check = true;
                 self.sys.check_error = None;
@@ -262,6 +275,35 @@ impl AssistState {
         if !install.checks_for_updates() {
             note(ui, c, &format!("pdfr {}.", updates::current()));
         }
+        card(ui, c, Some("Signatures"), |ui| {
+            let lock = &mut self.a.store.settings.lock_signatures;
+            let options = [
+                (
+                    false,
+                    "Keep them editable",
+                    "Saved as a signature other PDF apps can still move or delete.",
+                ),
+                (
+                    true,
+                    "Lock them into the page",
+                    "Saved as part of the page, so no one can move or remove them.",
+                ),
+            ];
+            for (i, (v, title, sub)) in options.into_iter().enumerate() {
+                if i > 0 {
+                    row_divider(ui, c);
+                }
+                if choice_row(ui, c, *lock == v, title, sub) && *lock != v {
+                    *lock = v;
+                    changed = true;
+                }
+            }
+        });
+        note(
+            ui,
+            c,
+            "For new signatures. Right-click a signature to change it. These are drawn signatures, not cryptographic ones.",
+        );
         changed
     }
 
@@ -361,7 +403,9 @@ impl AssistState {
                 format!("pdfr {v} is available"),
                 match self.sys.install.update_hint() {
                     Some(cmd) => format!("Update with:  {cmd}"),
-                    None if self.sys.install.managed() => "Update it with your package manager.".to_string(),
+                    None if self.sys.install.managed() => {
+                        "Update it with your package manager.".to_string()
+                    }
                     None => format!("You have {}.", updates::current()),
                 },
                 match self.sys.install.update_hint() {

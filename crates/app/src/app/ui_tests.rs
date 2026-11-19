@@ -712,3 +712,75 @@ fn esc_puts_down_a_tool_and_cancels_the_unsaved_question() {
     assert!(h.state().confirm.is_none());
     assert_eq!(entry_at(&h, 150.0, 168.0).f.value, "Anna");
 }
+
+fn drag(h: &mut Harness<'_, App>, a: Pos2, b: Pos2) {
+    h.event(Event::PointerMoved(a));
+    h.event(Event::PointerButton {
+        pos: a,
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    h.run_steps(1);
+    for k in 1..=6 {
+        let t = k as f32 / 6.0;
+        h.event(Event::PointerMoved(a + (b - a) * t));
+        h.run_steps(1);
+    }
+    h.event(Event::PointerButton {
+        pos: b,
+        button: PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    h.run_steps(2);
+}
+
+fn signatures(h: &Harness<'_, App>) -> Vec<Entry> {
+    let d = h.state().doc.as_ref().unwrap();
+    d.entries
+        .iter()
+        .filter(|e| e.f.kind.is_signature())
+        .cloned()
+        .collect()
+}
+
+#[test]
+fn sign_place_move_remove_and_undo() {
+    use egui_kittest::kittest::Queryable;
+    let dir = data_dir("sign", None);
+    let mut h = harness("flat_form.pdf", dir.clone());
+    ctrl(&mut h, Key::I);
+    assert!(h.state().sign.is_some(), "Ctrl+I opens the signing dialog");
+    h.state_mut()
+        .sign
+        .as_mut()
+        .unwrap()
+        .type_name("Anna Lindqvist");
+    h.run_steps(2);
+    h.get_by_label("Place on the page").click();
+    h.run_steps(2);
+    assert!(h.state().sign.is_none());
+    assert!(h.state().tool == Tool::PlaceSignature);
+    click_doc(&mut h, 300.0, 600.0);
+    let s = signatures(&h);
+    assert_eq!(s.len(), 1);
+    let (cx, cy) = s[0].f.rect.center();
+    assert!((cx - 300.0).abs() < 1.0 && (cy - 600.0).abs() < 1.0);
+    assert!(h.state().tool == Tool::None);
+    // Saved for next time, in the data folder.
+    let store = Store::load(&dir.join("memory.json"));
+    assert_eq!(store.signatures.len(), 1);
+
+    // Drag it 50 points down.
+    let a = screen(&h, cx, cy);
+    let b = screen(&h, cx, cy + 50.0);
+    drag(&mut h, a, b);
+    let moved = signatures(&h)[0].f.rect;
+    assert!((moved.center().1 - (cy + 50.0)).abs() < 2.0, "{moved:?}");
+    // Delete removes the selected signature; undo brings it back.
+    key(&mut h, Key::Delete);
+    assert!(signatures(&h).is_empty());
+    ctrl(&mut h, Key::Z);
+    assert_eq!(signatures(&h).len(), 1);
+}

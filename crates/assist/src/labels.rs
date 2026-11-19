@@ -316,7 +316,7 @@ pub fn label_fields(fields: &[Field], text: &HashMap<usize, Vec<TextRun>>) -> Ve
         let others: Vec<&Field> = fields
             .iter()
             .enumerate()
-            .filter(|(j, o)| *j != i && o.page == f.page)
+            .filter(|(j, o)| *j != i && o.page == f.page && !o.kind.is_signature())
             .map(|(_, o)| o)
             .collect();
         let mut label = None;

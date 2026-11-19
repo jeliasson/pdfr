@@ -5,6 +5,19 @@ version's section into its GitHub release notes.
 
 ## [Unreleased]
 
+### Added
+
+- Sign forms without a printer: press Ctrl+I (or the pen in the toolbar),
+  draw your signature with the mouse or trackpad or type your name in
+  handwriting, and click where it goes. On a "Signature" line or the PDF's
+  own "sign here" box it fits itself to the spot. Drag a signature to move
+  it, drag its corner to resize it, and press Delete to remove it.
+- Signatures can be saved for next time, one or more per person, on this
+  computer only (Settings → People lists and deletes them).
+- Choose how signatures are saved (Settings → General, or right-click one):
+  as a signature other PDF apps can still move, or locked into the page.
+  These are drawn signatures, not cryptographic ones.
+
 ### Fixed
 
 - macOS: “Confirm in the dialog macOS shows” no longer stays in Settings

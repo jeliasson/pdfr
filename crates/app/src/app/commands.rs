@@ -27,6 +27,7 @@ pub enum Command {
     FitWidth,
     AddTextField,
     AddCheckbox,
+    Sign,
     Settings,
     Register,
     ScrollDown,
@@ -86,6 +87,7 @@ const NEXT_EMPTY: &[KeyboardShortcut] = &[ctrl(Key::N)];
 const PREV_EMPTY: &[KeyboardShortcut] = &[ctrl_shift(Key::N)];
 const JUMP_HINTS: &[KeyboardShortcut] = &[ctrl(Key::L)];
 const FIND_BOX: &[KeyboardShortcut] = &[ctrl(Key::F)];
+const SIGN: &[KeyboardShortcut] = &[ctrl(Key::I)];
 const REMOVE_FIELD: &[KeyboardShortcut] = &[ctrl_shift(Key::Delete)];
 const PALETTE: &[KeyboardShortcut] = &[ctrl_shift(Key::P), ctrl(Key::Space)];
 const CHEATSHEET: &[KeyboardShortcut] = &[KeyboardShortcut::new(Modifiers::NONE, Key::F1)];
@@ -105,6 +107,7 @@ impl Command {
         Command::FitWidth,
         Command::AddTextField,
         Command::AddCheckbox,
+        Command::Sign,
         Command::Settings,
         Command::Register,
         Command::ScrollDown,
@@ -168,6 +171,12 @@ impl Command {
                 "Click on the page where a box should be ticked",
                 Icon::Checkbox,
                 NONE,
+            ),
+            Sign => (
+                "Sign",
+                "Draw or type your signature, then click where it goes",
+                Icon::Signature,
+                SIGN,
             ),
             Settings => (
                 "Settings",
@@ -256,7 +265,7 @@ impl Command {
             Command::ActualSize,
             Command::FitWidth,
         ],
-        &[Command::AddTextField, Command::AddCheckbox],
+        &[Command::AddTextField, Command::AddCheckbox, Command::Sign],
     ];
 }
 
@@ -273,7 +282,7 @@ impl App {
             Register => !self.license.registered(),
             Save | SaveAs => editable && !self.dialog_open(),
             Print => doc.is_some() && super::print::AVAILABLE && !self.dialog_open(),
-            AddTextField | AddCheckbox => editable,
+            AddTextField | AddCheckbox | Sign => editable,
             Undo => doc.is_some() && !self.undo.is_empty(),
             Redo => doc.is_some() && !self.redo.is_empty(),
             ZoomOut | ZoomIn | ActualSize | FitWidth => doc.is_some(),
@@ -292,6 +301,7 @@ impl App {
         match c {
             Command::AddTextField => self.tool == Tool::AddText,
             Command::AddCheckbox => self.tool == Tool::AddCheckbox,
+            Command::Sign => self.tool == Tool::PlaceSignature || self.sign.is_some(),
             Command::Settings => self.assist.settings_open,
             Command::ToggleRemember => self.focused_entry().is_some_and(|e| e.no_memory),
             _ => false,
@@ -330,6 +340,15 @@ impl App {
                     Tool::None
                 } else {
                     Tool::AddCheckbox
+                }
+            }
+            Sign => {
+                if self.tool == Tool::PlaceSignature {
+                    self.tool = Tool::None;
+                    self.placing = None;
+                } else {
+                    let target = self.focused_sign_target();
+                    self.open_sign(false, target);
                 }
             }
             Settings => self.assist.settings_open = !self.assist.settings_open,
