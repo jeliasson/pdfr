@@ -651,7 +651,7 @@ pub(super) fn fuzzy(query: &str, text: &str) -> Option<i32> {
 }
 
 /// A folder for a list: the home folder as `~`, long paths cut in front.
-fn short_folder(f: &str) -> String {
+pub(super) fn short_folder(f: &str) -> String {
     let home = std::env::var("HOME").unwrap_or_default();
     let f = match f.strip_prefix(&home) {
         Some(rest) if !home.is_empty() => format!("~{rest}"),

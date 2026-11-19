@@ -115,40 +115,6 @@ impl App {
             .cloned()
             .collect()
     }
-
-    /// The list of recent files in the empty window.
-    pub(super) fn recent_start(&mut self, ui: &mut egui::Ui, area: Rect) {
-        let files: Vec<RecentFile> = self.recent_files().into_iter().take(8).collect();
-        if files.is_empty() {
-            return;
-        }
-        let top = area.center().y + 30.0;
-        let w = 420.0f32.min(area.width() - 40.0);
-        let rect = Rect::from_min_size(pos2(area.center().x - w / 2.0, top), vec2(w, area.bottom() - top));
-        let mut open = None;
-        ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
-            ui.label(egui::RichText::new("Recent").size(12.0).color(self.palette.weak_text));
-            for r in &files {
-                let path = std::path::Path::new(&r.path);
-                let name = path.file_name().map_or(r.path.clone(), |n| n.to_string_lossy().into_owned());
-                let exists = path.exists();
-                let text = egui::RichText::new(format!("{name}    {}", when(r.opened_at))).color(if exists {
-                    self.palette.text
-                } else {
-                    self.palette.weak_text
-                });
-                let resp = ui
-                    .add_enabled(exists, egui::Button::new(text).frame(false))
-                    .on_hover_text(&r.path);
-                if resp.clicked() {
-                    open = Some(path.to_path_buf());
-                }
-            }
-        });
-        if let Some(p) = open {
-            self.request_open(p);
-        }
-    }
 }
 
 /// How a file is listed: its full path, so the same file opened from

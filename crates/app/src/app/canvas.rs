@@ -13,14 +13,7 @@ impl App {
         let painter = ui.painter_at(full);
         painter.rect_filled(full, 0.0, self.palette.canvas);
         if self.doc.is_none() {
-            painter.text(
-                full.center(),
-                egui::Align2::CENTER_CENTER,
-                &self.status,
-                egui::FontId::proportional(16.0),
-                self.palette.text,
-            );
-            self.recent_start(ui, full);
+            self.start_screen(ui, full);
             return;
         }
         self.apply_restore();
@@ -97,7 +90,10 @@ impl App {
             }
         }
 
-        if doc.form.editable() {
+        // Marks of where to fill in, on screen only; hidden to see the page
+        // as other PDF apps show it.
+        let marks = self.assist.a.store.settings.show_fields;
+        if doc.form.editable() && marks {
             self.draw_sign_spots(&painter, &rects);
         }
         self.draw_hits(&painter, &rects);
@@ -132,7 +128,7 @@ impl App {
                 self.draw_signature(&painter, &rects, f, r, focused, hovered);
                 continue;
             }
-            if editable_doc && !f.read_only {
+            if editable_doc && !f.read_only && (marks || focused) {
                 // Every fillable spot keeps its tint, filled or not, so the
                 // fields stay visible. Screen only: never saved or printed.
                 {
@@ -200,7 +196,9 @@ impl App {
                             });
                         });
                     }
-                    draw::dropdown_marker(&painter, &xf, f, Color32::from_gray(90));
+                    if marks {
+                        draw::dropdown_marker(&painter, &xf, f, Color32::from_gray(90));
+                    }
                 }
             }
         }

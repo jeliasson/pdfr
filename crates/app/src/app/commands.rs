@@ -28,6 +28,7 @@ pub enum Command {
     ActualSize,
     FitWidth,
     FitPage,
+    FieldMarks,
     TwoPages,
     Present,
     DarkPages,
@@ -95,6 +96,7 @@ const ZOOM_IN: &[KeyboardShortcut] = &[ctrl(Key::Plus), ctrl(Key::Equals)];
 const ACTUAL_SIZE: &[KeyboardShortcut] = &[ctrl(Key::Num0), ctrl(Key::Num1)];
 const FIT_WIDTH: &[KeyboardShortcut] = &[ctrl(Key::Num2)];
 const SIDEBAR: &[KeyboardShortcut] = &[ctrl(Key::B)];
+const FIELD_MARKS: &[KeyboardShortcut] = &[ctrl(Key::H)];
 const FIT_PAGE: &[KeyboardShortcut] = &[ctrl(Key::Num3)];
 const DARK_PAGES: &[KeyboardShortcut] = &[ctrl(Key::M)];
 const ROTATE: &[KeyboardShortcut] = &[ctrl(Key::R)];
@@ -137,6 +139,7 @@ impl Command {
         Command::ActualSize,
         Command::FitWidth,
         Command::FitPage,
+        Command::FieldMarks,
         Command::TwoPages,
         Command::Present,
         Command::DarkPages,
@@ -223,6 +226,12 @@ impl Command {
                 "Zoom so the whole page fits in the window",
                 Icon::FitPage,
                 FIT_PAGE,
+            ),
+            FieldMarks => (
+                "Show fields",
+                "Tint the boxes you can fill in. Off: see the form as other PDF apps show it",
+                Icon::Highlight,
+                FIELD_MARKS,
             ),
             TwoPages => (
                 "Two pages side by side",
@@ -406,7 +415,12 @@ impl Command {
             Command::FitPage,
             Command::RotatePage,
         ],
-        &[Command::AddTextField, Command::AddCheckbox, Command::Sign],
+        &[
+            Command::AddTextField,
+            Command::AddCheckbox,
+            Command::Sign,
+            Command::FieldMarks,
+        ],
     ];
 }
 
@@ -428,7 +442,7 @@ impl App {
             Redo => doc.is_some() && !self.redo.is_empty(),
             ZoomOut | ZoomIn | ActualSize | FitWidth | FitPage | Sidebar => doc.is_some(),
             DarkPages => true,
-            TwoPages | Present => doc.is_some(),
+            TwoPages | Present | FieldMarks => doc.is_some(),
             RotatePage | RotatePageBack | RotateAll => editable,
             ScrollDown | ScrollUp | HalfPageDown | HalfPageUp | NextPage | PrevPage
             | GoToPage | Find | FindBox | JumpHints => doc.is_some(),
@@ -461,6 +475,7 @@ impl App {
             Command::Sidebar => self.sidebar_open(),
             Command::DarkPages => self.dark_pages(),
             Command::TwoPages => self.two_up,
+            Command::FieldMarks => self.assist.a.store.settings.show_fields,
             Command::Present => self.presenting(),
             Command::ToggleRemember => self.focused_entry().is_some_and(|e| e.no_memory),
             _ => false,
@@ -514,6 +529,17 @@ impl App {
             }
             FitPage => self.fit_page(),
             TwoPages => self.toggle_two_up(),
+            FieldMarks => {
+                let s = &mut self.assist.a.store.settings.show_fields;
+                *s = !*s;
+                let on = *s;
+                self.assist.a.save();
+                self.status = if on {
+                    "Fields are tinted.".into()
+                } else {
+                    "Fields untinted: the form as other PDF apps show it. Ctrl+H tints them again.".into()
+                };
+            }
             Present => {
                 let ctx = self.egui_ctx.clone();
                 if self.presenting() {

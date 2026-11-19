@@ -1154,3 +1154,52 @@ fn settings_person_details_open() {
     h.run_steps(3);
     h.get_by_label("anna@example.se");
 }
+
+#[test]
+fn ctrl_h_hides_field_tints_and_remembers() {
+    let dir = data_dir("marks", None);
+    let mut h = harness("flat_form.pdf", dir.clone());
+    assert!(h.state().is_on(commands::Command::FieldMarks));
+    ctrl(&mut h, Key::H);
+    assert!(!h.state().is_on(commands::Command::FieldMarks));
+    assert!(!Store::load(&dir.join("memory.json")).settings.show_fields);
+    // Boxes still work without their tint.
+    click_doc(&mut h, 300.0, 178.0);
+    type_text(&mut h, "Anna");
+    assert_eq!(value_of(&h, focused_id(&h).unwrap()), "Anna");
+    ctrl(&mut h, Key::H);
+    assert!(h.state().is_on(commands::Command::FieldMarks));
+}
+
+#[test]
+fn start_screen_cards_open_recent_files() {
+    use egui_kittest::kittest::Queryable;
+    let mut store = Store::default();
+    store.settings.recent.push(pdfr_assist::memory::RecentFile {
+        path: std::fs::canonicalize(sample("links.pdf")).unwrap().to_string_lossy().into(),
+        page: 0,
+        offset: 0.0,
+        zoom: 1.0,
+        opened_at: pdfr_assist::memory::now(),
+    });
+    let cli = CliOptions {
+        no_ai: true,
+        data_dir: Some(data_dir("start", Some(store))),
+        ..Default::default()
+    };
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 800.0))
+        .with_step_dt(1.0 / 60.0)
+        .build_eframe(move |cc| App::new(cc, cli));
+    h.run_steps(3);
+    h.get_by_label("Recent files");
+    // A real click on the card (its name label is just text).
+    let at = h.get_by_label("links").rect().center();
+    click(&mut h, at);
+    let start = Instant::now();
+    while h.state().doc.is_none() {
+        h.run_steps(1);
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(start.elapsed() < Duration::from_secs(20), "card did not open the file");
+    }
+}

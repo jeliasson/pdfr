@@ -50,9 +50,14 @@ reader, so a form can be filled in, signed and sent without a printer.
   thumbnails of every page, marked where boxes are filled in, and the
   document's outline (bookmarks) when it has one. Go to page (Ctrl+G) also
   finds the outline's sections by name.
-- **Recent files** (Ctrl+E, and in the empty window), each reopened on the
-  page and at the zoom where you left it. Turn it off or clear the list in
+- **Recent files** (Ctrl+E), each reopened on the page and at the zoom
+  where you left it. With no document open, pdfr shows them as cards with
+  a picture of their first page; right-click a card to open it in a new
+  window or take it off the list. Turn it off or clear the list in
   Settings → General.
+- **Show fields** (Ctrl+H, or the toolbar button): turn off the tint on
+  the boxes you can fill in to see the form as other PDF apps will show
+  it. Typed text, ticks and signatures stay.
 - **Turn sideways or upside-down pages.** Ctrl+R turns the current page a
   quarter turn clockwise, Ctrl+Shift+R every page (anticlockwise is in the
   command palette). The page is saved turned too, and pdfr finds the boxes

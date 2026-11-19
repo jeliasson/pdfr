@@ -216,6 +216,8 @@ pub struct App {
     dark_applied: bool,
     /// Pages side by side in pairs.
     two_up: bool,
+    /// First-page pictures of recent files, for the start screen.
+    start_pictures: start::Pictures,
     /// Presentation mode: the page being shown, and the zoom and scroll to
     /// go back to.
     present: Option<(usize, f32, Vec2)>,
@@ -318,6 +320,7 @@ impl App {
             restore: None,
             dark_applied: false,
             two_up: false,
+            start_pictures: Default::default(),
             present: None,
             palette,
             omarchy_active,
@@ -743,6 +746,7 @@ mod search;
 mod select;
 mod sidebar;
 mod signature;
+mod start;
 mod stamps;
 mod toolbar;
 mod view;

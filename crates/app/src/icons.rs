@@ -36,6 +36,7 @@ pub enum Icon {
     FitPage,
     Rotate,
     Moon,
+    Highlight,
 }
 
 /// Maps the 24×24 design grid into a rectangle.
@@ -218,6 +219,13 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 (17.5, 13.0),
                 (20.0, 12.0),
             ]);
+        }
+        Icon::Highlight => {
+            // A text box with a highlighter's marks: the tint of a field.
+            closed(&[(3.0, 8.0), (21.0, 8.0), (21.0, 16.0), (3.0, 16.0)]);
+            fill(&[(5.0, 10.0), (19.0, 10.0), (19.0, 14.0), (5.0, 14.0)]);
+            line(&[(6.0, 19.5), (18.0, 19.5)]);
+            line(&[(8.0, 4.5), (16.0, 4.5)]);
         }
         Icon::Moon => {
             // A crescent: an outer arc and an inner one.
