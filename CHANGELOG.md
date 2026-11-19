@@ -5,6 +5,8 @@ version's section into its GitHub release notes.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-19
+
 ### Added
 
 - Register your copy: get a free lifetime Personal key at pdfr.app/get, or a
