@@ -213,8 +213,10 @@ pub struct App {
     pub palette: Palette,
     omarchy_active: bool,
     theme_rx: Receiver<Option<Palette>>,
-    open_rx: Receiver<(PathBuf, Result<Opened, String>, Instant)>,
-    open_tx: Sender<(PathBuf, Result<Opened, String>, Instant)>,
+    open_rx: Receiver<(PathBuf, Result<Opened, files::OpenFail>, Instant)>,
+    open_tx: Sender<(PathBuf, Result<Opened, files::OpenFail>, Instant)>,
+    /// A protected file waiting for its password.
+    password: Option<files::PasswordAsk>,
     pub status: String,
     undo: Vec<history::Snap>,
     redo: Vec<history::Snap>,
@@ -310,6 +312,7 @@ impl App {
             theme_rx,
             open_rx,
             open_tx,
+            password: None,
             status: "Open a PDF (Ctrl+O) or drop one here. F1 shows every shortcut.".into(),
             undo: vec![],
             redo: vec![],
@@ -353,7 +356,18 @@ impl App {
         while let Ok((path, res, started)) = self.open_rx.try_recv() {
             match res {
                 Ok(form) => self.finish_open(path, form, started, ctx),
-                Err(e) => self.status = format!("Could not open {}: {e}", path.display()),
+                // Automated runs (screenshots, --save) cannot ask: they stop.
+                Err(e) if self.automated() => {
+                    eprintln!("pdfr: could not open {}: {e:?}", path.display());
+                    std::process::exit(1);
+                }
+                Err(files::OpenFail::Password { wrong }) => {
+                    self.status = "This PDF is protected with a password.".into();
+                    self.password = Some(files::PasswordAsk::new(path, wrong));
+                }
+                Err(files::OpenFail::Other(e)) => {
+                    self.status = format!("Could not open {}: {e}", path.display())
+                }
             }
         }
         while let Ok(p) = self.theme_rx.try_recv() {
@@ -612,12 +626,14 @@ impl eframe::App for App {
         self.assist.notices(&ctx, &self.palette, automated);
         self.overlay_ui(&ctx);
         self.sign_window(&ctx);
+        self.password_window(&ctx);
         // The reminder waits while anything else asks for attention.
         let busy = self.confirm.is_some()
             || self.assist.modal_open()
             || self.assist.settings_open
             || self.overlay.is_some()
             || self.sign.is_some()
+            || self.password.is_some()
             || self.dialog_open();
         self.license.tick(&ctx, busy);
         self.license.windows(&ctx, &self.palette);

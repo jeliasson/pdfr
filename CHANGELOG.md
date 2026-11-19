@@ -44,6 +44,9 @@ version's section into its GitHub release notes.
   in the command palette). The page is saved turned too, and pdfr finds
   the boxes again on the upright page. Undo turns it back. Pages with the
   PDF's own form fields can't be turned.
+- Password-protected PDFs open: pdfr asks for the password (and never keeps
+  it). The saved copy is not password-protected, and pdfr says so when
+  saving.
 
 ### Changed
 
@@ -51,6 +54,9 @@ version's section into its GitHub release notes.
 
 ### Fixed
 
+- A password-protected PDF said "not a readable PDF file". Automated runs
+  (`--save`, `--screenshot`) now stop with an error when a file can't be
+  opened, instead of waiting.
 - macOS: “Confirm in the dialog macOS shows” no longer stays in Settings
   after you answer. pdfr sees the new default app within a second.
 

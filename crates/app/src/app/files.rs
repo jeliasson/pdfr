@@ -56,6 +56,33 @@ pub(super) enum AfterSave {
     Open(PathBuf),
 }
 
+/// Why a file did not open.
+#[derive(Debug)]
+pub enum OpenFail {
+    /// It needs a password (`wrong`: the one given did not work).
+    Password { wrong: bool },
+    Other(String),
+}
+
+/// Asking for a protected file's password.
+pub(super) struct PasswordAsk {
+    pub path: PathBuf,
+    pub input: String,
+    pub wrong: bool,
+    focused: bool,
+}
+
+impl PasswordAsk {
+    pub fn new(path: PathBuf, wrong: bool) -> PasswordAsk {
+        PasswordAsk {
+            path,
+            input: String::new(),
+            wrong,
+            focused: false,
+        }
+    }
+}
+
 impl App {
     /// Opens a file, asking first if the current one has unsaved changes.
     pub fn request_open(&mut self, path: PathBuf) {
@@ -81,19 +108,94 @@ impl App {
     }
 
     pub fn open(&mut self, path: PathBuf) {
+        self.open_with(path, None);
+    }
+
+    /// Opens a file in the background, with its password if it has one.
+    pub(super) fn open_with(&mut self, path: PathBuf, password: Option<String>) {
         self.status = format!("Opening {}…", path.display());
         let tx = self.open_tx.clone();
         let started = Instant::now();
         std::thread::spawn(move || {
+            use pdfr_core::forms::OpenError;
             let res = std::fs::read(&path)
-                .map_err(|e| e.to_string())
-                .and_then(|b| FormDoc::open(b).map_err(|e| e.to_string()))
+                .map_err(|e| OpenFail::Other(e.to_string()))
+                .and_then(|b| {
+                    FormDoc::open_with_password(b, password.as_deref()).map_err(|e| match e {
+                        OpenError::NeedsPassword => OpenFail::Password { wrong: false },
+                        OpenError::WrongPassword => OpenFail::Password { wrong: true },
+                        e => OpenFail::Other(e.to_string()),
+                    })
+                })
                 .map(|form| {
                     let render = form.render_bytes();
                     Opened { form, render }
                 });
             let _ = tx.send((path, res, started));
         });
+    }
+
+    /// The question for a protected file's password, while open.
+    pub(super) fn password_window(&mut self, ctx: &egui::Context) {
+        use crate::assist_ui::widgets::{Colors, panel_frame, primary_button, secondary_button};
+        let Some(ask) = self.password.as_mut() else { return };
+        let pal = self.palette.clone();
+        let c = Colors::new(&pal);
+        let (mut open, mut cancel) = ctx.input_mut(|i| {
+            (
+                i.consume_key(Modifiers::NONE, Key::Enter),
+                i.consume_key(Modifiers::NONE, Key::Escape),
+            )
+        });
+        let name = ask
+            .path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        egui::Modal::new(Id::unique("pdfr-password"))
+            .frame(panel_frame(ctx, &pal, &c, 20))
+            .show(ctx, |ui| {
+                ui.set_width(380.0);
+                ui.spacing_mut().item_spacing = vec2(8.0, 10.0);
+                ui.label(egui::RichText::new("Password needed").size(18.0).strong().color(c.text));
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(format!("\u{201c}{name}\u{201d} is protected. Enter its password to open it."))
+                            .color(c.weak),
+                    )
+                    .wrap(),
+                );
+                let te = ui.add(
+                    egui::TextEdit::singleline(&mut ask.input)
+                        .password(true)
+                        .hint_text("Password")
+                        .desired_width(f32::INFINITY),
+                );
+                if !te.has_focus() && !ask.focused {
+                    te.request_focus();
+                    ask.focused = true;
+                }
+                if ask.wrong {
+                    ui.label(
+                        egui::RichText::new("That password doesn't open it. Try again.")
+                            .color(crate::assist_ui::widgets::DANGER),
+                    );
+                }
+                ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        open |= primary_button(ui, &c, "Open").clicked();
+                        cancel |= secondary_button(ui, &c, "Cancel").on_hover_text("Esc").clicked();
+                    });
+                });
+            });
+        if cancel {
+            self.password = None;
+            self.status = format!("Not opened: {name} needs its password.");
+        } else if open && !ask.input.is_empty() {
+            let ask = self.password.take().unwrap();
+            // The password is used once to read the file and not kept.
+            self.open_with(ask.path, Some(ask.input));
+        }
     }
 
     pub(super) fn finish_open(
@@ -374,7 +476,14 @@ impl App {
                     Ok(()) => {
                         doc.save_path = Some(target.clone());
                         doc.dirty = false;
-                        self.status = format!("Saved {}.", target.display());
+                        self.status = if doc.form.was_protected {
+                            format!(
+                                "Saved {}. The saved copy is not password-protected.",
+                                target.display()
+                            )
+                        } else {
+                            format!("Saved {}.", target.display())
+                        };
                         self.assist.on_save(doc);
                         self.license.on_save();
                         true

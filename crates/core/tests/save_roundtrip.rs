@@ -463,3 +463,29 @@ fn rotating_a_page_turns_it_and_keeps_boxes_on_the_paper() {
     let g = &again.fields[0];
     assert!((g.rect.x0 - moved.x0).abs() < 0.01 && (g.rect.y1 - moved.y1).abs() < 0.01);
 }
+
+#[test]
+fn password_protected_files() {
+    use pdfr_core::forms::OpenError;
+    let user = sample("encrypted_user.pdf");
+    assert_eq!(FormDoc::open(user.clone()).err(), Some(OpenError::NeedsPassword));
+    assert_eq!(
+        FormDoc::open_with_password(user.clone(), Some("nope")).err(),
+        Some(OpenError::WrongPassword)
+    );
+    let fd = FormDoc::open_with_password(user, Some("pdfr")).unwrap();
+    assert!(fd.was_protected && fd.editable());
+    assert_eq!(fd.fields.len(), 9);
+    // Rendering needs no password: the bytes are the readable document.
+    assert!(pdfr_core::render::open((*fd.render_bytes()).clone()).is_some());
+    // The saved copy opens without one.
+    let mut fields = fd.fields.clone();
+    by_name(&mut fields, "fullname")[0].value = "Anna".into();
+    let saved = save(&fd, &fields).unwrap();
+    let again = FormDoc::open(saved).unwrap();
+    assert!(!again.was_protected);
+    assert_eq!(by_name(&mut again.fields.clone(), "fullname")[0].value, "Anna");
+    // An owner password alone does not stop opening.
+    let owner = FormDoc::open(sample("encrypted_owner.pdf")).unwrap();
+    assert!(owner.was_protected && owner.editable());
+}

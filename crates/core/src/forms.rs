@@ -37,6 +37,8 @@ pub struct FormDoc {
     pub fields: Vec<Field>,
     /// Why the document is read-only, if it is.
     pub read_only_reason: Option<String>,
+    /// The file was encrypted (pdfr reads and saves it unprotected).
+    pub was_protected: bool,
     /// Empty signature fields (`/FT /Sig`) the file asks to be signed.
     pub sign_here: Vec<(usize, crate::geom::Rect)>,
     /// The file's link annotations.
@@ -45,9 +47,14 @@ pub struct FormDoc {
     pub outline: Vec<crate::outline::OutlineItem>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum OpenError {
     NotPdf,
+    /// The file is protected with a password and none was given.
+    NeedsPassword,
+    /// The password given does not open the file.
+    WrongPassword,
+    /// The file is protected in a way pdfr cannot read.
     Encrypted,
 }
 
@@ -55,16 +62,40 @@ impl std::fmt::Display for OpenError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             OpenError::NotPdf => write!(f, "not a readable PDF file"),
-            OpenError::Encrypted => write!(f, "password-protected PDFs are not supported"),
+            OpenError::NeedsPassword => write!(f, "this PDF is protected with a password"),
+            OpenError::WrongPassword => write!(f, "that password does not open this PDF"),
+            OpenError::Encrypted => {
+                write!(f, "this PDF is protected in a way pdfr can't read yet")
+            }
         }
     }
 }
 
 impl FormDoc {
     pub fn open(bytes: Vec<u8>) -> Result<FormDoc, OpenError> {
-        let bytes = Arc::new(bytes);
+        Self::open_with_password(bytes, None)
+    }
+
+    /// Opens a file, with the password if it is protected. A protected
+    /// file is decrypted once here: `bytes` hold the readable document, so
+    /// rendering and printing never need the password, and the saved copy
+    /// is not protected (`was_protected` says so).
+    pub fn open_with_password(bytes: Vec<u8>, password: Option<&str>) -> Result<FormDoc, OpenError> {
+        use hayro::hayro_syntax::{DecryptionError, LoadPdfError};
+        let mut bytes = Arc::new(bytes);
         // Page geometry comes from hayro so it matches rendering exactly.
-        let pdf = crate::render::open((*bytes).clone()).ok_or(OpenError::NotPdf)?;
+        let pdf = match hayro::hayro_syntax::Pdf::new_with_password(bytes.clone(), password.unwrap_or("")) {
+            Ok(p) => p,
+            Err(LoadPdfError::Decryption(DecryptionError::PasswordProtected)) => {
+                return Err(if password.is_some() {
+                    OpenError::WrongPassword
+                } else {
+                    OpenError::NeedsPassword
+                });
+            }
+            Err(LoadPdfError::Decryption(_)) => return Err(OpenError::Encrypted),
+            Err(LoadPdfError::Invalid) => return Err(OpenError::NotPdf),
+        };
         let pages: Vec<PageGeom> = pdf
             .pages()
             .iter()
@@ -78,13 +109,27 @@ impl FormDoc {
             page_ids: vec![],
             fields: vec![],
             read_only_reason: None,
+            was_protected: false,
             sign_here: vec![],
             links: vec![],
             outline: vec![],
         };
-        match Document::load_mem(&bytes) {
+        let loaded = match password {
+            Some(p) => Document::load_mem_with_options(&bytes, lopdf::LoadOptions::with_password(p)),
+            None => Document::load_mem(&bytes),
+        };
+        match loaded {
             Ok(doc) if doc.is_encrypted() => return Err(OpenError::Encrypted),
             Ok(doc) => {
+                if doc.encryption_state.is_some() {
+                    // Decrypted: keep the readable bytes for rendering.
+                    let mut plain = Vec::new();
+                    if doc.clone().save_to(&mut plain).is_ok() {
+                        bytes = Arc::new(plain);
+                        fd.bytes = bytes.clone();
+                    }
+                    fd.was_protected = true;
+                }
                 let ids: Vec<ObjId> = doc.get_pages().values().copied().collect();
                 if ids.len() != fd.pages.len() {
                     fd.read_only_reason =

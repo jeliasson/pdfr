@@ -11,6 +11,8 @@ Writes (default outdir: samples/):
   scanned_form.pdf    flat_form rasterised at 150 dpi, blurred, noisy, skewed 0.25 deg
   perf_text.pdf       one dense text page (embedded TrueType font)
   perf_image.pdf      one page dominated by large photographic images
+  encrypted_user.pdf  real_form.pdf protected with AES-256, user password "pdfr"
+  encrypted_owner.pdf real_form.pdf with only an owner password (opens without one)
   links.pdf           three pages: a web link, a printed address, jumps to
                       a named destination, and an outline (bookmarks)
   big_300.pdf         (only with --big) 300 pages: flat forms and text pages
@@ -314,6 +316,15 @@ def perf_text(path):
     c.save()
 
 
+def encrypted(src, path, user_password):
+    """A password-protected copy (needs qpdf)."""
+    subprocess.run(
+        ["qpdf", "--encrypt", f"--user-password={user_password}",
+         "--owner-password=owner-secret", "--bits=256", "--", src, path],
+        check=True,
+    )
+
+
 def links(path):
     """Links of every kind, and an outline, over three pages."""
     c = canvas.Canvas(path, pagesize=(W, H))
@@ -397,6 +408,8 @@ def main():
     perf_text(p("perf_text.pdf"))
     perf_image(p("perf_image.pdf"))
     links(p("links.pdf"))
+    encrypted(p("real_form.pdf"), p("encrypted_user.pdf"), "pdfr")
+    encrypted(p("real_form.pdf"), p("encrypted_owner.pdf"), "")
     if "--big" in sys.argv:
         big(p("big_300.pdf"))
     print("wrote samples to", out)

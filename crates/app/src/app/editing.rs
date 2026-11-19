@@ -30,6 +30,7 @@ impl App {
             || self.overlay.is_some()
             || self.hints.is_some()
             || self.sign.is_some()
+            || self.password.is_some()
     }
 
     pub fn focus_field(&mut self, id: u64, caret_end: bool, ctx: &egui::Context) {

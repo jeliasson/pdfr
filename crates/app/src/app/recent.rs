@@ -6,7 +6,7 @@ use super::*;
 use pdfr_assist::memory::{RECENT_MAX, RecentFile, now};
 
 impl App {
-    fn automated(&self) -> bool {
+    pub(super) fn automated(&self) -> bool {
         self.cli.demo || self.cli.save.is_some() || self.cli.screenshot.is_some() || self.cli.record.is_some()
     }
 

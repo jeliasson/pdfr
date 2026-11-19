@@ -986,3 +986,39 @@ fn turn_a_page_undo_and_fit_page() {
     let r = s.page_rects()[0];
     assert!(r.height() <= s.viewport.height() && r.width() <= s.viewport.width());
 }
+
+#[test]
+fn protected_file_asks_for_its_password() {
+    let cli = CliOptions {
+        file: Some(sample("encrypted_user.pdf")),
+        no_ai: true,
+        data_dir: Some(data_dir("password", None)),
+        ..Default::default()
+    };
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 900.0))
+        .with_step_dt(1.0 / 60.0)
+        .build_eframe(move |cc| App::new(cc, cli));
+    let wait = |h: &mut Harness<'_, App>, done: &dyn Fn(&App) -> bool| {
+        let start = Instant::now();
+        while !done(h.state()) {
+            h.run_steps(1);
+            std::thread::sleep(Duration::from_millis(10));
+            assert!(start.elapsed() < Duration::from_secs(20), "timed out");
+        }
+    };
+    wait(&mut h, &|s| s.password.is_some());
+    assert!(!h.state().password.as_ref().unwrap().wrong);
+    type_text(&mut h, "guess");
+    key(&mut h, Key::Enter);
+    wait(&mut h, &|s| s.password.as_ref().is_some_and(|p| p.wrong));
+    assert!(h.state().password.as_ref().unwrap().input.is_empty(), "never kept");
+    h.run_steps(2);
+    type_text(&mut h, "pdfr");
+    key(&mut h, Key::Enter);
+    wait(&mut h, &|s| s.doc.is_some());
+    assert!(h.state().password.is_none());
+    let d = h.state().doc.as_ref().unwrap();
+    assert!(d.form.was_protected);
+    assert_eq!(d.entries.iter().filter(|e| e.f.is_real()).count(), 9);
+}
