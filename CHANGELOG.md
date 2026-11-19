@@ -35,6 +35,9 @@ version's section into its GitHub release notes.
   thumbnails of every page, marked where boxes are filled in, and the
   document's outline (bookmarks) when it has one. Ctrl+G also finds the
   outline's sections by name.
+- Recent files: Ctrl+E lists the files you opened (the empty window shows
+  them too), and a file opens again on the page and at the zoom where you
+  left it. Turn it off or clear the list in Settings → General.
 
 ### Changed
 

@@ -103,6 +103,8 @@ impl App {
         started: Instant,
         ctx: &egui::Context,
     ) {
+        // The file being left keeps its place in the recent list.
+        self.remember_position();
         let Opened { form, render } = opened;
         let sizes: Vec<(f32, f32)> = form.pages.iter().map(|g| g.display_size()).collect();
         let n = sizes.len();
@@ -170,6 +172,9 @@ impl App {
             Some(r) => format!("Read-only: {r}."),
             None => format!("{} page{}.", n, if n == 1 { "" } else { "s" }),
         };
+        self.restore = None;
+        let p = self.doc.as_ref().unwrap().path.clone();
+        self.opened_recent(&p);
         self.assist.on_open(self.doc.as_mut().unwrap());
         ctx.request_repaint();
     }

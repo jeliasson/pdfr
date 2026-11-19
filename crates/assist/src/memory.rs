@@ -52,7 +52,31 @@ pub struct Settings {
     /// The page sidebar is shown.
     #[serde(default)]
     pub sidebar: bool,
+    /// Keep a list of recently opened files and where they were left.
+    #[serde(default = "yes")]
+    pub remember_recent: bool,
+    /// Recently opened files, newest first.
+    #[serde(default)]
+    pub recent: Vec<RecentFile>,
 }
+
+/// A recently opened file and where it was left.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct RecentFile {
+    pub path: String,
+    /// The page at the top of the window, and how far down it (0..1).
+    #[serde(default)]
+    pub page: usize,
+    #[serde(default)]
+    pub offset: f32,
+    #[serde(default)]
+    pub zoom: f32,
+    #[serde(default)]
+    pub opened_at: u64,
+}
+
+/// Most files listed as recent.
+pub const RECENT_MAX: usize = 20;
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -83,6 +107,8 @@ impl Default for Settings {
             dismissed_version: String::new(),
             lock_signatures: false,
             sidebar: false,
+            remember_recent: true,
+            recent: vec![],
         }
     }
 }

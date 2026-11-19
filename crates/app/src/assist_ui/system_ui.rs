@@ -275,6 +275,41 @@ impl AssistState {
         if !install.checks_for_updates() {
             note(ui, c, &format!("pdfr {}.", updates::current()));
         }
+        card(ui, c, Some("Recent files"), |ui| {
+            let st = &mut self.a.store.settings;
+            let mut on = st.remember_recent;
+            setting_row(
+                ui,
+                c,
+                "Remember recent files",
+                "List the files you open (Ctrl+E) and reopen each where you left it.",
+                |ui| {
+                    if toggle(ui, c, &mut on).changed() {
+                        st.remember_recent = on;
+                        if !on {
+                            st.recent.clear();
+                        }
+                        changed = true;
+                    }
+                },
+            );
+            if !st.recent.is_empty() {
+                row_divider(ui, c);
+                let n = st.recent.len();
+                let mut clear = false;
+                setting_row(
+                    ui,
+                    c,
+                    "Clear the list",
+                    &format!("{n} file{} listed.", if n == 1 { "" } else { "s" }),
+                    |ui| clear = secondary_button(ui, c, "Clear").clicked(),
+                );
+                if clear {
+                    st.recent.clear();
+                    changed = true;
+                }
+            }
+        });
         card(ui, c, Some("Signatures"), |ui| {
             let lock = &mut self.a.store.settings.lock_signatures;
             let options = [

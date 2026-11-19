@@ -899,3 +899,45 @@ fn sidebar_thumbnails_and_outline() {
     ctrl(&mut h, Key::B);
     assert!(!h.state().sidebar_open());
 }
+
+fn open_and_wait(h: &mut Harness<'_, App>, file: &str) {
+    h.state_mut().request_open(sample(file));
+    let start = Instant::now();
+    loop {
+        h.run_steps(1);
+        let s = h.state();
+        if s.doc.as_ref().is_some_and(|d| d.path.ends_with(file) && d.detected.iter().all(|x| *x))
+            && s.assist.idle()
+        {
+            break;
+        }
+        assert!(start.elapsed() < Duration::from_secs(20), "timed out opening {file}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    h.run_steps(3);
+}
+
+#[test]
+fn recent_files_reopen_where_left() {
+    let dir = data_dir("recent", None);
+    let mut h = harness("links.pdf", dir.clone());
+    h.state_mut().scroll_to_page(2);
+    h.run_steps(1);
+    open_and_wait(&mut h, "flat_form.pdf");
+    let recent = &h.state().assist.a.store.settings.recent;
+    assert_eq!(recent.len(), 2);
+    assert!(recent[0].path.ends_with("flat_form.pdf"));
+    assert_eq!(recent[1].page, 2, "links.pdf was left on page 3");
+    // Ctrl+E lists links.pdf; Enter opens it where it was left.
+    ctrl(&mut h, Key::E);
+    key(&mut h, Key::Enter);
+    let start = Instant::now();
+    while !h.state().doc.as_ref().unwrap().path.ends_with("links.pdf") {
+        h.run_steps(1);
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(start.elapsed() < Duration::from_secs(20));
+    }
+    h.run_steps(3);
+    assert_eq!(h.state().current_page(), 2);
+    assert!(h.state().status.starts_with("Back where you left off"));
+}

@@ -208,6 +208,8 @@ pub struct App {
     thumbs_asked: Vec<usize>,
     /// Outline entries opened or closed by the user.
     outline_open: HashMap<usize, bool>,
+    /// Where to return to in a reopened file: page, offset, zoom.
+    restore: Option<(usize, f32, f32)>,
     pub palette: Palette,
     omarchy_active: bool,
     theme_rx: Receiver<Option<Palette>>,
@@ -302,6 +304,7 @@ impl App {
             side_follow: None,
             thumbs_asked: vec![],
             outline_open: HashMap::new(),
+            restore: None,
             palette,
             omarchy_active,
             theme_rx,
@@ -519,6 +522,10 @@ impl App {
 }
 
 impl eframe::App for App {
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.remember_position();
+    }
+
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         self.record_input(raw_input);
     }
@@ -691,6 +698,7 @@ mod history;
 mod links;
 mod palette;
 mod print;
+mod recent;
 mod record;
 mod search;
 mod select;

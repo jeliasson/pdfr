@@ -16,6 +16,7 @@ use eframe::egui::{Key, KeyboardShortcut, Modifiers, pos2};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Command {
     Open,
+    Recent,
     Save,
     SaveAs,
     Print,
@@ -72,6 +73,7 @@ const fn ctrl_shift(key: Key) -> KeyboardShortcut {
 }
 
 const OPEN: &[KeyboardShortcut] = &[ctrl(Key::O)];
+const RECENT: &[KeyboardShortcut] = &[ctrl(Key::E)];
 const SAVE: &[KeyboardShortcut] = &[ctrl(Key::S)];
 const SAVE_AS: &[KeyboardShortcut] = &[ctrl_shift(Key::S)];
 const PRINT: &[KeyboardShortcut] = &[ctrl(Key::P)];
@@ -106,6 +108,7 @@ const NONE: &[KeyboardShortcut] = &[];
 impl Command {
     pub const ALL: &'static [Command] = &[
         Command::Open,
+        Command::Recent,
         Command::Save,
         Command::SaveAs,
         Command::Print,
@@ -148,6 +151,12 @@ impl Command {
         use Command::*;
         let (label, hint, icon, shortcuts) = match self {
             Open => ("Open", "Open a PDF", Icon::Open, OPEN),
+            Recent => (
+                "Recent files…",
+                "Open a file you had open before, where you left it",
+                Icon::Open,
+                RECENT,
+            ),
             Save => (
                 "Save",
                 "Save the filled form (the original is never overwritten silently)",
@@ -320,7 +329,7 @@ impl App {
         let editable = doc.is_some_and(|d| d.form.editable());
         match c {
             // One file dialog at a time.
-            Open => !self.dialog_open(),
+            Open | Recent => !self.dialog_open(),
             Settings => true,
             Register => !self.license.registered(),
             Save | SaveAs => editable && !self.dialog_open(),
@@ -363,6 +372,7 @@ impl App {
         let center = self.viewport.center();
         match c {
             Open => self.pick_and_open(),
+            Recent => self.open_palette(super::palette::Scope::Recent),
             Save => self.save(false),
             SaveAs => self.save(true),
             Print => self.print(),

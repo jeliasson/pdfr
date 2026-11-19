@@ -16,6 +16,8 @@ pub enum Scope {
     Page,
     /// The document's text, plus boxes by label (Ctrl+F).
     Find,
+    /// Recently opened files (Ctrl+E).
+    Recent,
 }
 
 pub struct Finder {
@@ -40,6 +42,8 @@ enum Item {
     Hit(usize),
     /// An outline entry (index into the document's outline).
     Outline(usize),
+    /// A recent file (index into `recent_files()`).
+    Recent(usize),
     /// A line of information; never runs.
     Info,
 }
@@ -121,6 +125,43 @@ impl App {
                 rows.into_iter().map(|(_, r)| r).collect()
             }
             Scope::Boxes => self.box_rows(q),
+            Scope::Recent => {
+                let mut rows: Vec<(i32, Row)> = self
+                    .recent_files()
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, r)| {
+                        let path = std::path::Path::new(&r.path);
+                        let name = path
+                            .file_name()
+                            .map_or(r.path.clone(), |n| n.to_string_lossy().into_owned());
+                        let score = fuzzy(q, &r.path)?;
+                        let folder = path
+                            .parent()
+                            .map(|p| p.to_string_lossy().into_owned())
+                            .unwrap_or_default();
+                        let exists = path.exists();
+                        let when = if exists {
+                            super::recent::when(r.opened_at)
+                        } else {
+                            "missing".into()
+                        };
+                        Some((
+                            score,
+                            Row {
+                                item: Item::Recent(i),
+                                title: name,
+                                detail: format!("{}   {when}", short_folder(&folder)),
+                                enabled: exists,
+                            },
+                        ))
+                    })
+                    .collect();
+                if !q.is_empty() {
+                    rows.sort_by_key(|(s, _)| std::cmp::Reverse(*s));
+                }
+                rows.into_iter().map(|(_, r)| r).collect()
+            }
             Scope::Find => {
                 let mut rows = Vec::new();
                 if !q.is_empty() {
@@ -299,6 +340,14 @@ impl App {
         let (placeholder, empty_text) = match scope {
             Scope::Commands => ("Type a command…", "No command matches".to_string()),
             Scope::Boxes => ("Find a box by its label…", "No box matches".to_string()),
+            Scope::Recent => (
+                "Recent files\u{2026}",
+                if self.assist.a.store.settings.remember_recent {
+                    "No recent files yet".to_string()
+                } else {
+                    "Recent files are off (Settings \u{2192} General)".to_string()
+                },
+            ),
             Scope::Find => {
                 let (read, n) = self.text_progress();
                 let none = if query.trim().is_empty() {
@@ -462,6 +511,11 @@ impl App {
                     self.follow_link(&link);
                 }
             }
+            Some(Item::Recent(i)) => {
+                if let Some(r) = self.recent_files().get(i) {
+                    self.request_open(PathBuf::from(&r.path));
+                }
+            }
             Some(Item::Info) | None => {}
         }
     }
@@ -587,6 +641,21 @@ pub(super) fn fuzzy(query: &str, text: &str) -> Option<i32> {
         .filter(|c| !c.is_whitespace())
         .all(|qc| it.any(|tc| tc == qc))
         .then_some(10)
+}
+
+/// A folder for a list: the home folder as `~`, long paths cut in front.
+fn short_folder(f: &str) -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let f = match f.strip_prefix(&home) {
+        Some(rest) if !home.is_empty() => format!("~{rest}"),
+        _ => f.to_string(),
+    };
+    let n = f.chars().count();
+    if n > 40 {
+        format!("\u{2026}{}", f.chars().skip(n - 39).collect::<String>())
+    } else {
+        f
+    }
 }
 
 #[cfg(test)]

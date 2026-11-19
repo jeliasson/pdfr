@@ -20,8 +20,10 @@ impl App {
                 egui::FontId::proportional(16.0),
                 self.palette.text,
             );
+            self.recent_start(ui, full);
             return;
         }
+        self.apply_restore();
         // Keep egui from stealing tab, arrows and escape while a field is focused.
         if self.focus.is_some() && !self.keyboard_elsewhere(&ctx) {
             ctx.memory_mut(|m| {
