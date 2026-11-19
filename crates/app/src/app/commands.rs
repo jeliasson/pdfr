@@ -28,6 +28,8 @@ pub enum Command {
     ActualSize,
     FitWidth,
     FitPage,
+    TwoPages,
+    Present,
     DarkPages,
     RotatePage,
     RotatePageBack,
@@ -135,6 +137,8 @@ impl Command {
         Command::ActualSize,
         Command::FitWidth,
         Command::FitPage,
+        Command::TwoPages,
+        Command::Present,
         Command::DarkPages,
         Command::RotatePage,
         Command::RotatePageBack,
@@ -219,6 +223,18 @@ impl Command {
                 "Zoom so the whole page fits in the window",
                 Icon::FitPage,
                 FIT_PAGE,
+            ),
+            TwoPages => (
+                "Two pages side by side",
+                "Show pages in pairs, like an open book",
+                Icon::FitWidth,
+                NONE,
+            ),
+            Present => (
+                "Present",
+                "One page at a time, full screen. Arrow keys turn pages; Esc ends",
+                Icon::FitPage,
+                NONE,
             ),
             DarkPages => (
                 "Dark pages",
@@ -412,6 +428,7 @@ impl App {
             Redo => doc.is_some() && !self.redo.is_empty(),
             ZoomOut | ZoomIn | ActualSize | FitWidth | FitPage | Sidebar => doc.is_some(),
             DarkPages => true,
+            TwoPages | Present => doc.is_some(),
             RotatePage | RotatePageBack | RotateAll => editable,
             ScrollDown | ScrollUp | HalfPageDown | HalfPageUp | NextPage | PrevPage
             | GoToPage | Find | FindBox | JumpHints => doc.is_some(),
@@ -443,6 +460,8 @@ impl App {
             Command::Settings => self.assist.settings_open,
             Command::Sidebar => self.sidebar_open(),
             Command::DarkPages => self.dark_pages(),
+            Command::TwoPages => self.two_up,
+            Command::Present => self.presenting(),
             Command::ToggleRemember => self.focused_entry().is_some_and(|e| e.no_memory),
             _ => false,
         }
@@ -494,6 +513,15 @@ impl App {
                 }
             }
             FitPage => self.fit_page(),
+            TwoPages => self.toggle_two_up(),
+            Present => {
+                let ctx = self.egui_ctx.clone();
+                if self.presenting() {
+                    self.stop_presenting(&ctx);
+                } else {
+                    self.start_presenting(&ctx);
+                }
+            }
             DarkPages => {
                 let on = !self.dark_pages();
                 self.set_dark_pages(on);
@@ -534,13 +562,17 @@ impl App {
             }
             HalfPageDown => self.scroll_by(self.viewport.height() * 0.5),
             HalfPageUp => self.scroll_by(-self.viewport.height() * 0.5),
-            NextPage => self.scroll_to_page(self.current_page() + 1),
+            NextPage => {
+                let next = self.row_after(self.current_page());
+                self.scroll_to_page(next);
+            }
             PrevPage => {
                 // Like zathura: back to this page's top first, if below it.
                 let cur = self.current_page();
                 let top = self.page_rects().get(cur).map(|r| r.top());
                 let at_top = top.is_some_and(|t| t >= self.viewport.top() + PAD - 2.0);
-                self.scroll_to_page(if at_top { cur.saturating_sub(1) } else { cur });
+                let to = if at_top { self.row_before(cur) } else { cur };
+                self.scroll_to_page(to);
             }
             GoToPage => self.open_palette(super::palette::Scope::Page),
             GoBack => self.go_back(),

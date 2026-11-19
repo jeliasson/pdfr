@@ -214,6 +214,11 @@ pub struct App {
     restore: Option<(usize, f32, f32)>,
     /// Whether the workers draw pages dark.
     dark_applied: bool,
+    /// Pages side by side in pairs.
+    two_up: bool,
+    /// Presentation mode: the page being shown, and the zoom and scroll to
+    /// go back to.
+    present: Option<(usize, f32, Vec2)>,
     pub palette: Palette,
     omarchy_active: bool,
     theme_rx: Receiver<Option<Palette>>,
@@ -312,6 +317,8 @@ impl App {
             outline_open: HashMap::new(),
             restore: None,
             dark_applied: false,
+            two_up: false,
+            present: None,
             palette,
             omarchy_active,
             theme_rx,
@@ -589,6 +596,8 @@ impl eframe::App for App {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
 
+        let presenting = self.presenting();
+        if !presenting {
         egui::Panel::top("toolbar")
             .frame(
                 egui::Frame::new()
@@ -603,7 +612,8 @@ impl eframe::App for App {
                     .inner_margin(egui::Margin::symmetric(8, 3)),
             )
             .show(ui, |ui| self.status_bar(ui));
-        if self.sidebar_open() {
+        }
+        if self.sidebar_open() && !presenting {
             egui::Panel::left("sidebar")
                 .resizable(true)
                 .default_size(170.0)
@@ -616,7 +626,11 @@ impl eframe::App for App {
                 .show(ui, |ui| self.sidebar(ui));
         }
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(self.palette.canvas))
+            .frame(egui::Frame::new().fill(if presenting {
+                Color32::BLACK
+            } else {
+                self.palette.canvas
+            }))
             .show(ui, |ui| self.canvas(ui));
 
         self.builtin_dialog_ui(&ctx);
@@ -720,6 +734,7 @@ mod hints;
 mod history;
 mod links;
 mod palette;
+mod present;
 mod print;
 mod recent;
 mod record;

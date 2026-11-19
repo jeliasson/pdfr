@@ -56,6 +56,9 @@ version's section into its GitHub release notes.
   say the instructions next to the form. In Recent files, Ctrl+Enter opens
   one in a new window. Two windows share what pdfr remembers safely: each
   keeps what the other saved.
+- Two pages side by side, like an open book, and a presentation mode (one
+  page at a time, full screen; arrow keys or a click turn pages, Esc ends).
+  Both are in the command palette.
 - Password-protected PDFs open: pdfr asks for the password (and never keeps
   it). The saved copy is not password-protected, and pdfr says so when
   saving.

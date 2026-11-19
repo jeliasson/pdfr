@@ -24,6 +24,10 @@ impl App {
             return;
         }
         self.apply_restore();
+        if self.presenting() {
+            let real_click = ctx.input(|i| i.pointer.any_released());
+            self.present_frame(&ctx, resp.clicked() && real_click);
+        }
         // Keep egui from stealing tab, arrows and escape while a field is focused.
         if self.focus.is_some() && !self.keyboard_elsewhere(&ctx) {
             ctx.memory_mut(|m| {
@@ -42,8 +46,8 @@ impl App {
             });
         }
 
-        // Scrolling and zooming.
-        let hovered = resp.hovered() || ui.rect_contains_pointer(full);
+        // Scrolling and zooming (not while presenting: the keys turn pages).
+        let hovered = (resp.hovered() || ui.rect_contains_pointer(full)) && !self.presenting();
         let (scroll_delta, zoom_delta, pointer) =
             ctx.input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.pointer.hover_pos()));
         if hovered {
@@ -259,6 +263,10 @@ impl App {
 
         // Ctrl+L jump labels, over everything on the page.
         self.draw_hints(&painter, &rects);
+
+        if self.presenting() {
+            return;
+        }
 
         // Scrollbar.
         self.scrollbar(ui, &painter, full);

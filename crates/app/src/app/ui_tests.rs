@@ -1099,3 +1099,37 @@ fn new_window_opens_here_when_the_window_is_empty() {
     }
     assert!(h.state().can(commands::Command::OpenNewWindow));
 }
+
+#[test]
+fn two_pages_side_by_side_and_presenting() {
+    let mut h = harness("links.pdf", data_dir("present", None));
+    h.state_mut().run(commands::Command::TwoPages);
+    h.run_steps(2);
+    {
+        let s = h.state();
+        let r = s.page_rects();
+        assert_eq!(r[1].top(), r[2].top(), "pages 2 and 3 side by side");
+        assert!(r[2].left() > r[1].right());
+        assert!(r[0].bottom() < r[1].top(), "page 1 alone, like a cover");
+    }
+    ctrl_shift(&mut h, Key::J);
+    assert_eq!(h.state().current_page(), 1, "next page goes to the next pair");
+    h.state_mut().run(commands::Command::TwoPages);
+    h.run_steps(1);
+
+    let zoom = h.state().zoom;
+    h.state_mut().run(commands::Command::Present);
+    h.run_steps(2);
+    assert!(h.state().presenting());
+    key(&mut h, Key::ArrowRight);
+    h.run_steps(1);
+    assert_eq!(h.state().current_page(), 2);
+    {
+        let s = h.state();
+        let r = s.page_rects()[2];
+        assert!(r.height() <= s.viewport.height() + 1.0, "the page fits");
+    }
+    key(&mut h, Key::Escape);
+    assert!(!h.state().presenting());
+    assert!((h.state().zoom - zoom).abs() < 1e-3, "zoom restored");
+}

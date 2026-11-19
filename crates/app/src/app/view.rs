@@ -62,15 +62,57 @@ impl App {
         } else {
             1000.0
         };
-        ((w - 2.0 * PAD - SCROLLBAR_W) / self.max_page_width()).max(0.1)
+        let (n, gap) = if self.two_up { (2.0, GAP) } else { (1.0, 0.0) };
+        ((w - 2.0 * PAD - SCROLLBAR_W - gap) / (n * self.max_page_width())).max(0.1)
+    }
+
+    /// Pages by row: one per row, or side by side in pairs like an open
+    /// book (the first page alone, as a cover).
+    pub(super) fn page_rows(&self) -> Vec<Vec<usize>> {
+        let n = self.doc.as_ref().map_or(0, |d| d.sizes.len());
+        if !self.two_up {
+            return (0..n).map(|i| vec![i]).collect();
+        }
+        let mut rows = vec![];
+        if n > 0 {
+            rows.push(vec![0]);
+        }
+        let mut i = 1;
+        while i < n {
+            rows.push((i..(i + 2).min(n)).collect());
+            i += 2;
+        }
+        rows
+    }
+
+    /// The first page of the row after page `i`'s (the last page if none).
+    pub(super) fn row_after(&self, i: usize) -> usize {
+        let rows = self.page_rows();
+        let r = rows.iter().position(|r| r.contains(&i)).unwrap_or(0);
+        rows.get(r + 1).or(rows.last()).map_or(0, |r| r[0])
+    }
+
+    /// The first page of the row before page `i`'s.
+    pub(super) fn row_before(&self, i: usize) -> usize {
+        let rows = self.page_rows();
+        let r = rows.iter().position(|r| r.contains(&i)).unwrap_or(0);
+        rows.get(r.saturating_sub(1)).map_or(0, |r| r[0])
     }
 
     pub(super) fn content_size(&self) -> Vec2 {
         let Some(doc) = &self.doc else {
             return Vec2::ZERO;
         };
-        let h: f32 = doc.sizes.iter().map(|s| s.1 * self.zoom + GAP).sum::<f32>() - GAP + 2.0 * PAD;
-        vec2(self.max_page_width() * self.zoom + 2.0 * PAD, h)
+        let rows = self.page_rows();
+        let (mut w, mut h) = (0.0f32, 0.0f32);
+        for r in &rows {
+            let rw: f32 = r.iter().map(|&i| doc.sizes[i].0 * self.zoom).sum::<f32>()
+                + GAP * (r.len() as f32 - 1.0);
+            let rh = r.iter().map(|&i| doc.sizes[i].1).fold(0.0, f32::max) * self.zoom;
+            w = w.max(rw);
+            h += rh + GAP;
+        }
+        vec2(w + 2.0 * PAD, h - GAP + 2.0 * PAD)
     }
 
     /// Screen rect of every page at the current zoom and scroll.
@@ -84,18 +126,25 @@ impl App {
         } else {
             vp.left() - self.scroll.x + content.x / 2.0
         };
+        let mut out = vec![Rect::NOTHING; doc.sizes.len()];
         let mut y = vp.top() - self.scroll.y + PAD;
-        doc.sizes
-            .iter()
-            .map(|&(w, h)| {
-                let r = Rect::from_min_size(
-                    pos2((cx - w * self.zoom / 2.0).round(), y.round()),
+        for row in self.page_rows() {
+            let rw: f32 = row.iter().map(|&i| doc.sizes[i].0 * self.zoom).sum::<f32>()
+                + GAP * (row.len() as f32 - 1.0);
+            let mut x = cx - rw / 2.0;
+            let mut rh = 0.0f32;
+            for &i in &row {
+                let (w, h) = doc.sizes[i];
+                out[i] = Rect::from_min_size(
+                    pos2(x.round(), y.round()),
                     vec2(w * self.zoom, h * self.zoom),
                 );
-                y += h * self.zoom + GAP;
-                r
-            })
-            .collect()
+                x += w * self.zoom + GAP;
+                rh = rh.max(h * self.zoom);
+            }
+            y += rh + GAP;
+        }
+        out
     }
 
     pub(super) fn clamp_scroll(&mut self) {
