@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icon/png/pdfr-128.png" width="96" alt="The pdfr icon: a form field with &quot;pdfr&quot; typed in.">
+  <img src="assets/icon/png/pdfr-128.png" width="96" alt="The pdfr icon: a white text cursor on the line of a form field, on a coral tile.">
 </p>
 
 <h1 align="center">pdfr</h1>

@@ -1,63 +1,53 @@
-"""pdfr brand icon: a form field where "pdfr" has just been typed, the "r" in
-coral like the wordmark. (The small sizes keep the caret: "p" plus caret.) Writes path-only SVGs (no fonts needed to render)."""
+"""pdfr's app icon: a text cursor (I-beam) standing on the line of a form
+field, white on the coral tile: click and type. No text, like other apps'
+icons. Small sizes draw it bolder. Writes path-only SVGs."""
 import os, sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from concepts import glyphs, width, TILE
+HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = sys.argv[1] if len(sys.argv) > 1 else "out"
 os.makedirs(OUT, exist_ok=True)
-F = "InterDisplay-Bold.ttf"
-INK, CORAL_A, CORAL_B = "#2B1533", "#FF9259", "#E5336D"
+TILE = open(os.path.join(HERE, "squircle.txt")).read().strip()
+CORAL_A, CORAL_B, SHADOW = "#FF9259", "#E5336D", "#6B0E33"
+
 
 def defs():
     return f'''<defs>
     <linearGradient id="bg" x1="0.15" y1="0" x2="0.85" y2="1"><stop offset="0" stop-color="{CORAL_A}"/><stop offset="1" stop-color="{CORAL_B}"/></linearGradient>
     <radialGradient id="glow" cx="0.3" cy="0.12" r="0.75"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.28"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient>
-    <linearGradient id="field" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#FFF4F2"/></linearGradient>
-    <filter id="sh" x="-20%" y="-40%" width="140%" height="180%"><feGaussianBlur stdDeviation="22"/></filter>
+    <filter id="sh" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="20"/></filter>
   </defs>'''
 
-def svg(body, view="0 0 1024 1024"):
-    return f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{view}">\n  {defs()}\n{body}\n</svg>\n'
+
+def svg(body):
+    return f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">\n  {defs()}\n{body}\n</svg>\n'
+
 
 def tile():
     return f'  <path d="{TILE}" fill="url(#bg)"/>\n  <path d="{TILE}" fill="url(#glow)"/>'
 
-def field(x, y, w, h, r, text=None, size=0, caret_w=18, label=True, second=True, accent=None):
+
+def cursor(cap_w, cap_h, stem_w, top, bottom, line_w, line_h, line_y, shadow=True):
+    """The I-beam (caps and stem) and the field line under it, centred."""
+    c = 512
+    ibeam = (
+        f"M{c - cap_w / 2} {top}h{cap_w}v{cap_h}h{-(cap_w - stem_w) / 2}"
+        f"V{bottom - cap_h}h{(cap_w - stem_w) / 2}v{cap_h}h{-cap_w}v{-cap_h}"
+        f"h{(cap_w - stem_w) / 2}V{top + cap_h}h{-(cap_w - stem_w) / 2}z"
+    )
+    line = f'<rect x="{c - line_w / 2}" y="{line_y}" width="{line_w}" height="{line_h}" rx="{line_h / 2}"'
     out = []
-    if label:
-        out.append(f'  <rect x="{x+8}" y="{y-74}" width="{w*0.36:.0f}" height="34" rx="17" fill="#FFFFFF" fill-opacity="0.8"/>')
-    out.append(f'  <rect x="{x}" y="{y+18}" width="{w}" height="{h}" rx="{r}" fill="#6B0E33" fill-opacity="0.38" filter="url(#sh)"/>')
-    out.append(f'  <rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{r}" fill="url(#field)"/>')
-    pad = h * 0.24
-    if text:
-        base = y + h / 2 + size * 0.36
-        if accent:
-            # The whole word, centred, no caret: a coral caret beside a
-            # coral "r" reads as "rl" at small sizes.
-            tw = width(F, text + accent, size, -0.03)
-            d, end = glyphs(F, text, size, x + (w - tw) / 2, base, -0.03)
-            out.append(f'  <path d="{d}" fill="{INK}"/>')
-            d, end = glyphs(F, accent, size, end, base, -0.03)
-            out.append(f'  <path d="{d}" fill="{CORAL_B}"/>')
-            caret_w = 0
-        else:
-            d, end = glyphs(F, text, size, x + pad * 0.95, base, -0.03)
-            out.append(f'  <path d="{d}" fill="{INK}"/>')
-        cx = end + size * 0.07
-    else:
-        cx = x + pad
-    ch = h * 0.66
-    if caret_w:
-        out.append(f'  <rect x="{cx:.1f}" y="{y + (h-ch)/2:.1f}" width="{caret_w}" height="{ch:.1f}" rx="{caret_w/2}" fill="{CORAL_B}"/>')
-    if second:
-        y2 = y + h + 64
-        out.append(f'  <rect x="{x+8}" y="{y2}" width="{w*0.24:.0f}" height="30" rx="15" fill="#FFFFFF" fill-opacity="0.45"/>')
-        out.append(f'  <rect x="{x}" y="{y2+56}" width="{w}" height="{h*0.42:.0f}" rx="{r*0.6:.0f}" fill="#FFFFFF" fill-opacity="0.22"/>')
+    if shadow:
+        out.append(
+            f'  <g fill="{SHADOW}" fill-opacity="0.35" filter="url(#sh)" transform="translate(0 20)">'
+            f'<path d="{ibeam}"/>{line}/></g>'
+        )
+    out.append(f'  <path d="{ibeam}" fill="#FFFFFF"/>')
+    out.append(f'  {line} fill="#FFFFFF" fill-opacity="0.85"/>')
     return "\n".join(out)
 
-full = tile() + "\n" + field(168, 330, 688, 276, 60, "pdf", 232, 22, accent="r")
-small = tile() + "\n" + field(150, 340, 724, 340, 76, "p", 270, 40, label=True, second=False)
-tiny = tile() + "\n" + field(140, 352, 744, 320, 80, None, 0, 64, label=False, second=False)
+
+full = tile() + "\n" + cursor(240, 64, 64, 236, 764, 624, 44, 808)
+small = tile() + "\n" + cursor(300, 84, 96, 210, 770, 660, 64, 812)
+tiny = tile() + "\n" + cursor(340, 110, 130, 190, 760, 700, 90, 806, shadow=False)
 open(f"{OUT}/pdfr.svg", "w").write(svg(full))
 open(f"{OUT}/pdfr-small.svg", "w").write(svg(small))
 open(f"{OUT}/pdfr-tiny.svg", "w").write(svg(tiny))

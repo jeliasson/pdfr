@@ -79,11 +79,15 @@ reader, so a form can be filled in, signed and sent without a printer.
 
 ### Changed
 
+- A new app icon: a white text cursor on the coral tile, without the
+  "pdfr" wordmark, so it sits with the other icons in the Dock and app
+  menus.
 - Ctrl+F searches the document's text (and boxes by label). Finding a box
   by its label alone moved to Ctrl+Shift+F.
 
 ### Fixed
 
+- macOS: the Dock icon was larger than other apps' icons while pdfr ran.
 - Settings → People: "Show details" on a remembered person crashed pdfr.
 - A password-protected PDF said "not a readable PDF file".
 - Automated runs (`--save`, `--screenshot`) stop with an error when a file
