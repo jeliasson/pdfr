@@ -5,73 +5,83 @@ version's section into its GitHub release notes.
 
 ## [Unreleased]
 
+Sign, search and read: pdfr now does what people expect from any PDF
+reader, so a form can be filled in, signed and sent without a printer.
+
 ### Added
 
-- Sign forms without a printer: press Ctrl+I (or the pen in the toolbar),
+**Signing**
+
+- **Sign without a printer.** Press Ctrl+I (or the pen in the toolbar),
   draw your signature with the mouse or trackpad or type your name in
   handwriting, and click where it goes. On a "Signature" line or the PDF's
   own "sign here" box it fits itself to the spot. Drag a signature to move
   it, drag its corner to resize it, and press Delete to remove it.
-- Signatures can be saved for next time, one or more per person, on this
-  computer only (Settings → People lists and deletes them).
-- Choose how signatures are saved (Settings → General, or right-click one):
-  as a signature other PDF apps can still move, or locked into the page.
-  These are drawn signatures, not cryptographic ones.
-- Search the document's text with Ctrl+F. Matches are listed with the words
-  around them and highlighted on the pages; browsing the list shows each
-  one. Case and accents don't matter ("malmo" finds "Malmö"), and phrases
-  are found across line breaks and hyphenated words. Boxes whose label
-  matches are listed first. Next and previous match are in the command
-  palette, and Ctrl+F remembers the last search.
+- **Saved for next time**, one or more per person, on this computer only.
+  Settings → People lists and deletes them.
+- **Your choice of how it is saved** (Settings → General, or right-click a
+  signature): as a signature other PDF apps can still move, or locked into
+  the page. These are drawn signatures, not cryptographic ones.
+- **Initials** (Ctrl+Shift+I), drawn or typed like a signature.
+  Right-click a signature or initials → "Put on every page", for contracts
+  that ask for initials on each page.
+- **Today's date** (Ctrl+Shift+D) fills the box you're in, in the format
+  its label asks for, or goes where you click next.
 
-- Select and copy the page's own text: drag over it, double-click a word or
-  triple-click a line, then press Ctrl+C or right-click → Copy. The
+**Finding and copying**
+
+- **Search the text** with Ctrl+F. Matches are listed with the words around
+  them and highlighted on the pages, and browsing the list shows each one.
+  Case and accents don't matter ("malmo" finds "Malmö"), and phrases are
+  found across line breaks and hyphenated words. Boxes whose label matches
+  are listed first. Next and previous match are in the command palette, and
+  Ctrl+F remembers the last search.
+- **Select and copy** the page's own text: drag over it, double-click a
+  word or triple-click a line, then Ctrl+C or right-click → Copy. The
   right-click menu can also search for the selected words.
-- Links work: web links open in your browser, links within the document
-  jump to their page (Ctrl+Shift+G goes back), and web and e-mail addresses
-  printed as plain text can be clicked too. Hovering shows where a link
-  goes. Only web and e-mail links are opened.
-- A page sidebar (Ctrl+B, or the button at the left of the toolbar):
+- **Links work.** Web links open in your browser, links within the
+  document jump to their page (Ctrl+Shift+G goes back), and web and e-mail
+  addresses printed as plain text can be clicked too. Hovering shows where
+  a link goes. Only web and e-mail links are opened.
+
+**Reading**
+
+- **Page sidebar** (Ctrl+B, or the button at the left of the toolbar):
   thumbnails of every page, marked where boxes are filled in, and the
-  document's outline (bookmarks) when it has one. Ctrl+G also finds the
-  outline's sections by name.
-- Recent files: Ctrl+E lists the files you opened (the empty window shows
-  them too), and a file opens again on the page and at the zoom where you
-  left it. Turn it off or clear the list in Settings → General.
-- Fit page (Ctrl+3) shows the whole page in the window.
-- Turn sideways or upside-down pages: Ctrl+R turns the current page a
-  quarter turn clockwise, Ctrl+Shift+R turns every page (anticlockwise is
-  in the command palette). The page is saved turned too, and pdfr finds
-  the boxes again on the upright page. Undo turns it back. Pages with the
-  PDF's own form fields can't be turned.
-- Today's date in one key: Ctrl+Shift+D fills the box you're in (in the
-  format its label asks for), or puts the date where you click next.
-- Initials: Ctrl+Shift+I draws or types them like a signature. Right-click
-  a signature or initials → "Put on every page" for contracts that ask
-  for initials on each page.
-- Dark pages (Ctrl+M, or Settings → General): pages are shown light on
-  dark, with colours kept recognisable. Screen only: saving and printing
-  are unchanged.
-- Open in new window (Ctrl+Shift+O) puts another PDF in its own window,
-  say the instructions next to the form. In Recent files, Ctrl+Enter opens
-  one in a new window. Two windows share what pdfr remembers safely: each
-  keeps what the other saved.
-- Two pages side by side, like an open book, and a presentation mode (one
-  page at a time, full screen; arrow keys or a click turn pages, Esc ends).
-  Both are in the command palette.
-- Password-protected PDFs open: pdfr asks for the password (and never keeps
-  it). The saved copy is not password-protected, and pdfr says so when
-  saving.
+  document's outline (bookmarks) when it has one. Go to page (Ctrl+G) also
+  finds the outline's sections by name.
+- **Recent files** (Ctrl+E, and in the empty window), each reopened on the
+  page and at the zoom where you left it. Turn it off or clear the list in
+  Settings → General.
+- **Turn sideways or upside-down pages.** Ctrl+R turns the current page a
+  quarter turn clockwise, Ctrl+Shift+R every page (anticlockwise is in the
+  command palette). The page is saved turned too, and pdfr finds the boxes
+  again on the upright page. Undo turns it back. Pages with the PDF's own
+  form fields can't be turned.
+- **Fit page** (Ctrl+3) shows the whole page in the window.
+- **Dark pages** (Ctrl+M, or Settings → General): pages light on dark, with
+  colours kept recognisable. Screen only: saving and printing are
+  unchanged.
+- **Open in a new window** (Ctrl+Shift+O), say the instructions next to
+  the form. In Recent files, Ctrl+Enter opens one in a new window. Windows
+  share what pdfr remembers safely: each keeps what the other saved.
+- **Two pages side by side**, like an open book, and **presentation mode**
+  (one page at a time, full screen; arrow keys or a click turn pages, Esc
+  ends). Both are in the command palette.
+- **Password-protected PDFs open.** pdfr asks for the password and never
+  keeps it. The saved copy is not password-protected, and pdfr says so
+  when saving.
 
 ### Changed
 
-- Finding a box by its label (without the text) moved to Ctrl+Shift+F.
+- Ctrl+F searches the document's text (and boxes by label). Finding a box
+  by its label alone moved to Ctrl+Shift+F.
 
 ### Fixed
 
-- A password-protected PDF said "not a readable PDF file". Automated runs
-  (`--save`, `--screenshot`) now stop with an error when a file can't be
-  opened, instead of waiting.
+- A password-protected PDF said "not a readable PDF file".
+- Automated runs (`--save`, `--screenshot`) stop with an error when a file
+  can't be opened, instead of waiting.
 - macOS: “Confirm in the dialog macOS shows” no longer stays in Settings
   after you answer. pdfr sees the new default app within a second.
 
