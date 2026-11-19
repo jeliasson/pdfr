@@ -87,6 +87,11 @@ pub fn make_default() -> Result<String, String> {
     os::make_default()
 }
 
+/// Stops pdfr being the default PDF app, or explains where to change it.
+pub fn unset_default() -> Result<String, String> {
+    os::unset_default()
+}
+
 /// Opens a web link in the user's browser.
 pub fn open_url(url: &str) -> Result<(), String> {
     os::open_url(url)

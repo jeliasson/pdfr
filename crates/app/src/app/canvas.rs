@@ -207,6 +207,9 @@ impl App {
         // The hovered field's floating button (clear / suggestions).
         let on_button = hover_id.is_some_and(|hid| self.field_button(ui, &rects, hid, &ctx));
 
+        // Ctrl+L jump labels, over everything on the page.
+        self.draw_hints(&painter, &rects);
+
         // Scrollbar.
         self.scrollbar(ui, &painter, full);
 
@@ -238,7 +241,7 @@ impl App {
         // Keyboard: scrolling when no field has focus.
         if self.focus.is_none() && !self.keyboard_elsewhere(&ctx) {
             let vh = self.viewport.height();
-            ctx.input(|i| {
+            let dy = ctx.input(|i| {
                 let mut dy = 0.0;
                 if i.key_pressed(Key::PageDown) || (i.key_pressed(Key::Space) && !i.modifiers.shift)
                 {
@@ -259,8 +262,13 @@ impl App {
                 if i.key_pressed(Key::End) {
                     dy = 1e9;
                 }
-                self.scroll.y += dy;
+                dy
             });
+            self.scroll.y += dy;
+            // Esc puts down an add-box tool.
+            if self.tool != Tool::None && ctx.input(|i| i.key_pressed(Key::Escape)) {
+                self.tool = Tool::None;
+            }
             if ctx.input(|i| i.key_pressed(Key::Tab)) {
                 let back = ctx.input(|i| i.modifiers.shift);
                 self.move_focus(back, &ctx);
@@ -510,11 +518,17 @@ impl App {
                         && editable
                         && !field.read_only
                     {
-                        self.choice_open = if self.choice_open == Some(id) {
-                            None
+                        if self.choice_open == Some(id) {
+                            self.choice_open = None;
                         } else {
-                            Some(id)
-                        };
+                            self.choice_open = Some(id);
+                            if let FieldKind::Choice { options, .. } = &field.kind {
+                                self.choice_sel = options
+                                    .iter()
+                                    .position(|(e, _)| *e == field.value)
+                                    .unwrap_or(0);
+                            }
+                        }
                     }
                     if self.focus.as_ref().map(|f| f.id) != Some(id) {
                         self.focus_field(id, true, ctx);
@@ -584,32 +598,67 @@ impl App {
         if shown.is_none() && !close {
             self.ctx_field = None;
         }
-        if remove || clear {
-            self.snapshot();
-            let doc = self.doc.as_mut().unwrap();
-            if let Some(i) = doc.index_of(id) {
-                if remove {
-                    doc.entries.remove(i);
-                    if self.focus.as_ref().is_some_and(|f| f.id == id) {
-                        self.focus = None;
-                    }
-                } else {
-                    doc.set_value_at(i, String::new());
-                    doc.entries[i].f.checked = false;
-                }
-                doc.reorder();
-                doc.dirty = true;
-            }
-            self.assist.invalidate();
+        if remove {
+            self.remove_field(id);
+        } else if clear {
+            self.clear_field(id);
         }
-        if toggle_mem
-            && let Some(doc) = self.doc.as_mut()
-            && let Some(i) = doc.index_of(id)
-        {
-            doc.entries[i].no_memory = !doc.entries[i].no_memory;
+        if toggle_mem {
+            self.toggle_memory(id);
         }
         if close {
             self.ctx_field = None;
+        }
+    }
+
+    /// Empties a box (unticks a checkbox), as one undo step.
+    pub(super) fn clear_field(&mut self, id: u64) {
+        self.edit_entry(id, false);
+    }
+
+    /// Removes a box pdfr or the user added, as one undo step.
+    pub(super) fn remove_field(&mut self, id: u64) {
+        let real = self
+            .doc
+            .as_ref()
+            .and_then(|d| d.index_of(id).map(|i| d.entries[i].f.is_real()));
+        if real == Some(false) {
+            self.edit_entry(id, true);
+        }
+    }
+
+    fn edit_entry(&mut self, id: u64, remove: bool) {
+        if self.doc.as_ref().and_then(|d| d.index_of(id)).is_none() {
+            return;
+        }
+        self.snapshot();
+        let doc = self.doc.as_mut().unwrap();
+        let i = doc.index_of(id).unwrap();
+        if remove {
+            doc.entries.remove(i);
+            if self.focus.as_ref().is_some_and(|f| f.id == id) {
+                self.focus = None;
+            }
+        } else {
+            doc.set_value_at(i, String::new());
+            doc.entries[i].f.checked = false;
+            if let Some(f) = self.focus.as_mut().filter(|f| f.id == id) {
+                f.ed = Editor::at(0);
+            }
+        }
+        doc.reorder();
+        doc.dirty = true;
+        self.assist.invalidate();
+        if !remove {
+            self.refresh_ghost();
+        }
+    }
+
+    pub(super) fn toggle_memory(&mut self, id: u64) {
+        if let Some(doc) = self.doc.as_mut()
+            && let Some(i) = doc.index_of(id)
+        {
+            doc.entries[i].no_memory = !doc.entries[i].no_memory;
         }
     }
 
@@ -628,6 +677,8 @@ impl App {
         };
         let r = xf.rect(&f.rect);
         let mut pick = None;
+        let sel = self.choice_sel.min(options.len().saturating_sub(1));
+        let sel_moved = self.choice_sel_shown != Some(sel);
         egui::Area::new(Id::unique("pdfr-choice"))
             .fixed_pos(r.left_bottom())
             .order(egui::Order::Foreground)
@@ -637,21 +688,23 @@ impl App {
                     egui::ScrollArea::vertical()
                         .max_height(260.0)
                         .show(ui, |ui| {
-                            for (export, display) in options {
-                                if ui.selectable_label(f.value == *export, display).clicked() {
+                            for (k, (export, display)) in options.iter().enumerate() {
+                                // The keyboard highlight, else the current value.
+                                let on = k == sel;
+                                let resp = ui.selectable_label(on, display);
+                                if on && sel_moved {
+                                    resp.scroll_to_me(None);
+                                }
+                                if resp.clicked() {
                                     pick = Some(export.clone());
                                 }
                             }
                         });
                 });
             });
+        self.choice_sel_shown = Some(sel);
         if let Some(v) = pick {
-            self.snapshot();
-            self.set_value(id, &v);
-            self.choice_open = None;
-            if let Some(fo) = &mut self.focus {
-                fo.ed = Editor::at(v.chars().count());
-            }
+            self.pick_choice(id, v);
         }
     }
 
@@ -676,7 +729,7 @@ impl App {
 
 /// `c` darkened (same hue) until a white icon on it has clear contrast, so
 /// pale theme accents still make a button that stands out on paper.
-fn strong(c: Color32) -> Color32 {
+pub(super) fn strong(c: Color32) -> Color32 {
     let mut c = c;
     for _ in 0..12 {
         if crate::theme::contrast(c, Color32::WHITE) >= 3.5 {

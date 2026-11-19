@@ -53,6 +53,10 @@ pub fn make_default() -> Result<String, String> {
     Ok("Confirm in the dialog macOS shows.".into())
 }
 
+pub fn unset_default() -> Result<String, String> {
+    Err("To use another app, select a PDF in Finder, choose Get Info, and change \u{201c}Open with\u{201d}.".into())
+}
+
 pub fn open_url(url: &str) -> Result<(), String> {
     let u = NSURL::URLWithString(&NSString::from_str(url)).ok_or("not a link")?;
     if NSWorkspace::sharedWorkspace().openURL(&u) {

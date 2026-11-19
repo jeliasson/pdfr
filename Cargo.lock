@@ -3028,6 +3028,7 @@ dependencies = [
  "objc2-uniform-type-identifiers 0.3.2",
  "pdfr-assist",
  "pdfr-core",
+ "pdfr-license",
  "png",
  "pollster",
  "raw-window-handle",
@@ -3065,6 +3066,18 @@ dependencies = [
  "png",
  "serde_json",
  "ttf-parser",
+]
+
+[[package]]
+name = "pdfr-license"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "dirs",
+ "ed25519-dalek",
+ "getrandom 0.3.4",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

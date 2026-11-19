@@ -82,6 +82,39 @@ pub fn set_default(text: &str, mime: &str, id: &str) -> String {
     s
 }
 
+/// `text` without the ids `drop` picks from `mime`'s default entry (the
+/// line goes if nothing is left), or None if there was nothing to remove.
+pub fn remove_default(text: &str, mime: &str, drop: impl Fn(&str) -> bool) -> Option<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut in_section = false;
+    let mut changed = false;
+    for line in text.lines() {
+        let t = line.trim();
+        if t.starts_with('[') && t.ends_with(']') {
+            in_section = &t[1..t.len() - 1] == DEFAULTS;
+        } else if in_section
+            && let Some((k, v)) = t.split_once('=')
+            && k.trim() == mime
+        {
+            let ids: Vec<&str> = v.split(';').map(str::trim).filter(|s| !s.is_empty()).collect();
+            let keep: Vec<&str> = ids.iter().copied().filter(|id| !drop(id)).collect();
+            if keep.len() != ids.len() {
+                changed = true;
+                if !keep.is_empty() {
+                    out.push(format!("{mime}={};", keep.join(";")));
+                }
+                continue;
+            }
+        }
+        out.push(line.to_string());
+    }
+    changed.then(|| {
+        let mut s = out.join("\n");
+        s.push('\n');
+        s
+    })
+}
+
 /// The `Name=` of a desktop file (the untranslated one).
 pub fn desktop_name(text: &str) -> Option<String> {
     let mut in_entry = false;
@@ -154,6 +187,17 @@ mod tests {
             set_default(t, PDF, "p.desktop"),
             "[Default Applications]\napplication/pdf=p.desktop;\n"
         );
+    }
+
+    #[test]
+    fn removes_only_pdfr_from_the_default() {
+        let t = "[Default Applications]\napplication/pdf=pdfr.desktop;org.gnome.Evince.desktop;\ntext/plain=gedit.desktop;\n";
+        let r = remove_default(t, PDF, |id| id == "pdfr.desktop").unwrap();
+        assert_eq!(r, "[Default Applications]\napplication/pdf=org.gnome.Evince.desktop;\ntext/plain=gedit.desktop;\n");
+        let only = "[Default Applications]\napplication/pdf=pdfr.desktop;\n[Added Associations]\napplication/pdf=pdfr.desktop;\n";
+        let r = remove_default(only, PDF, |id| id == "pdfr.desktop").unwrap();
+        assert_eq!(r, "[Default Applications]\n[Added Associations]\napplication/pdf=pdfr.desktop;\n");
+        assert_eq!(remove_default(&r, PDF, |id| id == "pdfr.desktop"), None);
     }
 
     #[test]

@@ -1,0 +1,61 @@
+# Keeps the README's Founders section in step with pdfr.app/founders:
+# weekly, and on demand. Commits to main only when the list changed.
+name: Founders
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rewrite the Founders section
+        run: |
+          curl -fsSL https://pdfr.app/api/founders.json -o founders.json
+          python3 - <<'EOF'
+          import html, json, re
+          founders = json.load(open("founders.json"))["founders"]
+          def esc(s):
+              return re.sub(r"([\[\]<>*_`|\\])", r"\\\1", s)
+          def ok(u):
+              return isinstance(u, str) and u.startswith(("https://", "http://"))
+          logos, names = [], []
+          for f in founders:
+              url = f.get("url") if ok(f.get("url")) else None
+              if ok(f.get("logo")):
+                  img = f'<img src="{html.escape(f["logo"])}" alt="{html.escape(f["name"])}" height="28">'
+                  logos.append(f'<a href="{html.escape(url)}">{img}</a>' if url else img)
+              else:
+                  entry = f"[{esc(f['name'])}]({url})" if url else esc(f["name"])
+                  if f.get("blurb"):
+                      entry += f": {esc(f['blurb'])}"
+                  names.append(f"- {entry}")
+          parts = []
+          if logos:
+              parts.append("<p>\n" + "&nbsp;&nbsp;&nbsp;\n".join(logos) + "\n</p>")
+          if names:
+              parts.append("\n".join(names))
+          if founders:
+              parts.append("*[Become a Founder](https://pdfr.app/buy/founder).*")
+          else:
+              parts.append("*Be the first: [become a Founder](https://pdfr.app/buy/founder).*")
+          body = "\n\n".join(parts)
+          readme = open("README.md").read()
+          new = re.sub(r"(<!-- founders:start -->\n).*?(\n<!-- founders:end -->)",
+                       lambda m: m.group(1) + body + m.group(2), readme, flags=re.S)
+          open("README.md", "w").write(new)
+          EOF
+          rm founders.json
+      - name: Commit if changed
+        run: |
+          if git diff --quiet README.md; then echo "No change."; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git commit -am "README: update the Founders"
+          git push origin HEAD:main

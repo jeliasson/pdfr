@@ -139,3 +139,28 @@ fn scanned_household_form_finds_every_field() {
     }
     assert!(missed.is_empty(), "no field for: {missed:?}");
 }
+
+/// Boxes drawn by hand in a paint program (wobbly, slanted, overshooting
+/// corners, labels touching the outline): each one is a field, and the loop
+/// of the "d" in "ZipCode" is not.
+#[test]
+fn hand_drawn_boxes() {
+    let fields = detect("handwritten_by_kid.pdf");
+    // A point well inside each drawn box or above each line, in points.
+    let spots = [
+        ("Name box", 90.0, 125.0),
+        ("Age box", 280.0, 134.0),
+        ("ZipCode box", 290.0, 195.0),
+        ("City box", 105.0, 220.0),
+        ("Name line", 330.0, 330.0),
+        ("Sign line", 310.0, 368.0),
+    ];
+    for (what, x, y) in spots {
+        assert!(
+            fields.iter().any(|f| f.rect.contains(x, y)),
+            "no field for {what}: {:?}",
+            fields.iter().map(|f| f.rect).collect::<Vec<_>>()
+        );
+    }
+    assert_eq!(fields.len(), spots.len(), "{:?}", fields.iter().map(|f| f.rect).collect::<Vec<_>>());
+}

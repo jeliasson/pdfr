@@ -48,7 +48,7 @@ impl Checker {
     }
 }
 
-fn agent() -> ureq::Agent {
+pub(crate) fn agent() -> ureq::Agent {
     let provider = Arc::new(rustls_rustcrypto::provider());
     let tls = ureq::tls::TlsConfig::builder()
         .provider(ureq::tls::TlsProvider::Rustls)

@@ -3,12 +3,31 @@
 
 use super::*;
 
+/// The keys inside a focused box, for the F1 cheatsheet. Keep in step with
+/// `key()` below.
+pub(super) const BOX_KEYS: &[(&str, &str)] = &[
+    ("Next / previous box", "Tab / Shift+Tab"),
+    ("Take the suggestion", "Tab, Enter or →"),
+    ("Browse suggestions", "↑ / ↓"),
+    ("Tick a checkbox", "Space"),
+    ("Open a drop-down", "Space, Enter or Alt+↓"),
+    ("Pick in a drop-down", "↑ / ↓ or a letter, Enter"),
+    ("Delete a word", "Ctrl+Backspace"),
+    ("Select everything", "Ctrl+A"),
+    ("Leave the box", "Esc"),
+];
+
 impl App {
     /// The keyboard belongs to something else: another widget (a settings
     /// text box) has focus, or a dialog is open.
     pub(super) fn keyboard_elsewhere(&self, ctx: &egui::Context) -> bool {
         let other = ctx.memory(|m| m.focused().is_some_and(|f| f != Id::unique(EDITOR_ID)));
-        other || self.confirm.is_some() || self.assist.modal_open()
+        other
+            || self.confirm.is_some()
+            || self.assist.modal_open()
+            || self.license.modal_open()
+            || self.overlay.is_some()
+            || self.hints.is_some()
     }
 
     pub fn focus_field(&mut self, id: u64, caret_end: bool, ctx: &egui::Context) {
@@ -117,7 +136,9 @@ impl App {
             let editable = doc.form.editable() && !field.read_only;
             match ev {
                 Event::Text(t) => {
-                    if editable {
+                    if editable && field.kind.is_fixed_choice() {
+                        self.choice_type_ahead(&t, &field);
+                    } else if editable {
                         self.type_text(&t, ctx);
                     }
                 }
@@ -230,6 +251,9 @@ impl App {
             }
             return;
         }
+        if editable && self.choice_key(key, m, field) {
+            return;
+        }
         match key {
             Key::Tab => {
                 if has_ghost && !shift && editable {
@@ -276,7 +300,12 @@ impl App {
                     return;
                 }
                 self.before_edit(fid);
+                // Ctrl+Backspace (Alt on some desktops) deletes a word.
+                let word = cmd || m.alt;
                 self.edit_value(|ed, v| {
+                    if word && !ed.has_selection() {
+                        ed.word_left(v, true);
+                    }
                     ed.backspace(v);
                 });
                 self.refresh_ghost_after_edit();
@@ -343,6 +372,180 @@ impl App {
                 self.toggle(fid);
             }
             _ => {}
+        }
+    }
+
+    /// Keys on a focused drop-down. Space, Enter or Alt+Down open a fixed
+    /// list (only Alt+Down an editable one, where Space and Enter type and
+    /// move on as in any box); while open, Up/Down move the highlight,
+    /// Enter picks and Esc closes. Returns true if handled.
+    fn choice_key(&mut self, key: Key, m: Modifiers, field: &Field) -> bool {
+        let FieldKind::Choice { options, editable } = &field.kind else {
+            return false;
+        };
+        let fid = self.focus.as_ref().unwrap().id;
+        if self.choice_open == Some(fid) {
+            match key {
+                Key::ArrowDown | Key::ArrowUp => {
+                    self.move_choice(key == Key::ArrowDown, options.len());
+                    true
+                }
+                Key::Enter => {
+                    if let Some((export, _)) = options.get(self.choice_sel) {
+                        self.pick_choice(fid, export.clone());
+                    }
+                    true
+                }
+                Key::Escape => {
+                    self.choice_open = None;
+                    true
+                }
+                _ => false,
+            }
+        } else {
+            let open = (key == Key::ArrowDown && m.alt)
+                || (!editable && matches!(key, Key::Space | Key::Enter) && !m.shift);
+            if open && !options.is_empty() {
+                self.open_choice(fid, field);
+            }
+            open
+        }
+    }
+
+    fn open_choice(&mut self, fid: u64, field: &Field) {
+        let FieldKind::Choice { options, .. } = &field.kind else {
+            return;
+        };
+        self.choice_open = Some(fid);
+        self.choice_sel = options
+            .iter()
+            .position(|(e, _)| *e == field.value)
+            .unwrap_or(0);
+    }
+
+    pub(super) fn move_choice(&mut self, down: bool, n: usize) {
+        let n = n.max(1);
+        self.choice_sel = if down {
+            (self.choice_sel + 1) % n
+        } else {
+            (self.choice_sel + n - 1) % n
+        };
+    }
+
+    /// Typing on a fixed drop-down highlights the next option starting with
+    /// that letter (opening the list); Enter then picks it.
+    fn choice_type_ahead(&mut self, t: &str, field: &Field) {
+        let FieldKind::Choice { options, .. } = &field.kind else {
+            return;
+        };
+        let Some(c) = t.chars().find(|c| !c.is_whitespace()) else {
+            return;
+        };
+        let fid = self.focus.as_ref().unwrap().id;
+        if self.choice_open != Some(fid) {
+            self.open_choice(fid, field);
+        }
+        let lc = c.to_lowercase().to_string();
+        let n = options.len();
+        if let Some(k) = (1..=n)
+            .map(|k| (self.choice_sel + k) % n)
+            .find(|&k| options[k].1.to_lowercase().starts_with(&lc))
+        {
+            self.choice_sel = k;
+        }
+    }
+
+    /// Sets a drop-down to option `export`, as one undo step, and closes it.
+    pub(super) fn pick_choice(&mut self, id: u64, export: String) {
+        self.snapshot();
+        self.set_value(id, &export);
+        self.choice_open = None;
+        if let Some(fo) = self.focus.as_mut().filter(|f| f.id == id) {
+            fo.ed = Editor::at(export.chars().count());
+        }
+    }
+
+    /// Ctrl+J/K inside an open list: the suggestions or a drop-down.
+    /// Returns false when no list is open (they scroll instead).
+    pub(super) fn move_in_open_list(&mut self, down: bool) -> bool {
+        let Some(fid) = self.focus.as_ref().map(|f| f.id) else {
+            return false;
+        };
+        if self.choice_open == Some(fid) {
+            let n = self
+                .focused_entry()
+                .map(|e| match &e.f.kind {
+                    FieldKind::Choice { options, .. } => options.len(),
+                    _ => 0,
+                })
+                .unwrap_or(0);
+            self.move_choice(down, n);
+            return true;
+        }
+        if self.assist.list_open() {
+            let field = self.focused_entry().map(|e| e.f.clone());
+            return field.is_some_and(|f| self.assist.handle_list_key(down, &f));
+        }
+        false
+    }
+
+    /// Focuses the next (or previous) box that still needs filling, from
+    /// the focused one, or from the page in view when none is focused.
+    pub(super) fn focus_empty(&mut self, back: bool) {
+        let ids = self.editable_ids();
+        let Some(doc) = &self.doc else { return };
+        let empty = |id: &u64| {
+            doc.index_of(*id).is_some_and(|i| {
+                let f = &doc.entries[i].f;
+                if f.kind.is_toggle() {
+                    // A radio group is filled once any of its buttons is.
+                    match &f.kind {
+                        FieldKind::Radio { group, .. } => !doc.entries.iter().any(|e| {
+                            e.f.checked
+                                && matches!(&e.f.kind, FieldKind::Radio { group: g, .. } if g == group)
+                        }),
+                        _ => !f.checked,
+                    }
+                } else {
+                    f.value.is_empty()
+                }
+            })
+        };
+        let n = ids.len();
+        if n == 0 {
+            return;
+        }
+        let start = match self.focus.as_ref().and_then(|f| ids.iter().position(|&i| i == f.id)) {
+            Some(c) => c,
+            None => {
+                // Just before the first box on the page in view.
+                let page = self.current_page();
+                let first = ids
+                    .iter()
+                    .position(|id| {
+                        doc.index_of(*id)
+                            .is_some_and(|i| doc.entries[i].f.page >= page)
+                    })
+                    .unwrap_or(0);
+                if back { first } else { (first + n - 1) % n }
+            }
+        };
+        let found = (1..=n)
+            .map(|k| {
+                if back {
+                    (start + n * 2 - k) % n
+                } else {
+                    (start + k) % n
+                }
+            })
+            .map(|k| ids[k])
+            .find(|id| empty(id));
+        match found {
+            Some(id) => {
+                let ctx = self.egui_ctx.clone();
+                self.focus_field(id, false, &ctx);
+            }
+            None => self.status = "All boxes are filled.".into(),
         }
     }
 

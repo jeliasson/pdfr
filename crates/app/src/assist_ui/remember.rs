@@ -61,6 +61,10 @@ impl AssistState {
                 });
             });
         });
+        // Esc: the choice that stores nothing.
+        if decision.is_none() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            decision = Some(false);
+        }
         let Some(remember) = decision else { return };
         let (plan, an, fields) = self.pending_learn.take().unwrap();
         if self.dont_ask_again {

@@ -210,16 +210,29 @@ You can also turn it on later in **Settings → General**.
 
 ### Keyboard shortcuts
 
+pdfr can be used without a mouse. Press **F1** to see every shortcut, or
+**Ctrl+Shift+P** (or Ctrl+Space) to run any command by name. The new
+shortcuts are Ctrl chords with vim and zathura letters, so nothing you type
+into a box is ever taken as a command.
+
 | What | Keys |
 |---|---|
 | Open, save, save as, print | Ctrl+O, Ctrl+S, Ctrl+Shift+S, Ctrl+P |
 | Next / previous box | Tab / Shift+Tab |
+| Next / previous **empty** box | Ctrl+N / Ctrl+Shift+N |
+| Jump to any box you can see (letters appear on each) | Ctrl+L, then the letters |
+| Find a box by its label | Ctrl+F |
 | Tick a checkbox | Space or click |
+| Open and pick in a drop-down | Space or Alt+↓, then ↑ / ↓ or a letter, Enter |
 | Take the suggestion | Tab |
-| Browse suggestions | ↑ / ↓ |
+| Browse suggestions | ↑ / ↓ (or Ctrl+J / Ctrl+K) |
+| Delete a word | Ctrl+Backspace |
 | Leave a box | Esc |
+| Scroll / half a page | Ctrl+J / Ctrl+K, Ctrl+D / Ctrl+U |
+| Next / previous page, go to page | Ctrl+Shift+J / Ctrl+Shift+K, Ctrl+G |
 | Undo / redo | Ctrl+Z / Ctrl+Shift+Z |
-| Zoom in / out / 100% | Ctrl+= / Ctrl+− / Ctrl+0 (or Ctrl+scroll) |
+| Zoom in / out / 100% / fit width | Ctrl+= / Ctrl+− / Ctrl+0 / Ctrl+2 (or Ctrl+scroll) |
+| Settings | Ctrl+, |
 
 ---
 
@@ -264,8 +277,36 @@ The source code is public: you're welcome to read it, learn from it, and
 though: you may not copy, redistribute, sell, or publish changed versions of
 pdfr.
 
-Want to use pdfr in your business? Paid licences are planned. Get in touch
-through the [project page](https://github.com/kjellberg/pdfr).
+### Register your copy
+
+pdfr works fully without a key, but an unregistered copy reminds you now and
+then (after the first week) to register. Keys come from
+[pdfr.app](https://pdfr.app):
+
+| Licence | Price | |
+|---|---|---|
+| **Personal** | free | One lifetime key per account, for non-commercial use |
+| **Business** | $39 per key, once | Use pdfr at work: one key per person, up to 3 computers |
+| **Founder** | $499, once | 100 keys to use, give away or resell, and your name below |
+
+Paste the key in pdfr (click *Unregistered* in the status bar, or Settings →
+License). It's checked on your computer, offline. When it has internet, a
+registered copy checks its licence once a day by sending the licence id and a
+random install id, nothing else, so a key can be limited to its computers and
+revoked after a refund. Terms: [pdfr.app/terms](https://pdfr.app/terms).
+
+### Founders
+
+The people and companies who keep pdfr's development going. Thank you.
+
+<!-- founders:start -->
+<p>
+<a href="https://unblockingapi.com"><img src="https://pdfr.app/founders/unblockingapi.png" alt="UnblockingAPI" height="28"></a>&nbsp;&nbsp;&nbsp;
+<a href="https://cashloans.nu"><img src="https://pdfr.app/founders/cashloans.svg" alt="Cashloans.nu" height="28"></a>
+</p>
+
+*[Become a Founder](https://pdfr.app/buy/founder).*
+<!-- founders:end -->
 
 The full terms are in [LICENSE.md](LICENSE.md) (PolyForm Strict 1.0.0).
 

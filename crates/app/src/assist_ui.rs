@@ -567,6 +567,12 @@ impl AssistState {
                 }
             });
         });
+        // Esc: "Not now".
+        if decided.is_none()
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        {
+            decided = Some(None);
+        }
         match decided {
             Some(Some(true)) => {
                 self.a.store.settings.ai_consent = Some(true);

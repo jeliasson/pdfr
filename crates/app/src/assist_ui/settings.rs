@@ -19,6 +19,7 @@ const SIDEBAR: f32 = 190.0;
 pub enum Section {
     #[default]
     General,
+    License,
     Autocomplete,
     Ai,
     People,
@@ -27,8 +28,9 @@ pub enum Section {
 }
 
 impl Section {
-    const ALL: [Section; 6] = [
+    const ALL: [Section; 7] = [
         Section::General,
+        Section::License,
         Section::Autocomplete,
         Section::People,
         Section::Values,
@@ -40,7 +42,7 @@ impl Section {
     /// part of autocomplete.
     fn group(self) -> Option<&'static str> {
         match self {
-            Section::General => None,
+            Section::General | Section::License => None,
             _ => Some("Autocomplete"),
         }
     }
@@ -54,6 +56,7 @@ impl Section {
     fn title(self) -> &'static str {
         match self {
             Section::General => "General",
+            Section::License => "License",
             Section::Autocomplete => "Behaviour",
             Section::Ai => "AI",
             Section::People => "People",
@@ -65,6 +68,7 @@ impl Section {
     fn blurb(self) -> &'static str {
         match self {
             Section::General => "How pdfr fits into your computer.",
+            Section::License => "Your licence key, and who this copy is registered to.",
             Section::Autocomplete => "How pdfr learns from the forms you fill.",
             Section::Ai => "Optional help from an AI tool already installed on this computer.",
             Section::People => {
@@ -78,6 +82,7 @@ impl Section {
     fn icon(self) -> Icon {
         match self {
             Section::General => Icon::Settings,
+            Section::License => Icon::Key,
             Section::Autocomplete => Icon::FillAll,
             Section::Ai => Icon::Sparkle,
             Section::People => Icon::Person,
@@ -119,7 +124,12 @@ impl AssistState {
         self.settings_open = true;
     }
 
-    pub fn settings_window(&mut self, ctx: &egui::Context, pal: &Palette) {
+    pub fn settings_window(
+        &mut self,
+        ctx: &egui::Context,
+        pal: &Palette,
+        license: &mut crate::license_ui::LicenseUi,
+    ) {
         if !self.settings_open {
             return;
         }
@@ -157,7 +167,7 @@ impl AssistState {
                                 ui.spacing_mut().item_spacing.x = 8.0;
                                 ui.set_width(WIDTH - SIDEBAR - 1.0 - 48.0);
                                 ui.set_height(HEIGHT - 36.0);
-                                self.content(ui, &c, &mut act);
+                                self.content(ui, &c, &mut act, license);
                             });
                         });
                 });
@@ -265,7 +275,13 @@ impl AssistState {
             });
     }
 
-    fn content(&mut self, ui: &mut Ui, c: &Colors, act: &mut Actions) {
+    fn content(
+        &mut self,
+        ui: &mut Ui,
+        c: &Colors,
+        act: &mut Actions,
+        license: &mut crate::license_ui::LicenseUi,
+    ) {
         let s = self.settings_ui.section;
         ui.horizontal(|ui| {
             ui.label(RichText::new(s.title()).size(21.0).strong().color(c.text));
@@ -284,6 +300,7 @@ impl AssistState {
                 ui.spacing_mut().item_spacing.y = 12.0;
                 match s {
                     Section::General => act.changed |= self.general_section(ui, c),
+                    Section::License => license.settings_section(ui, c),
                     Section::Autocomplete => self.autocomplete(ui, c, act),
                     Section::Ai => self.ai(ui, c, act),
                     Section::People => self.people(ui, c, act),
@@ -612,20 +629,7 @@ impl AssistState {
                     } else {
                         "Clear\u{2026}"
                     };
-                    let b = egui::Button::new(RichText::new(label).color(if confirming {
-                        Color32::WHITE
-                    } else {
-                        DANGER
-                    }))
-                    .fill(if confirming {
-                        DANGER
-                    } else {
-                        Color32::TRANSPARENT
-                    })
-                    .stroke(Stroke::new(1.0, DANGER))
-                    .corner_radius(6.0)
-                    .min_size(vec2(96.0, 30.0));
-                    if ui.add(b).clicked() {
+                    if danger_button(ui, label, confirming).clicked() {
                         if confirming {
                             act.clear = true;
                             self.settings_ui.confirm_clear = false;

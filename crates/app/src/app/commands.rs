@@ -1,10 +1,15 @@
 //! Every user action as a command: one place that defines its name, icon,
 //! keyboard shortcut, when it is available and what it does. The toolbar,
-//! the keyboard shortcuts (and later menus, context menus and a command
-//! palette) are all built from this list, so a new feature is added here
-//! once and shows up everywhere consistently.
+//! the keyboard shortcuts, the command palette and the F1 cheatsheet are all
+//! built from this list, so a new feature is added here once and shows up
+//! everywhere consistently.
+//!
+//! Keyboard-first: every new shortcut is a Ctrl chord (vim/zathura letters
+//! where they fit: J/K scroll, D/U half pages, N next empty box), so nothing
+//! typed into a box is ever taken as a command. No punctuation chords: they
+//! move around on non-US layouts.
 
-use super::{App, Tool};
+use super::{App, PAD, Tool};
 use crate::icons::Icon;
 use eframe::egui::{Key, KeyboardShortcut, Modifiers, pos2};
 
@@ -23,6 +28,23 @@ pub enum Command {
     AddTextField,
     AddCheckbox,
     Settings,
+    Register,
+    ScrollDown,
+    ScrollUp,
+    HalfPageDown,
+    HalfPageUp,
+    NextPage,
+    PrevPage,
+    GoToPage,
+    NextEmpty,
+    PrevEmpty,
+    JumpHints,
+    FindBox,
+    ClearField,
+    RemoveField,
+    ToggleRemember,
+    Palette,
+    Cheatsheet,
 }
 
 /// How a command presents itself.
@@ -50,7 +72,23 @@ const UNDO: &[KeyboardShortcut] = &[ctrl(Key::Z)];
 const REDO: &[KeyboardShortcut] = &[ctrl_shift(Key::Z), ctrl(Key::Y)];
 const ZOOM_OUT: &[KeyboardShortcut] = &[ctrl(Key::Minus)];
 const ZOOM_IN: &[KeyboardShortcut] = &[ctrl(Key::Plus), ctrl(Key::Equals)];
-const ACTUAL_SIZE: &[KeyboardShortcut] = &[ctrl(Key::Num0)];
+const ACTUAL_SIZE: &[KeyboardShortcut] = &[ctrl(Key::Num0), ctrl(Key::Num1)];
+const FIT_WIDTH: &[KeyboardShortcut] = &[ctrl(Key::Num2)];
+const SETTINGS: &[KeyboardShortcut] = &[ctrl(Key::Comma)];
+const SCROLL_DOWN: &[KeyboardShortcut] = &[ctrl(Key::J)];
+const SCROLL_UP: &[KeyboardShortcut] = &[ctrl(Key::K)];
+const HALF_DOWN: &[KeyboardShortcut] = &[ctrl(Key::D)];
+const HALF_UP: &[KeyboardShortcut] = &[ctrl(Key::U)];
+const NEXT_PAGE: &[KeyboardShortcut] = &[ctrl_shift(Key::J)];
+const PREV_PAGE: &[KeyboardShortcut] = &[ctrl_shift(Key::K)];
+const GO_TO_PAGE: &[KeyboardShortcut] = &[ctrl(Key::G)];
+const NEXT_EMPTY: &[KeyboardShortcut] = &[ctrl(Key::N)];
+const PREV_EMPTY: &[KeyboardShortcut] = &[ctrl_shift(Key::N)];
+const JUMP_HINTS: &[KeyboardShortcut] = &[ctrl(Key::L)];
+const FIND_BOX: &[KeyboardShortcut] = &[ctrl(Key::F)];
+const REMOVE_FIELD: &[KeyboardShortcut] = &[ctrl_shift(Key::Delete)];
+const PALETTE: &[KeyboardShortcut] = &[ctrl_shift(Key::P), ctrl(Key::Space)];
+const CHEATSHEET: &[KeyboardShortcut] = &[KeyboardShortcut::new(Modifiers::NONE, Key::F1)];
 const NONE: &[KeyboardShortcut] = &[];
 
 impl Command {
@@ -68,6 +106,23 @@ impl Command {
         Command::AddTextField,
         Command::AddCheckbox,
         Command::Settings,
+        Command::Register,
+        Command::ScrollDown,
+        Command::ScrollUp,
+        Command::HalfPageDown,
+        Command::HalfPageUp,
+        Command::NextPage,
+        Command::PrevPage,
+        Command::GoToPage,
+        Command::NextEmpty,
+        Command::PrevEmpty,
+        Command::JumpHints,
+        Command::FindBox,
+        Command::ClearField,
+        Command::RemoveField,
+        Command::ToggleRemember,
+        Command::Palette,
+        Command::Cheatsheet,
     ];
 
     pub fn spec(self) -> Spec {
@@ -100,7 +155,7 @@ impl Command {
                 "Fit width",
                 "Zoom so the page fills the window's width",
                 Icon::FitWidth,
-                NONE,
+                FIT_WIDTH,
             ),
             AddTextField => (
                 "Add text field",
@@ -118,8 +173,65 @@ impl Command {
                 "Settings",
                 "Autocomplete, AI and remembered people",
                 Icon::Settings,
+                SETTINGS,
+            ),
+            Register => (
+                "Register pdfr",
+                "Get a free lifetime licence key at pdfr.app, or enter one",
+                Icon::Key,
                 NONE,
             ),
+            ScrollDown => ("Scroll down", "", Icon::List, SCROLL_DOWN),
+            ScrollUp => ("Scroll up", "", Icon::List, SCROLL_UP),
+            HalfPageDown => ("Half a page down", "", Icon::List, HALF_DOWN),
+            HalfPageUp => ("Half a page up", "", Icon::List, HALF_UP),
+            NextPage => ("Next page", "", Icon::List, NEXT_PAGE),
+            PrevPage => ("Previous page", "", Icon::List, PREV_PAGE),
+            GoToPage => ("Go to page…", "Type a page number", Icon::Search, GO_TO_PAGE),
+            NextEmpty => (
+                "Next empty box",
+                "Jump to the next box that still needs filling",
+                Icon::TextField,
+                NEXT_EMPTY,
+            ),
+            PrevEmpty => (
+                "Previous empty box",
+                "",
+                Icon::TextField,
+                PREV_EMPTY,
+            ),
+            JumpHints => (
+                "Jump to a box",
+                "Letters appear on every box you can see: type one to go there",
+                Icon::Sparkle,
+                JUMP_HINTS,
+            ),
+            FindBox => (
+                "Find a box…",
+                "Search the boxes by their label",
+                Icon::Search,
+                FIND_BOX,
+            ),
+            ClearField => ("Clear this box", "", Icon::Close, NONE),
+            RemoveField => (
+                "Remove this box",
+                "Only boxes pdfr or you added",
+                Icon::Trash,
+                REMOVE_FIELD,
+            ),
+            ToggleRemember => (
+                "Don't remember this box",
+                "Turn remembering on or off for this box",
+                Icon::Brain,
+                NONE,
+            ),
+            Palette => (
+                "Command palette",
+                "Run any command by name",
+                Icon::Search,
+                PALETTE,
+            ),
+            Cheatsheet => ("Keyboard shortcuts", "", Icon::List, CHEATSHEET),
         };
         Spec {
             label,
@@ -158,12 +270,20 @@ impl App {
             // One file dialog at a time.
             Open => !self.dialog_open(),
             Settings => true,
+            Register => !self.license.registered(),
             Save | SaveAs => editable && !self.dialog_open(),
             Print => doc.is_some() && super::print::AVAILABLE && !self.dialog_open(),
             AddTextField | AddCheckbox => editable,
             Undo => doc.is_some() && !self.undo.is_empty(),
             Redo => doc.is_some() && !self.redo.is_empty(),
             ZoomOut | ZoomIn | ActualSize | FitWidth => doc.is_some(),
+            ScrollDown | ScrollUp | HalfPageDown | HalfPageUp | NextPage | PrevPage
+            | GoToPage | FindBox | JumpHints => doc.is_some(),
+            NextEmpty | PrevEmpty => editable,
+            ClearField => editable && self.focused_editable(),
+            RemoveField => editable && self.focused_editable() && self.focused_added(),
+            ToggleRemember => self.focus.is_some(),
+            Palette | Cheatsheet => true,
         }
     }
 
@@ -173,6 +293,7 @@ impl App {
             Command::AddTextField => self.tool == Tool::AddText,
             Command::AddCheckbox => self.tool == Tool::AddCheckbox,
             Command::Settings => self.assist.settings_open,
+            Command::ToggleRemember => self.focused_entry().is_some_and(|e| e.no_memory),
             _ => false,
         }
     }
@@ -212,7 +333,63 @@ impl App {
                 }
             }
             Settings => self.assist.settings_open = !self.assist.settings_open,
+            Register => self.license.open_register(),
+            // Inside an open list (suggestions, drop-down) J/K move the
+            // highlight, like fzf; otherwise they scroll.
+            ScrollDown | ScrollUp => {
+                let down = c == ScrollDown;
+                if !self.move_in_open_list(down) {
+                    self.scroll_by(if down { 60.0 } else { -60.0 });
+                }
+            }
+            HalfPageDown => self.scroll_by(self.viewport.height() * 0.5),
+            HalfPageUp => self.scroll_by(-self.viewport.height() * 0.5),
+            NextPage => self.scroll_to_page(self.current_page() + 1),
+            PrevPage => {
+                // Like zathura: back to this page's top first, if below it.
+                let cur = self.current_page();
+                let top = self.page_rects().get(cur).map(|r| r.top());
+                let at_top = top.is_some_and(|t| t >= self.viewport.top() + PAD - 2.0);
+                self.scroll_to_page(if at_top { cur.saturating_sub(1) } else { cur });
+            }
+            GoToPage => self.open_palette(super::palette::Scope::Page),
+            NextEmpty => self.focus_empty(false),
+            PrevEmpty => self.focus_empty(true),
+            JumpHints => self.start_hints(),
+            FindBox => self.open_palette(super::palette::Scope::Boxes),
+            ClearField => {
+                if let Some(id) = self.focus.as_ref().map(|f| f.id) {
+                    self.clear_field(id);
+                }
+            }
+            RemoveField => {
+                if let Some(id) = self.focus.as_ref().map(|f| f.id) {
+                    self.remove_field(id);
+                }
+            }
+            ToggleRemember => {
+                if let Some(id) = self.focus.as_ref().map(|f| f.id) {
+                    self.toggle_memory(id);
+                }
+            }
+            Palette => self.open_palette(super::palette::Scope::Commands),
+            Cheatsheet => self.overlay = Some(super::palette::Overlay::Cheatsheet),
         }
+    }
+
+    pub(super) fn focused_entry(&self) -> Option<&super::Entry> {
+        let doc = self.doc.as_ref()?;
+        let id = self.focus.as_ref()?.id;
+        doc.entries.iter().find(|e| e.id == id)
+    }
+
+    fn focused_editable(&self) -> bool {
+        self.focused_entry().is_some_and(|e| !e.f.read_only)
+    }
+
+    /// The focused box was added by pdfr or the user (not in the PDF).
+    fn focused_added(&self) -> bool {
+        self.focused_entry().is_some_and(|e| !e.f.is_real())
     }
 
     /// Runs commands whose shortcut was pressed. Shortcuts with more
@@ -244,7 +421,7 @@ fn modifier_count(m: Modifiers) -> u32 {
 /// "Save as (Ctrl+Shift+S)" plus the hint, for tooltips.
 pub fn tooltip(ctx: &eframe::egui::Context, c: Command) -> String {
     let s = c.spec();
-    let keys: Vec<String> = s.shortcuts.iter().map(|k| ctx.format_shortcut(k)).collect();
+    let keys: Vec<String> = s.shortcuts.iter().map(|k| key_text(ctx, k)).collect();
     let mut t = s.label.to_string();
     if !keys.is_empty() {
         t.push_str(&format!("  ({})", keys.join(", ")));
@@ -252,6 +429,17 @@ pub fn tooltip(ctx: &eframe::egui::Context, c: Command) -> String {
     if !s.hint.is_empty() {
         t.push('\n');
         t.push_str(s.hint);
+    }
+    t
+}
+
+/// A shortcut as people read it: "Ctrl+−" rather than egui's "Ctrl+Minus".
+pub fn key_text(ctx: &eframe::egui::Context, k: &KeyboardShortcut) -> String {
+    let t = ctx.format_shortcut(k);
+    for (name, sym) in [("Minus", "−"), ("Plus", "+"), ("Equals", "="), ("Comma", ",")] {
+        if let Some(head) = t.strip_suffix(name) {
+            return format!("{head}{sym}");
+        }
     }
     t
 }

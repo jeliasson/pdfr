@@ -43,6 +43,11 @@ pub fn make_default() -> Result<String, String> {
     Ok("Choose pdfr for .pdf in the Settings window that opened.".into())
 }
 
+pub fn unset_default() -> Result<String, String> {
+    shell_open("ms-settings:defaultapps")?;
+    Ok("Choose another app for .pdf in the Settings window that opened.".into())
+}
+
 pub fn open_url(url: &str) -> Result<(), String> {
     shell_open(url)
 }

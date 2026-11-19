@@ -67,7 +67,6 @@ struct Masks {
     h: usize,
     ink: Vec<bool>,
     /// Ink with at least 6 ink pixels in its 3×3 neighbourhood (no specks).
-    #[allow(dead_code)]
     solid: Vec<bool>,
     /// Prefix sums of `solid` for O(1) rectangle counts.
     solid_sum: Vec<u32>,
@@ -787,6 +786,154 @@ fn find_boxes(h: &[Seg], v: &[Seg]) -> Vec<Rect> {
     out
 }
 
+/// Hand-drawn boxes: wobbly, slanted outlines that never line up into ruled
+/// lines. Any closed outline encloses paper the page background cannot reach,
+/// so this looks for such enclosed regions (4-connected, so an 8-connected
+/// stroke seals them) that are box-sized and mostly fill their bounding box.
+/// Letter holes (o, a, e) are far too small. Returns the largest clear
+/// rectangle inside each region.
+fn drawn_boxes(m: &Masks, scale: f32) -> Vec<Rect> {
+    let (w, h) = (m.w, m.h);
+    // Runs of paper per row, joined into regions where they touch the row
+    // above (much faster than flooding pixel by pixel).
+    let mut runs: Vec<(usize, usize, usize)> = Vec::new(); // y, x0, x1 (excl)
+    let mut row_start = Vec::with_capacity(h + 1);
+    for y in 0..h {
+        row_start.push(runs.len());
+        let r = &m.ink[y * w..(y + 1) * w];
+        let mut x = 0;
+        while x < w {
+            if r[x] {
+                x += 1;
+                continue;
+            }
+            let x0 = x;
+            while x < w && !r[x] {
+                x += 1;
+            }
+            runs.push((y, x0, x));
+        }
+    }
+    row_start.push(runs.len());
+    let mut dsu = Dsu::new(runs.len());
+    for y in 1..h {
+        let (mut i, ie) = (row_start[y - 1], row_start[y]);
+        let (mut j, je) = (row_start[y], row_start[y + 1]);
+        while i < ie && j < je {
+            let (_, a0, a1) = runs[i];
+            let (_, b0, b1) = runs[j];
+            if a0 < b1 && b0 < a1 {
+                dsu.union(i, j);
+            }
+            if a1 < b1 {
+                i += 1;
+            } else {
+                j += 1;
+            }
+        }
+    }
+    struct Comp {
+        x0: usize,
+        y0: usize,
+        x1: usize,
+        y1: usize,
+        n: usize,
+        border: bool,
+    }
+    let mut comps: std::collections::HashMap<usize, Comp> = Default::default();
+    let mut root = vec![0usize; runs.len()];
+    for (k, &(y, x0, x1)) in runs.iter().enumerate() {
+        let r = dsu.find(k);
+        root[k] = r;
+        let c = comps.entry(r).or_insert(Comp {
+            x0,
+            y0: y,
+            x1: x1 - 1,
+            y1: y,
+            n: 0,
+            border: false,
+        });
+        c.x0 = c.x0.min(x0);
+        c.x1 = c.x1.max(x1 - 1);
+        c.y0 = c.y0.min(y);
+        c.y1 = c.y1.max(y);
+        c.n += x1 - x0;
+        c.border |= y == 0 || y == h - 1 || x0 == 0 || x1 == w;
+    }
+    let mut out = Vec::new();
+    for (&id, c) in &comps {
+        let (bw, bh) = (c.x1 + 1 - c.x0, c.y1 + 1 - c.y0);
+        let (wpt, hpt) = (bw as f32 / scale, bh as f32 / scale);
+        if c.border || wpt < MIN_WRITE_LINE || !(8.0..=150.0).contains(&hpt) {
+            continue;
+        }
+        if (c.n as f32) < 0.5 * (bw * bh) as f32 {
+            continue;
+        }
+        // The region's pixels within its bounding box. Specks (ink that is
+        // not solid) count as paper.
+        let mut free = vec![false; bw * bh];
+        for y in c.y0..=c.y1 {
+            for k in row_start[y]..row_start[y + 1] {
+                let (_, x0, x1) = runs[k];
+                if root[k] == id {
+                    let o = (y - c.y0) * bw;
+                    free[o + x0 - c.x0..o + x1 - c.x0].fill(true);
+                }
+            }
+            for x in c.x0..=c.x1 {
+                let p = y * w + x;
+                if m.ink[p] && !m.solid[p] {
+                    free[(y - c.y0) * bw + x - c.x0] = true;
+                }
+            }
+        }
+        // The largest free rectangle (histogram method): wobbly, slanted
+        // edges eat into the bounding box from every side.
+        let mut heights = vec![0usize; bw];
+        let mut best = (0usize, 0, 0, 0, 0); // area, x0, x1, y0, y1 (exclusive ends)
+        let mut st: Vec<usize> = Vec::new();
+        for y in 0..bh {
+            for (i, hgt) in heights.iter_mut().enumerate() {
+                *hgt = if free[y * bw + i] { *hgt + 1 } else { 0 };
+            }
+            st.clear();
+            for i in 0..=bw {
+                let cur = heights.get(i).copied().unwrap_or(0);
+                while let Some(&top) = st.last() {
+                    if heights[top] < cur {
+                        break;
+                    }
+                    st.pop();
+                    let hgt = heights[top];
+                    let left = st.last().map_or(0, |&l| l + 1);
+                    if hgt * (i - left) > best.0 {
+                        best = (hgt * (i - left), left, i, y + 1 - hgt, y + 1);
+                    }
+                }
+                st.push(i);
+            }
+        }
+        let (_, x0, x1, y0, y1) = best;
+        // Most of the region must be usable: a ring around a word or a cell
+        // with a label at its edge is not a box.
+        if ((y1 - y0) as f32) < 0.3 * bh as f32 || ((x1 - x0) as f32) < 0.6 * bw as f32 {
+            continue;
+        }
+        let r = Rect::new(
+            (c.x0 + x0) as f32 / scale,
+            (c.y0 + y0) as f32 / scale,
+            (c.x0 + x1) as f32 / scale,
+            (c.y0 + y1) as f32 / scale,
+        );
+        if r.width() >= MIN_WRITE_LINE && r.height() >= 8.0 {
+            out.push(r);
+        }
+    }
+    out.sort_by(|a, b| a.y0.total_cmp(&b.y0).then(a.x0.total_cmp(&b.x0)));
+    out
+}
+
 /// Detection output before classification into fields (exposed for tests).
 pub struct Analysis {
     pub hlines: Vec<Seg>,
@@ -1083,9 +1230,22 @@ pub fn detect_with_analysis(g: &Gray) -> (Vec<Field>, Analysis) {
             }
         }
         used[i] = true;
-        if r.width() < 8.0 || r.height() < 6.0 {
+        // Too small to write in: the loop of a handwritten letter.
+        if r.width() < 8.0 || r.height() < 6.0 || (r.width() < 14.0 && r.height() < 10.0) {
             continue;
         }
+        let mode = if r.height() > 60.0 {
+            TextMode::Multi
+        } else {
+            TextMode::Single
+        };
+        fields.push(Field::new_text(0, r, mode, Origin::Detected));
+    }
+
+    // --- Hand-drawn boxes the ruled-line finder could not close.
+    let mut drawn = drawn_boxes(&m, s);
+    drawn.retain(|r| !boxes.iter().any(|b| b.overlap_ratio(r) > 0.5));
+    for &r in &drawn {
         let mode = if r.height() > 60.0 {
             TextMode::Multi
         } else {
@@ -1117,7 +1277,12 @@ pub fn detect_with_analysis(g: &Gray) -> (Vec<Field>, Analysis) {
     let write_lines: Vec<Seg> = hlines.iter().chain(&dotted).copied().collect();
     for (li, l) in write_lines.iter().enumerate() {
         let is_dotted = li >= dotted_start;
-        if !is_dotted && (l.len() < 15.0 || is_box_edge(l)) {
+        // The bottom edge of a hand-drawn box belongs to the box.
+        let under_drawn = drawn.iter().any(|r| {
+            (r.y1 - 1.0..=r.y1 + 6.0).contains(&l.pos)
+                && (l.a1.min(r.x1) - l.a0.max(r.x0)) > 0.5 * r.width()
+        });
+        if under_drawn || (!is_dotted && (l.len() < 15.0 || is_box_edge(l))) {
             continue;
         }
         if hangs_down(l.a0, l.pos) && hangs_down(l.a1, l.pos) {

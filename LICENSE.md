@@ -1,9 +1,23 @@
 Required Notice: Copyright (c) 2026 Rasmus Kjellberg
 
 pdfr is source-available under the PolyForm Strict License 1.0.0, reproduced
-below without changes. The bundled Inter font is under its own licence
-(assets/LICENSE-Inter.txt), and the Rust libraries pdfr is built with are
-under their own licences.
+below without changes. In short:
+
+- **Personal and non-commercial use is free**, as the licence below allows,
+  and so is use by charities, schools, public research and government
+  institutions. You don't need a licence key for this. pdfr will ask you to
+  register your copy with a free Personal key from https://pdfr.app; doing so
+  is welcome but is not a condition of this licence.
+- **Commercial use needs a Business or Founder licence key**, bought at
+  https://pdfr.app. Those keys grant the additional rights described in their
+  terms (https://pdfr.app/terms). They are sold by WK Operations Ltd (Malta)
+  on behalf of the licensor.
+- **You may not distribute pdfr or changed versions of it**, including
+  versions changed to remove the registration reminder.
+
+The bundled Inter font is under its own licence (assets/LICENSE-Inter.txt),
+and the Rust libraries pdfr is built with are under their own licences
+(assets/THIRD-PARTY-NOTICES.txt).
 
 ---
 

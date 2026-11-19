@@ -85,6 +85,10 @@ impl FieldKind {
     pub fn is_toggle(&self) -> bool {
         matches!(self, FieldKind::Checkbox { .. } | FieldKind::Radio { .. })
     }
+    /// A drop-down whose value must be one of its options (no free text).
+    pub fn is_fixed_choice(&self) -> bool {
+        matches!(self, FieldKind::Choice { editable: false, .. })
+    }
     /// Short tag for fingerprints and debugging.
     pub fn tag(&self) -> &'static str {
         match self {

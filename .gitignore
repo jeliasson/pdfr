@@ -7,3 +7,4 @@
 /packaging/flatpak/cargo-sources.json
 /build-flatpak/
 /.flatpak-builder/
+*.signing-key

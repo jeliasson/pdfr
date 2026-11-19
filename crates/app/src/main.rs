@@ -9,6 +9,7 @@ mod app;
 mod assist_ui;
 mod draw;
 mod icons;
+mod license_ui;
 mod system;
 mod updates;
 mod theme;

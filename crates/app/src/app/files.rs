@@ -357,6 +357,7 @@ impl App {
                         doc.dirty = false;
                         self.status = format!("Saved {}.", target.display());
                         self.assist.on_save(doc);
+                        self.license.on_save();
                         true
                     }
                     Err(e) => {

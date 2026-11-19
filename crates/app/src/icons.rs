@@ -30,6 +30,7 @@ pub enum Icon {
     Storage,
     Search,
     Brain,
+    Key,
 }
 
 /// Maps the 24×24 design grid into a rectangle.
@@ -260,6 +261,13 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             line(&[(19.5, 6.0), (19.5, 18.0)]);
         }
         Icon::Search => magnifier(false, false),
+        Icon::Key => {
+            // A round bow and a shaft with two teeth.
+            circle(7.5, 16.5, 4.0);
+            line(&[(10.4, 13.6), (20.0, 4.0)]);
+            line(&[(17.0, 7.0), (19.5, 9.5)]);
+            line(&[(14.5, 9.5), (16.5, 11.5)]);
+        }
         Icon::Brain => {
             // Two hemispheres seen from the front, each with a few folds;
             // the left half is drawn and mirrored.

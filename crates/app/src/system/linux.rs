@@ -148,6 +148,38 @@ pub fn make_default() -> Result<String, String> {
     Ok("PDF files now open with pdfr.".into())
 }
 
+/// Takes pdfr out of the user's PDF default, so the desktop goes back to the
+/// app it would pick otherwise. `Ok` says which one that is.
+pub fn unset_default() -> Result<String, String> {
+    if in_flatpak() {
+        return Err(
+            "Choose another app for PDF files in your desktop's settings, under Default Applications."
+                .into(),
+        );
+    }
+    let dir = config_home().ok_or("no home folder")?;
+    for f in mimeapps_files() {
+        if f.parent() != Some(dir.as_path()) {
+            continue;
+        }
+        let Ok(old) = std::fs::read_to_string(&f) else {
+            continue;
+        };
+        if let Some(new) = mimeapps::remove_default(&old, PDF, is_pdfr) {
+            write_atomic(&f, new.as_bytes())
+                .map_err(|e| format!("could not update {}: {e}", f.display()))?;
+        }
+    }
+    match default_pdf_app() {
+        DefaultApp::Other(name) => Ok(format!("PDF files now open with {name}.")),
+        DefaultApp::Unknown => Ok("pdfr is no longer the default PDF app.".into()),
+        DefaultApp::Pdfr => Err(
+            "Your system still picks pdfr. Choose another app for PDF files in your desktop's settings."
+                .into(),
+        ),
+    }
+}
+
 fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let tmp = path.with_extension("pdfr-tmp");
     std::fs::write(&tmp, bytes)?;

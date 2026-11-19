@@ -456,3 +456,259 @@ fn settings_general_section() {
     h.run_steps(3);
     h.get_by_label("When you save a filled form");
 }
+
+// ------------------------------------------------------------ keyboard-first
+
+fn ctrl(h: &mut Harness<'_, App>, k: Key) {
+    h.key_press_modifiers(Modifiers::COMMAND, k);
+    h.run_steps(2);
+}
+
+fn ctrl_shift(h: &mut Harness<'_, App>, k: Key) {
+    h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, k);
+    h.run_steps(2);
+}
+
+fn value_of(h: &Harness<'_, App>, id: u64) -> String {
+    let d = h.state().doc.as_ref().unwrap();
+    d.entries[d.index_of(id).unwrap()].f.value.clone()
+}
+
+#[test]
+fn ctrl_n_jumps_between_empty_boxes() {
+    let mut h = harness("flat_form.pdf", data_dir("next-empty", None));
+    click_doc(&mut h, 300.0, 178.0);
+    let full = entry_at(&h, 150.0, 168.0).id;
+    type_text(&mut h, "Anna");
+    key(&mut h, Key::Escape);
+    assert_eq!(focused_id(&h), None);
+    // From the page: the first box still to fill, skipping the filled one.
+    ctrl(&mut h, Key::N);
+    let a = focused_id(&h).expect("an empty box is focused");
+    assert_ne!(a, full);
+    assert_eq!(value_of(&h, a), "");
+    ctrl(&mut h, Key::N);
+    let b = focused_id(&h).unwrap();
+    assert_ne!(b, a);
+    ctrl_shift(&mut h, Key::N);
+    assert_eq!(focused_id(&h), Some(a), "Ctrl+Shift+N goes back");
+    // The chord never types into the box.
+    assert_eq!(value_of(&h, a), "");
+}
+
+#[test]
+fn ctrl_keys_scroll_page_and_zoom() {
+    let mut h = harness(
+        "Anexo I. Formulario definitivo-APAE-9.pdf",
+        data_dir("ctrl-nav", None),
+    );
+    assert!(h.state().doc.as_ref().unwrap().sizes.len() > 1);
+    let y0 = h.state().scroll.y;
+    ctrl(&mut h, Key::D);
+    let y1 = h.state().scroll.y;
+    assert!(y1 > y0 + 100.0, "Ctrl+D: half a page down ({y0} -> {y1})");
+    ctrl(&mut h, Key::J);
+    assert!(h.state().scroll.y > y1, "Ctrl+J scrolls down");
+    ctrl(&mut h, Key::K);
+    assert!((h.state().scroll.y - y1).abs() < 0.5, "Ctrl+K scrolls back");
+    ctrl(&mut h, Key::U);
+    assert!(h.state().scroll.y < y1);
+    // Pages, zathura style.
+    ctrl(&mut h, Key::Home); // no binding: nothing happens
+    let p0 = h.state().current_page();
+    ctrl_shift(&mut h, Key::J);
+    assert_eq!(h.state().current_page(), p0 + 1, "Ctrl+Shift+J: next page");
+    let top = h.state().page_rects()[p0 + 1].top();
+    assert!((top - (h.state().viewport.top() + PAD)).abs() < 1.0);
+    ctrl_shift(&mut h, Key::K);
+    assert_eq!(h.state().current_page(), p0, "Ctrl+Shift+K: previous page");
+    // Zoom: Ctrl+2 fits the width, Ctrl+1 and Ctrl+0 are 100%.
+    ctrl(&mut h, Key::Num2);
+    let fit = h.state().fit_width_zoom();
+    assert!((h.state().zoom - fit).abs() < 1e-3);
+    ctrl(&mut h, Key::Num1);
+    assert!((h.state().zoom - 1.0).abs() < 1e-3);
+    ctrl(&mut h, Key::Num2);
+    ctrl(&mut h, Key::Num0);
+    assert!((h.state().zoom - 1.0).abs() < 1e-3);
+}
+
+#[test]
+fn ctrl_j_browses_an_open_suggestion_list() {
+    let mut store = Store::default();
+    store.learn("full_name", "Anna Lindqvist");
+    store.learn("full_name", "Per Berg");
+    let mut h = harness("flat_form.pdf", data_dir("ctrl-j-list", Some(store)));
+    click_doc(&mut h, 300.0, 178.0);
+    let full = entry_at(&h, 150.0, 168.0).id;
+    key(&mut h, Key::ArrowDown);
+    let first = h.state().assist.list_choice(full).map(str::to_string);
+    assert!(first.is_some(), "Down opens the list");
+    let y = h.state().scroll.y;
+    ctrl(&mut h, Key::J);
+    let second = h.state().assist.list_choice(full).map(str::to_string);
+    assert_ne!(first, second, "Ctrl+J moves the highlight");
+    assert_eq!(h.state().scroll.y, y, "and does not scroll");
+    ctrl(&mut h, Key::K);
+    assert_eq!(h.state().assist.list_choice(full).map(str::to_string), first);
+    key(&mut h, Key::Enter);
+    assert_eq!(Some(value_of(&h, full)), first);
+}
+
+#[test]
+fn drop_down_by_keyboard() {
+    let mut h = harness("real_form.pdf", data_dir("choice-keys", None));
+    let (id, options, before) = {
+        let d = h.state().doc.as_ref().unwrap();
+        let e = d
+            .entries
+            .iter()
+            .find(|e| matches!(e.f.kind, FieldKind::Choice { .. }))
+            .expect("real_form has a drop-down");
+        let FieldKind::Choice { options, .. } = &e.f.kind else {
+            unreachable!()
+        };
+        (e.id, options.clone(), e.f.value.clone())
+    };
+    assert!(options.len() > 1);
+    let ctx = h.ctx.clone();
+    h.state_mut().focus_field(id, true, &ctx);
+    h.run_steps(2);
+    // Alt+Down opens any drop-down.
+    h.key_press_modifiers(Modifiers::ALT, Key::ArrowDown);
+    h.run_steps(2);
+    assert_eq!(h.state().choice_open, Some(id));
+    let start = h.state().choice_sel;
+    key(&mut h, Key::ArrowDown);
+    let sel = h.state().choice_sel;
+    assert_eq!(sel, (start + 1) % options.len());
+    key(&mut h, Key::Enter);
+    assert_eq!(h.state().choice_open, None, "Enter picks and closes");
+    assert_eq!(value_of(&h, id), options[sel].0);
+    assert_eq!(focused_id(&h), Some(id), "focus stays on the drop-down");
+    // Esc closes without changing anything.
+    h.key_press_modifiers(Modifiers::ALT, Key::ArrowDown);
+    h.run_steps(2);
+    key(&mut h, Key::ArrowDown);
+    key(&mut h, Key::Escape);
+    assert_eq!(h.state().choice_open, None);
+    assert_eq!(value_of(&h, id), options[sel].0);
+    assert_eq!(focused_id(&h), Some(id), "first Esc only closes the list");
+    // One undo step back to the original value.
+    ctrl(&mut h, Key::Z);
+    assert_eq!(value_of(&h, id), before);
+}
+
+#[test]
+fn ctrl_l_jump_labels() {
+    let mut h = harness("flat_form.pdf", data_dir("hints", None));
+    click_doc(&mut h, 300.0, 178.0);
+    let full = entry_at(&h, 150.0, 168.0).id;
+    // Esc puts the labels away; nothing is typed into the focused box.
+    ctrl(&mut h, Key::L);
+    assert!(h.state().hints.is_some());
+    type_text(&mut h, "z");
+    assert!(h.state().hints.is_none(), "no label starts with z");
+    assert_eq!(value_of(&h, full), "", "letters never reach the box");
+    ctrl(&mut h, Key::L);
+    key(&mut h, Key::Escape);
+    assert!(h.state().hints.is_none());
+    assert_eq!(focused_id(&h), Some(full), "Esc only cancels the labels");
+    // Typing a label focuses its box.
+    ctrl(&mut h, Key::L);
+    let (label, target) = h.state().hints.as_ref().unwrap().labels[2].clone();
+    for c in label.chars() {
+        type_text(&mut h, &c.to_string());
+    }
+    h.run_steps(1);
+    assert!(h.state().hints.is_none());
+    assert_eq!(focused_id(&h), Some(target));
+    assert_eq!(value_of(&h, full), "");
+}
+
+#[test]
+fn palette_runs_commands_and_never_types_into_boxes() {
+    let mut h = harness("flat_form.pdf", data_dir("palette", None));
+    click_doc(&mut h, 300.0, 178.0);
+    let full = entry_at(&h, 150.0, 168.0).id;
+    ctrl_shift(&mut h, Key::P);
+    assert!(h.state().overlay.is_some());
+    type_text(&mut h, "fit width");
+    h.run_steps(1);
+    assert_eq!(value_of(&h, full), "", "palette typing stays in the palette");
+    key(&mut h, Key::Enter);
+    h.run_steps(1);
+    assert!(h.state().overlay.is_none());
+    let fit = h.state().fit_width_zoom();
+    assert!((h.state().zoom - fit).abs() < 1e-3, "ran Fit width");
+    // Esc closes without running anything; focus returns to the box.
+    ctrl(&mut h, Key::Space);
+    assert!(h.state().overlay.is_some());
+    key(&mut h, Key::Escape);
+    assert!(h.state().overlay.is_none());
+    assert_eq!(focused_id(&h), Some(full));
+    type_text(&mut h, "Anna");
+    assert_eq!(value_of(&h, full), "Anna", "typing goes to the box again");
+    // F1 shows the cheatsheet; Esc closes it.
+    key(&mut h, Key::F1);
+    assert!(matches!(h.state().overlay, Some(palette::Overlay::Cheatsheet)));
+    key(&mut h, Key::Escape);
+    assert!(h.state().overlay.is_none());
+}
+
+#[test]
+fn find_box_and_go_to_page() {
+    let mut h = harness("flat_form.pdf", data_dir("find-box", None));
+    ctrl(&mut h, Key::F);
+    // Box mode lists every box; Down + Enter focuses the second one.
+    key(&mut h, Key::ArrowDown);
+    key(&mut h, Key::Enter);
+    h.run_steps(1);
+    let second = h.state().editable_ids()[1];
+    assert_eq!(focused_id(&h), Some(second));
+    // Ctrl+G: a page number.
+    ctrl(&mut h, Key::G);
+    type_text(&mut h, "1");
+    key(&mut h, Key::Enter);
+    h.run_steps(1);
+    assert!(h.state().overlay.is_none());
+    assert_eq!(h.state().current_page(), 0);
+}
+
+#[test]
+fn box_editing_chords() {
+    let mut h = harness("flat_form.pdf", data_dir("box-chords", None));
+    click_doc(&mut h, 300.0, 178.0);
+    let full = entry_at(&h, 150.0, 168.0).id;
+    type_text(&mut h, "Anna Maria");
+    // Ctrl+Backspace deletes a word.
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Backspace);
+    h.run_steps(2);
+    assert_eq!(value_of(&h, full), "Anna ");
+    // Ctrl+Shift+Delete removes a box pdfr found; undo brings it back.
+    let n = h.state().doc.as_ref().unwrap().entries.len();
+    ctrl_shift(&mut h, Key::Delete);
+    assert_eq!(h.state().doc.as_ref().unwrap().entries.len(), n - 1);
+    assert_eq!(focused_id(&h), None);
+    ctrl(&mut h, Key::Z);
+    assert_eq!(h.state().doc.as_ref().unwrap().entries.len(), n);
+}
+
+#[test]
+fn esc_puts_down_a_tool_and_cancels_the_unsaved_question() {
+    let mut h = harness("flat_form.pdf", data_dir("esc", None));
+    h.state_mut().run(commands::Command::AddTextField);
+    h.run_steps(1);
+    assert!(h.state().tool == Tool::AddText);
+    key(&mut h, Key::Escape);
+    assert!(h.state().tool == Tool::None);
+    // The unsaved-changes question: Esc is Cancel.
+    click_doc(&mut h, 300.0, 178.0);
+    type_text(&mut h, "Anna");
+    h.state_mut().request_open(sample("real_form.pdf"));
+    h.run_steps(2);
+    assert!(h.state().confirm.is_some());
+    key(&mut h, Key::Escape);
+    assert!(h.state().confirm.is_none());
+    assert_eq!(entry_at(&h, 150.0, 168.0).f.value, "Anna");
+}

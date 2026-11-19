@@ -170,6 +170,14 @@ pub struct App {
     drag_start: Option<(usize, (f32, f32))>,
     ctx_field: Option<u64>,
     choice_open: Option<u64>,
+    /// The highlighted option of the open drop-down (keyboard).
+    choice_sel: usize,
+    /// The highlight last drawn, to scroll a moved one into view.
+    choice_sel_shown: Option<usize>,
+    /// The command palette or the F1 cheatsheet, when open.
+    overlay: Option<palette::Overlay>,
+    /// Ctrl+L jump labels, while shown.
+    hints: Option<hints::Hints>,
     pub palette: Palette,
     omarchy_active: bool,
     theme_rx: Receiver<Option<Palette>>,
@@ -190,6 +198,8 @@ pub struct App {
     auto_frames: u32,
     screenshot_rx: Option<Receiver<Arc<egui::ColorImage>>>,
     pub assist: crate::assist_ui::AssistState,
+    /// The licence key and the "please register" reminder.
+    pub license: crate::license_ui::LicenseUi,
     applied_system_dark: Option<bool>,
     /// The open file dialog's answer arrives here (`Some` while one is open).
     dialog_rx: Option<Receiver<files::DialogResult>>,
@@ -231,6 +241,8 @@ impl App {
             cli.data_dir.clone(),
             auto_remember,
         );
+        let quiet = cli.demo || cli.save.is_some() || cli.screenshot.is_some() || cli.record.is_some();
+        let license = crate::license_ui::LicenseUi::new(cli.data_dir.as_deref(), quiet);
         let mut app = App {
             parent: None,
             worker: Worker::new(ctx.clone()),
@@ -244,12 +256,16 @@ impl App {
             drag_start: None,
             ctx_field: None,
             choice_open: None,
+            choice_sel: 0,
+            choice_sel_shown: None,
+            overlay: None,
+            hints: None,
             palette,
             omarchy_active,
             theme_rx,
             open_rx,
             open_tx,
-            status: "Open a PDF (Ctrl+O) or drop one here.".into(),
+            status: "Open a PDF (Ctrl+O) or drop one here. F1 shows every shortcut.".into(),
             undo: vec![],
             redo: vec![],
             typing_run: None,
@@ -261,6 +277,7 @@ impl App {
             auto_frames: 0,
             screenshot_rx: None,
             assist,
+            license,
             applied_system_dark: None,
             dialog_rx: None,
             builtin_dialog: None,
@@ -380,13 +397,24 @@ impl App {
         ui.horizontal(|ui| {
             ui.label(&self.status);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if !self.license.registered() {
+                    let r = ui
+                        .add(
+                            egui::Label::new(
+                                egui::RichText::new("Unregistered: get a free license")
+                                    .color(self.palette.accent),
+                            )
+                            .sense(egui::Sense::click()),
+                        )
+                        .on_hover_cursor(egui::CursorIcon::PointingHand);
+                    if r.clicked() {
+                        self.license.open_reminder();
+                    }
+                    ui.separator();
+                }
                 if let Some(doc) = &self.doc {
                     let n = doc.sizes.len();
-                    let rects = self.page_rects();
-                    let cur = rects
-                        .iter()
-                        .position(|r| r.bottom() > self.viewport.center().y)
-                        .unwrap_or(0);
+                    let cur = self.current_page();
                     ui.label(format!("Page {} of {n}", cur + 1));
                     let left = doc.detected.iter().filter(|d| !**d).count();
                     if left > 0 {
@@ -446,6 +474,7 @@ impl eframe::App for App {
         }
         let ctx = ui.ctx().clone();
         self.poll(&ctx);
+        self.hints_keys(&ctx);
         self.shortcuts(&ctx);
         self.handle_keys(&ctx);
         let title = self.title();
@@ -492,7 +521,7 @@ impl eframe::App for App {
         self.builtin_dialog_ui(&ctx);
         #[cfg(target_os = "linux")]
         self.cups_dialog_ui(&ctx);
-        self.assist.settings_window(&ctx, &self.palette);
+        self.assist.settings_window(&ctx, &self.palette, &mut self.license);
         self.assist.consent_window(&ctx);
         self.assist.remember_window(&ctx, &self.palette);
         let automated = self.cli.demo
@@ -501,12 +530,34 @@ impl eframe::App for App {
             || self.cli.record.is_some();
         self.assist.poll_updates(&ctx, automated);
         self.assist.notices(&ctx, &self.palette, automated);
+        self.overlay_ui(&ctx);
+        // The reminder waits while anything else asks for attention.
+        let busy = self.confirm.is_some()
+            || self.assist.modal_open()
+            || self.assist.settings_open
+            || self.overlay.is_some()
+            || self.dialog_open();
+        self.license.tick(&ctx, busy);
+        self.license.windows(&ctx, &self.palette);
         if let Some(m) = self.assist.take_system_message() {
             self.status = m;
         }
 
         if let Some(what) = self.confirm.clone() {
             let mut proceed = false;
+            // Keyboard: Esc cancels; Ctrl+S, or Enter while no button has
+            // the keyboard focus, saves (the choice that never loses work).
+            let free = ctx.memory(|m| m.focused().is_none_or(|f| f == Id::unique(EDITOR_ID)));
+            let (cancel, save_key) = ctx.input_mut(|i| {
+                (
+                    i.consume_key(Modifiers::NONE, Key::Escape),
+                    i.consume_key(Modifiers::COMMAND, Key::S)
+                        || (free && i.consume_key(Modifiers::NONE, Key::Enter)),
+                )
+            });
+            if cancel {
+                self.confirm = None;
+            }
             egui::Modal::new(Id::unique("pdfr-confirm")).show(&ctx, |ui| {
                 ui.label(match &what {
                     Confirm::Close => "You have unsaved changes.".to_string(),
@@ -518,7 +569,9 @@ impl eframe::App for App {
                     ),
                 });
                 ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() {
+                    if (ui.button("Save").on_hover_text("Enter or Ctrl+S").clicked() || save_key)
+                        && !cancel
+                    {
                         // Closing or opening follows once the save succeeds
                         // (after the file dialog, if one is needed).
                         let after = match &what {
@@ -532,7 +585,7 @@ impl eframe::App for App {
                         proceed = true;
                         self.confirm = None;
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button("Cancel").on_hover_text("Esc").clicked() {
                         self.confirm = None;
                     }
                 });
@@ -558,7 +611,9 @@ mod commands;
 mod cups;
 mod editing;
 mod files;
+mod hints;
 mod history;
+mod palette;
 mod print;
 mod record;
 mod toolbar;

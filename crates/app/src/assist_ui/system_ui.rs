@@ -97,34 +97,41 @@ impl AssistState {
             };
             let mut clicked = false;
             setting_row(ui, c, "Default PDF app", &sub, |ui| {
-                if default == DefaultApp::Pdfr {
-                    ui.label(RichText::new("\u{2713} pdfr").color(c.text));
-                } else if system::can_make_default() {
-                    clicked = primary_button(ui, c, "Use pdfr").clicked();
+                // Ticked while pdfr opens PDFs; click to switch either way.
+                let on = default == DefaultApp::Pdfr;
+                if on || system::can_make_default() {
+                    let tip = if on { "Stop opening PDF files in pdfr" } else { "Open PDF files in pdfr" };
+                    clicked = checkbox(ui, c, on).on_hover_text(tip).clicked();
                 }
             });
             if clicked {
-                // An archive install joins the app menu first.
-                self.make_default(direct && !system::in_app_menu());
+                if default == DefaultApp::Pdfr {
+                    self.sys.msg = Some(match system::unset_default() {
+                        Ok(m) => (true, m),
+                        Err(e) => (false, e),
+                    });
+                    self.refresh_system();
+                } else {
+                    // An archive install joins the app menu first.
+                    self.make_default(direct && !system::in_app_menu());
+                }
             }
             if cfg!(target_os = "linux") && direct {
                 row_divider(ui, c);
-                let mut add = false;
+                let mut flip = false;
+                let added = system::in_app_menu();
                 setting_row(
                     ui,
                     c,
                     "App menu",
                     "Add pdfr to your app launcher and to \u{201c}Open with\u{201d}, and the pdfr command to the terminal.",
                     |ui| {
-                        if system::in_app_menu() {
-                            ui.label(RichText::new("\u{2713} Added").color(c.text));
-                        } else {
-                            add = secondary_button(ui, c, "Add").clicked();
-                        }
+                        flip = checkbox(ui, c, added).clicked();
                     },
                 );
-                if add {
-                    self.sys.msg = Some(match system::register() {
+                if flip {
+                    let res = if added { system::unregister() } else { system::register() };
+                    self.sys.msg = Some(match res {
                         Ok(m) => (true, m),
                         Err(e) => (false, e),
                     });

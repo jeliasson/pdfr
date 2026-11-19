@@ -62,6 +62,29 @@ impl App {
         self.scroll.y = self.scroll.y.clamp(0.0, (c.y - vp.height()).max(0.0));
     }
 
+    pub(super) fn scroll_by(&mut self, dy: f32) {
+        self.scroll.y += dy;
+        self.clamp_scroll();
+    }
+
+    /// The page under the middle of the window (the status bar's "Page n").
+    pub(super) fn current_page(&self) -> usize {
+        self.page_rects()
+            .iter()
+            .position(|r| r.bottom() > self.viewport.center().y)
+            .unwrap_or(0)
+    }
+
+    /// Scrolls so page `i` (clamped to the last) starts at the top.
+    pub(super) fn scroll_to_page(&mut self, i: usize) {
+        let rects = self.page_rects();
+        let Some(r) = rects.get(i.min(rects.len().saturating_sub(1))) else {
+            return;
+        };
+        self.scroll.y += r.top() - (self.viewport.top() + PAD);
+        self.clamp_scroll();
+    }
+
     /// Zooms to `z`, keeping the document point under `anchor` fixed.
     pub(super) fn zoom_to(&mut self, z: f32, anchor: Pos2) {
         let z = z.clamp(0.1, 8.0);

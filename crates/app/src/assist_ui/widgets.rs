@@ -204,32 +204,132 @@ pub(crate) fn checkbox(ui: &mut Ui, c: &Colors, checked: bool) -> egui::Response
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
+/// A button with its own fill and outline whose size never changes. egui
+/// makes room for the theme's hover outline by shrinking the button's inner
+/// margin; overriding the outline with `Button::stroke` keeps that shrink, so
+/// the button got smaller on hover. Here every state gets the same outline
+/// (and no expansion), and hovering only tints the fill.
+pub(crate) fn framed_button(
+    ui: &mut Ui,
+    text: RichText,
+    fill: Color32,
+    hover_fill: Color32,
+    stroke: Stroke,
+    min_width: f32,
+) -> egui::Response {
+    ui.scope(|ui| {
+        let w = &mut ui.visuals_mut().widgets;
+        for (v, f) in [
+            (&mut w.inactive, fill),
+            (&mut w.hovered, hover_fill),
+            (&mut w.active, hover_fill),
+        ] {
+            v.weak_bg_fill = f;
+            v.bg_fill = f;
+            v.bg_stroke = stroke;
+            v.expansion = 0.0;
+            v.corner_radius = CornerRadius::same(7);
+        }
+        ui.add(egui::Button::new(text).min_size(vec2(min_width, 32.0)))
+    })
+    .inner
+    .on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
 /// The main action of a dialog: filled with the accent colour.
 pub(crate) fn primary_button(ui: &mut Ui, c: &Colors, label: &str) -> egui::Response {
-    ui.add(
-        egui::Button::new(RichText::new(label).color(Color32::WHITE).strong())
-            .fill(c.accent)
-            .stroke(Stroke::NONE)
-            .corner_radius(7.0)
-            .min_size(vec2(0.0, 32.0)),
+    framed_button(
+        ui,
+        RichText::new(label).color(Color32::WHITE).strong(),
+        c.accent,
+        mix(c.accent, Color32::WHITE, 0.12),
+        Stroke::new(1.0, c.accent),
+        0.0,
     )
-    .on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 /// A secondary action: outlined.
 pub(crate) fn secondary_button(ui: &mut Ui, c: &Colors, label: &str) -> egui::Response {
-    ui.add(
-        egui::Button::new(RichText::new(label).color(c.text))
-            .fill(Color32::TRANSPARENT)
-            .stroke(Stroke::new(1.0, c.border))
-            .corner_radius(7.0)
-            .min_size(vec2(0.0, 32.0)),
+    framed_button(
+        ui,
+        RichText::new(label).color(c.text),
+        Color32::TRANSPARENT,
+        c.hover,
+        Stroke::new(1.0, c.border),
+        0.0,
     )
-    .on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// A destructive action with a two-click confirm: outlined in red, filled
+/// red once `confirming`.
+pub(crate) fn danger_button(ui: &mut Ui, label: &str, confirming: bool) -> egui::Response {
+    let (text, fill) = if confirming {
+        (Color32::WHITE, DANGER)
+    } else {
+        (DANGER, Color32::TRANSPARENT)
+    };
+    framed_button(
+        ui,
+        RichText::new(label).color(text),
+        fill,
+        if confirming { mix(DANGER, Color32::WHITE, 0.12) } else { DANGER.gamma_multiply(0.12) },
+        Stroke::new(1.0, DANGER),
+        96.0,
+    )
 }
 
 /// A small text link in the accent colour.
 pub(crate) fn link(ui: &mut Ui, c: &Colors, label: &str) -> egui::Response {
     ui.add(egui::Label::new(RichText::new(label).size(12.0).color(c.accent)).sense(Sense::click()))
         .on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui_kittest::Harness;
+
+    /// The outer bounds of every filled or outlined rectangle drawn.
+    fn painted(h: &Harness<'_>) -> egui::Rect {
+        let mut r = egui::Rect::NOTHING;
+        for clip in &h.output().shapes {
+            if let egui::Shape::Rect(rs) = &clip.shape {
+                r = r.union(rs.rect.expand(rs.stroke.width / 2.0));
+            }
+        }
+        r
+    }
+
+    fn check(name: &str, mut draw: impl FnMut(&mut Ui, &Colors) -> egui::Response) -> bool {
+        let mut h = Harness::new_ui(move |ui| {
+            let c = Colors::new(&Palette::builtin(false));
+            draw(ui, &c);
+        });
+        h.run();
+        let before = painted(&h);
+        h.hover_at(before.center());
+        h.run();
+        let after = painted(&h);
+        eprintln!("{name}: {before:?} -> {after:?}");
+        before == after
+    }
+
+    /// Hovering a button must not change the size of what is drawn.
+    #[test]
+    fn buttons_keep_their_size_on_hover() {
+        assert!(check("primary", |ui, c| primary_button(ui, c, "Get free license")));
+        assert!(check("secondary", |ui, c| secondary_button(ui, c, "Enter license key\u{2026}")));
+        assert!(check("danger", |ui, _| danger_button(ui, "Remove\u{2026}", false)));
+    }
+
+    /// The old way (overriding the stroke) does shrink: the test can see it.
+    #[test]
+    fn stroke_override_shrinks_on_hover() {
+        assert!(!check("override", |ui, c| ui.add(
+            egui::Button::new("Enter license key")
+                .fill(Color32::TRANSPARENT)
+                .stroke(Stroke::new(1.0, c.border))
+                .corner_radius(7.0)
+        )));
+    }
 }
