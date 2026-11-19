@@ -224,6 +224,7 @@ into a box is ever taken as a command.
 |---|---|
 | Open, save, save as, print | Ctrl+O, Ctrl+S, Ctrl+Shift+S, Ctrl+P |
 | Recent files (reopen where you left off) | Ctrl+E |
+| Open in a new window | Ctrl+Shift+O |
 | Next / previous box | Tab / Shift+Tab |
 | Next / previous **empty** box | Ctrl+N / Ctrl+Shift+N |
 | Jump to any box you can see (letters appear on each) | Ctrl+L, then the letters |

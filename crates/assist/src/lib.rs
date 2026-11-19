@@ -160,6 +160,9 @@ impl AiJob {
 
 pub struct Assistant {
     pub store: Store,
+    /// The store as last read from or written to the file, to tell what
+    /// another running pdfr changed there since (see `Store::save_merged`).
+    base: Store,
     path: Option<PathBuf>,
     backend: Option<Arc<dyn Backend>>,
 }
@@ -289,6 +292,7 @@ impl Assistant {
         let model = store.settings.model.clone();
         let backend = ai::detect(Some(&model)).map(|b| Arc::new(b) as Arc<dyn Backend>);
         Assistant {
+            base: store.clone(),
             store,
             path,
             backend,
@@ -302,6 +306,7 @@ impl Assistant {
         backend: Option<Arc<dyn Backend>>,
     ) -> Assistant {
         Assistant {
+            base: store.clone(),
             store,
             path,
             backend,
@@ -321,9 +326,11 @@ impl Assistant {
         self.backend.as_ref().map(|b| b.name())
     }
 
-    pub fn save(&self) {
+    /// Writes the store, first taking in what another running pdfr (a
+    /// second window) saved meanwhile.
+    pub fn save(&mut self) {
         if let Some(p) = &self.path {
-            let _ = self.store.save(p);
+            let _ = self.store.save_merged(p, &mut self.base);
         }
     }
 

@@ -207,6 +207,120 @@ impl Store {
         s
     }
 
+    /// Writes the store to `path` after taking in what another writer (a
+    /// second pdfr window) changed in the file since `base` was read: what
+    /// it added is added here, what it removed is removed here, and our own
+    /// changes win. Holds a lock on `path.lock` meanwhile. `base` becomes
+    /// what was written.
+    pub fn save_merged(&mut self, path: &Path, base: &mut Store) -> std::io::Result<()> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let _lock = FileLock::take(&path.with_extension("json.lock"));
+        let disk: Option<Store> = std::fs::read(path)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok());
+        if let Some(disk) = disk
+            && &disk != base
+        {
+            self.merge_from(base, &disk);
+        }
+        self.save(path)?;
+        *base = self.clone();
+        Ok(())
+    }
+
+    /// Three-way merge: `disk` is `base` plus another writer's changes.
+    pub fn merge_from(&mut self, base: &Store, disk: &Store) {
+        fn merge_map<K: Ord + Clone, V: Clone + PartialEq>(
+            ours: &mut BTreeMap<K, V>,
+            base: &BTreeMap<K, V>,
+            disk: &BTreeMap<K, V>,
+        ) {
+            for (k, v) in disk {
+                if !base.contains_key(k) && !ours.contains_key(k) {
+                    ours.insert(k.clone(), v.clone());
+                }
+            }
+            for k in base.keys() {
+                if !disk.contains_key(k) && ours.get(k) == base.get(k) {
+                    ours.remove(k);
+                }
+            }
+        }
+        // Values: entry by entry within each key.
+        for (k, list) in &disk.values {
+            let b = base.values.get(k);
+            let o = self.values.entry(k.clone()).or_default();
+            for e in list {
+                let known = |l: Option<&Vec<ValueEntry>>| l.is_some_and(|l| l.iter().any(|x| x.value == e.value));
+                if !known(b) && !o.iter().any(|x| x.value == e.value) {
+                    o.push(e.clone());
+                }
+            }
+        }
+        for (k, list) in &base.values {
+            for e in list {
+                let on_disk = disk.values.get(k).is_some_and(|l| l.iter().any(|x| x.value == e.value));
+                if !on_disk && let Some(o) = self.values.get_mut(k) {
+                    o.retain(|x| x.value != e.value);
+                }
+            }
+        }
+        self.values.retain(|_, l| !l.is_empty());
+        merge_map(&mut self.forms, &base.forms, &disk.forms);
+        merge_map(&mut self.label_cache, &base.label_cache, &disk.label_cache);
+        merge_map(&mut self.people_cache, &base.people_cache, &disk.people_cache);
+        // People by id.
+        for p in &disk.profiles {
+            if !base.profiles.iter().any(|b| b.id == p.id) && !self.profiles.iter().any(|o| o.id == p.id) {
+                self.profiles.push(p.clone());
+            }
+        }
+        self.profiles.retain(|o| {
+            let was = base.profiles.iter().any(|b| b.id == o.id);
+            !was || disk.profiles.iter().any(|d| d.id == o.id)
+        });
+        // Signatures by drawing.
+        for s in &disk.signatures {
+            let new = !base.signatures.iter().any(|b| b.ink == s.ink);
+            if new && !self.signatures.iter().any(|o| o.ink == s.ink) {
+                let id = self.signatures.iter().map(|x| x.id).max().unwrap_or(0) + 1;
+                self.signatures.push(SavedSignature { id, ..s.clone() });
+            }
+        }
+        self.signatures.retain(|o| {
+            let was = base.signatures.iter().any(|b| b.ink == o.ink);
+            !was || disk.signatures.iter().any(|d| d.ink == o.ink)
+        });
+        for k in &disk.extra_keys {
+            if !self.extra_keys.contains(k) {
+                self.extra_keys.push(k.clone());
+            }
+        }
+        // Settings: the other writer's, unless we changed ours.
+        if self.settings == base.settings {
+            self.settings = disk.settings.clone();
+        } else {
+            // Recent files: both windows' lists, newest first.
+            let mut all = self.settings.recent.clone();
+            for r in &disk.settings.recent {
+                match all.iter_mut().find(|a| a.path == r.path) {
+                    Some(a) if r.opened_at > a.opened_at => *a = r.clone(),
+                    Some(_) => {}
+                    None => all.push(r.clone()),
+                }
+            }
+            all.sort_by_key(|r| std::cmp::Reverse(r.opened_at));
+            all.truncate(RECENT_MAX);
+            self.settings.recent = all;
+        }
+        let u = &mut self.usage;
+        u.calls = u.calls.max(disk.usage.calls);
+        u.input_tokens = u.input_tokens.max(disk.usage.input_tokens);
+        u.output_tokens = u.output_tokens.max(disk.usage.output_tokens);
+    }
+
     /// Writes atomically, with permissions 0600 on Unix.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
         if let Some(dir) = path.parent() {
@@ -373,5 +487,80 @@ impl Store {
             }
         }
         v
+    }
+}
+
+/// An advisory lock on a file, held while it lives (Unix; elsewhere a
+/// no-op). Two pdfr windows never write the store at the same moment.
+struct FileLock {
+    #[cfg(unix)]
+    _file: Option<std::fs::File>,
+}
+
+impl FileLock {
+    fn take(path: &Path) -> FileLock {
+        #[cfg(unix)]
+        {
+            use std::os::unix::io::AsRawFd;
+            let f = std::fs::OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .open(path)
+                .ok();
+            if let Some(f) = &f {
+                // Blocks briefly if the other window is writing.
+                unsafe {
+                    libc::flock(f.as_raw_fd(), libc::LOCK_EX);
+                }
+            }
+            FileLock { _file: f }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = path;
+            FileLock {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod merge_tests {
+    use super::*;
+
+    #[test]
+    fn two_windows_keep_each_others_changes() {
+        let dir = std::env::temp_dir().join(format!("pdfr-merge-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("memory.json");
+        let mut start = Store::default();
+        start.learn("email", "old@example.se");
+        start.signatures.push(SavedSignature {
+            id: 1,
+            person: None,
+            initials: false,
+            ink: "ink1 2".into(),
+            last_used: 0,
+        });
+        let mut base = Store::default();
+        start.save_merged(&path, &mut base).unwrap();
+
+        // Two windows load the same file.
+        let (mut a, mut a_base) = (Store::load(&path), Store::load(&path));
+        let (mut b, mut b_base) = (Store::load(&path), Store::load(&path));
+        a.learn("email", "anna@example.se");
+        a.forget_signature(1);
+        a.save_merged(&path, &mut a_base).unwrap();
+        b.learn("phone", "0701234567");
+        b.settings.dark_pages = true;
+        b.save_merged(&path, &mut b_base).unwrap();
+
+        let disk = Store::load(&path);
+        assert!(disk.get("email").contains(&"anna@example.se".to_string()), "A's value kept");
+        assert!(disk.get("email").contains(&"old@example.se".to_string()));
+        assert_eq!(disk.get("phone"), vec!["0701234567".to_string()], "B's value");
+        assert!(disk.signatures.is_empty(), "A's delete is not undone by B");
+        assert!(disk.settings.dark_pages);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

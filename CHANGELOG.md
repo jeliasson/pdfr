@@ -52,6 +52,10 @@ version's section into its GitHub release notes.
 - Dark pages (Ctrl+M, or Settings → General): pages are shown light on
   dark, with colours kept recognisable. Screen only: saving and printing
   are unchanged.
+- Open in new window (Ctrl+Shift+O) puts another PDF in its own window,
+  say the instructions next to the form. In Recent files, Ctrl+Enter opens
+  one in a new window. Two windows share what pdfr remembers safely: each
+  keeps what the other saved.
 - Password-protected PDFs open: pdfr asks for the password (and never keeps
   it). The saved copy is not password-protected, and pdfr says so when
   saving.

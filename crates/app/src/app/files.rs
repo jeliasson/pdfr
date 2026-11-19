@@ -39,7 +39,8 @@ impl raw_window_handle::HasDisplayHandle for ParentWindow {
 
 /// What a file dialog answered.
 pub(super) enum DialogResult {
-    Open(Option<PathBuf>),
+    /// The file picked, and whether it opens in a new window.
+    Open(Option<PathBuf>, bool),
     /// Save target, for the document opened as `generation`.
     Save(Option<PathBuf>, u64, AfterSave),
     /// Print result: `Ok(true)` printed, `Ok(false)` cancelled. (macOS
@@ -94,17 +95,10 @@ impl App {
     }
 
     /// A file the system asked us to open (macOS Finder): here if this
-    /// window is free, otherwise in a new pdfr window.
+    /// window is empty, otherwise in a new pdfr window.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(super) fn open_from_system(&mut self, path: PathBuf) {
-        if self.doc.as_ref().is_none_or(|d| !d.dirty) {
-            self.open(path);
-        } else if let Ok(exe) = std::env::current_exe() {
-            // Another window of pdfr itself; never another program.
-            if let Err(e) = std::process::Command::new(exe).arg(&path).spawn() {
-                self.status = format!("Could not open {}: {e}", path.display());
-            }
-        }
+        self.open_in_new_window(path);
     }
 
     pub fn open(&mut self, path: PathBuf) {
@@ -311,20 +305,21 @@ impl App {
         };
         let (_, purpose) = self.builtin_dialog.take().unwrap();
         let res = match purpose {
-            builtin::Purpose::Open => DialogResult::Open(picked),
+            builtin::Purpose::Open(new_window) => DialogResult::Open(picked, new_window),
             builtin::Purpose::Save(g, after) => DialogResult::Save(picked, g, after),
         };
         self.handle_dialog(res);
     }
 
-    pub(super) fn pick_and_open(&mut self) {
+    /// Asks for a file to open, here or in a new window.
+    pub(super) fn pick_and_open(&mut self, new_window: bool) {
         if self.dialog_open() {
             return;
         }
         if !native_dialogs() {
             let mut d = builtin::dialog(None, None);
             d.pick_file();
-            self.builtin_dialog = Some((d, builtin::Purpose::Open));
+            self.builtin_dialog = Some((d, builtin::Purpose::Open(new_window)));
             return;
         }
         let task = self
@@ -332,8 +327,32 @@ impl App {
             .add_filter("PDF", &["pdf", "PDF"])
             .pick_file();
         self.wait_for_dialog(async move {
-            DialogResult::Open(task.await.map(|h| h.path().to_path_buf()))
+            DialogResult::Open(task.await.map(|h| h.path().to_path_buf()), new_window)
         });
+    }
+
+    /// Opens a file in a new pdfr window (this window if it is empty).
+    pub(super) fn open_in_new_window(&mut self, path: PathBuf) {
+        if self.doc.is_none() {
+            self.open(path);
+            return;
+        }
+        let Ok(exe) = std::env::current_exe() else {
+            self.status = "Could not start another pdfr window.".into();
+            return;
+        };
+        let mut cmd = std::process::Command::new(exe);
+        if let Some(d) = &self.cli.data_dir {
+            cmd.arg("--data-dir").arg(d);
+        }
+        // pdfr itself, never another program; the file is the last argument.
+        match cmd.arg(&path).spawn() {
+            Ok(_) => {
+                let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                self.status = format!("Opened {name} in a new window.");
+            }
+            Err(e) => self.status = format!("Could not open {}: {e}", path.display()),
+        }
     }
 
     /// Waits for a dialog on a background thread, so the window keeps
@@ -380,7 +399,8 @@ impl App {
     /// Acts on what a file or print dialog answered.
     pub(super) fn handle_dialog(&mut self, res: DialogResult) {
         match res {
-            DialogResult::Open(Some(p)) => self.request_open(p),
+            DialogResult::Open(Some(p), false) => self.request_open(p),
+            DialogResult::Open(Some(p), true) => self.open_in_new_window(p),
             DialogResult::Save(Some(p), generation, after) => {
                 if self
                     .doc
@@ -397,7 +417,7 @@ impl App {
             DialogResult::Printed(Ok(true)) => self.status = "Sent to the printer.".into(),
             DialogResult::Printed(Ok(false)) => self.status = "Printing cancelled.".into(),
             DialogResult::Printed(Err(e)) => self.status = format!("Could not print: {e}"),
-            DialogResult::Open(None) | DialogResult::Save(None, ..) => {}
+            DialogResult::Open(None, _) | DialogResult::Save(None, ..) => {}
         }
     }
 
@@ -530,7 +550,8 @@ pub(super) mod builtin {
     use std::path::Path;
 
     pub enum Purpose {
-        Open,
+        /// Open a file (in a new window when `true`).
+        Open(bool),
         Save(u64, AfterSave),
     }
 

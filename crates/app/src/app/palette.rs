@@ -301,8 +301,10 @@ impl App {
         let prev_sel = sel;
 
         // Keys first, before the text box sees them.
-        let (close, enter, moves) = ctx.input_mut(|i| {
+        let (close, enter, enter_new, moves) = ctx.input_mut(|i| {
             let close = i.consume_key(Modifiers::NONE, Key::Escape);
+            // Ctrl+Enter on a recent file: open it in a new window.
+            let enter_new = i.consume_key(Modifiers::COMMAND, Key::Enter);
             let enter = i.consume_key(Modifiers::NONE, Key::Enter);
             let shift_tab = i.modifiers.shift && i.key_pressed(Key::Tab);
             let mut moves = 0i32;
@@ -319,7 +321,7 @@ impl App {
             if i.consume_key(Modifiers::NONE, Key::Tab) {
                 moves += if shift_tab { -1 } else { 1 };
             }
-            (close, enter, moves)
+            (close, enter, enter_new, moves)
         });
         if !rows.is_empty() {
             let n = rows.len() as i32;
@@ -328,7 +330,7 @@ impl App {
 
         let pal = self.palette.clone();
         let c = Colors::new(&pal);
-        let mut run: Option<Item> = if enter {
+        let mut run: Option<Item> = if enter || enter_new {
             rows.get(sel).filter(|r| r.enabled).map(|r| r.item)
         } else {
             None
@@ -341,7 +343,7 @@ impl App {
             Scope::Commands => ("Type a command…", "No command matches".to_string()),
             Scope::Boxes => ("Find a box by its label…", "No box matches".to_string()),
             Scope::Recent => (
-                "Recent files\u{2026}",
+                "Recent files\u{2026}  (Ctrl+Enter: in a new window)",
                 if self.assist.a.store.settings.remember_recent {
                     "No recent files yet".to_string()
                 } else {
@@ -513,7 +515,12 @@ impl App {
             }
             Some(Item::Recent(i)) => {
                 if let Some(r) = self.recent_files().get(i) {
-                    self.request_open(PathBuf::from(&r.path));
+                    let p = PathBuf::from(&r.path);
+                    if enter_new {
+                        self.open_in_new_window(p);
+                    } else {
+                        self.request_open(p);
+                    }
                 }
             }
             Some(Item::Info) | None => {}

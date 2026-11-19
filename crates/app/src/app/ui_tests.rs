@@ -1078,3 +1078,24 @@ fn dark_pages_redraw_and_stay_on() {
     ctrl(&mut h, Key::M);
     assert!(!h.state().dark_pages());
 }
+
+#[test]
+fn new_window_opens_here_when_the_window_is_empty() {
+    let cli = CliOptions {
+        no_ai: true,
+        data_dir: Some(data_dir("new-window", None)),
+        ..Default::default()
+    };
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(800.0, 600.0))
+        .with_step_dt(1.0 / 60.0)
+        .build_eframe(move |cc| App::new(cc, cli));
+    h.state_mut().open_in_new_window(sample("flat_form.pdf"));
+    let start = Instant::now();
+    while h.state().doc.is_none() {
+        h.run_steps(1);
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(start.elapsed() < Duration::from_secs(20));
+    }
+    assert!(h.state().can(commands::Command::OpenNewWindow));
+}
