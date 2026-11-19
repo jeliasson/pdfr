@@ -512,20 +512,20 @@ impl AssistState {
                 }
                 if expanded {
                     ui.add_space(2.0);
-                    egui::Grid::new(("pdfr-person", p.id))
-                        .num_columns(2)
-                        .spacing(vec2(16.0, 6.0))
-                        .show(ui, |ui| {
-                            for (k, v) in &p.values {
-                                ui.add_space(44.0 - 16.0);
-                                ui.horizontal(|ui| {
+                    // Indented under the name (egui forbids spacing inside a grid).
+                    ui.horizontal(|ui| {
+                        ui.add_space(44.0);
+                        egui::Grid::new(("pdfr-person", p.id))
+                            .num_columns(2)
+                            .spacing(vec2(16.0, 6.0))
+                            .show(ui, |ui| {
+                                for (k, v) in &p.values {
                                     ui.label(RichText::new(humanise(k)).color(c.weak));
-                                    ui.add_space(8.0);
                                     ui.label(RichText::new(v).color(c.text));
-                                });
-                                ui.end_row();
-                            }
-                        });
+                                    ui.end_row();
+                                }
+                            });
+                    });
                 }
             }
         });

@@ -1133,3 +1133,24 @@ fn two_pages_side_by_side_and_presenting() {
     assert!(!h.state().presenting());
     assert!((h.state().zoom - zoom).abs() < 1e-3, "zoom restored");
 }
+
+#[test]
+fn settings_person_details_open() {
+    use egui_kittest::kittest::Queryable;
+    let mut store = Store::default();
+    let mut values = std::collections::BTreeMap::new();
+    values.insert("full_name".to_string(), "Anna Lindqvist".to_string());
+    values.insert("email".to_string(), "anna@example.se".to_string());
+    store.profiles.push(pdfr_assist::profiles::Profile {
+        id: 1,
+        values,
+        ..Default::default()
+    });
+    let mut h = harness("flat_form.pdf", data_dir("people", Some(store)));
+    h.state_mut().assist.open_settings("people");
+    h.run_steps(3);
+    // Used to panic: "add_space makes no sense in a grid layout".
+    h.get_by_label("Show details").click();
+    h.run_steps(3);
+    h.get_by_label("anna@example.se");
+}

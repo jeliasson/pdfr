@@ -79,6 +79,7 @@ reader, so a form can be filled in, signed and sent without a printer.
 
 ### Fixed
 
+- Settings → People: "Show details" on a remembered person crashed pdfr.
 - A password-protected PDF said "not a readable PDF file".
 - Automated runs (`--save`, `--screenshot`) stop with an error when a file
   can't be opened, instead of waiting.
