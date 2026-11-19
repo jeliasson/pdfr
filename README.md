@@ -231,6 +231,7 @@ into a box is ever taken as a command.
 | Find a box by its label | Ctrl+Shift+F |
 | Tick a checkbox | Space or click |
 | Sign (draw or type, then click where it goes) | Ctrl+I |
+| Initials / today's date | Ctrl+Shift+I / Ctrl+Shift+D |
 | Open and pick in a drop-down | Space or Alt+↓, then ↑ / ↓ or a letter, Enter |
 | Take the suggestion | Tab |
 | Browse suggestions | ↑ / ↓ (or Ctrl+J / Ctrl+K) |

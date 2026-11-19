@@ -34,6 +34,8 @@ pub enum Command {
     AddTextField,
     AddCheckbox,
     Sign,
+    Initials,
+    TodaysDate,
     Settings,
     Register,
     ScrollDown,
@@ -107,6 +109,8 @@ const FIND: &[KeyboardShortcut] = &[ctrl(Key::F)];
 const COPY: &[KeyboardShortcut] = &[ctrl(Key::C)];
 const FIND_BOX: &[KeyboardShortcut] = &[ctrl_shift(Key::F)];
 const SIGN: &[KeyboardShortcut] = &[ctrl(Key::I)];
+const INITIALS: &[KeyboardShortcut] = &[ctrl_shift(Key::I)];
+const TODAY: &[KeyboardShortcut] = &[ctrl_shift(Key::D)];
 const REMOVE_FIELD: &[KeyboardShortcut] = &[ctrl_shift(Key::Delete)];
 const PALETTE: &[KeyboardShortcut] = &[ctrl_shift(Key::P), ctrl(Key::Space)];
 const CHEATSHEET: &[KeyboardShortcut] = &[KeyboardShortcut::new(Modifiers::NONE, Key::F1)];
@@ -133,6 +137,8 @@ impl Command {
         Command::AddTextField,
         Command::AddCheckbox,
         Command::Sign,
+        Command::Initials,
+        Command::TodaysDate,
         Command::Settings,
         Command::Register,
         Command::ScrollDown,
@@ -243,6 +249,18 @@ impl Command {
                 "Draw or type your signature, then click where it goes",
                 Icon::Signature,
                 SIGN,
+            ),
+            Initials => (
+                "Initials",
+                "Draw or type your initials, then click where they go",
+                Icon::Signature,
+                INITIALS,
+            ),
+            TodaysDate => (
+                "Today's date",
+                "Into the box you're in, or click where it goes",
+                Icon::TextField,
+                TODAY,
             ),
             Settings => (
                 "Settings",
@@ -371,7 +389,7 @@ impl App {
             Register => !self.license.registered(),
             Save | SaveAs => editable && !self.dialog_open(),
             Print => doc.is_some() && super::print::AVAILABLE && !self.dialog_open(),
-            AddTextField | AddCheckbox | Sign => editable,
+            AddTextField | AddCheckbox | Sign | Initials | TodaysDate => editable,
             Undo => doc.is_some() && !self.undo.is_empty(),
             Redo => doc.is_some() && !self.redo.is_empty(),
             ZoomOut | ZoomIn | ActualSize | FitWidth | FitPage | Sidebar => doc.is_some(),
@@ -394,7 +412,15 @@ impl App {
         match c {
             Command::AddTextField => self.tool == Tool::AddText,
             Command::AddCheckbox => self.tool == Tool::AddCheckbox,
-            Command::Sign => self.tool == Tool::PlaceSignature || self.sign.is_some(),
+            Command::Sign => {
+                (self.tool == Tool::PlaceSignature && !self.placing_initials)
+                    || self.sign.as_ref().is_some_and(|s| !s.initials)
+            }
+            Command::Initials => {
+                (self.tool == Tool::PlaceSignature && self.placing_initials)
+                    || self.sign.as_ref().is_some_and(|s| s.initials)
+            }
+            Command::TodaysDate => self.tool == Tool::PlaceDate,
             Command::Settings => self.assist.settings_open,
             Command::Sidebar => self.sidebar_open(),
             Command::ToggleRemember => self.focused_entry().is_some_and(|e| e.no_memory),
@@ -456,6 +482,21 @@ impl App {
                 self.rotate_pages((0..n).collect(), 1);
             }
             Sidebar => self.toggle_sidebar(),
+            Initials => {
+                if self.tool == Tool::PlaceSignature {
+                    self.tool = Tool::None;
+                    self.placing = None;
+                } else {
+                    self.open_sign(true, None);
+                }
+            }
+            TodaysDate => {
+                if self.tool == Tool::PlaceDate {
+                    self.tool = Tool::None;
+                } else {
+                    self.stamp_date();
+                }
+            }
             Settings => self.assist.settings_open = !self.assist.settings_open,
             Register => self.license.open_register(),
             // Inside an open list (suggestions, drop-down) J/K move the

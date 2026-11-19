@@ -44,6 +44,11 @@ version's section into its GitHub release notes.
   in the command palette). The page is saved turned too, and pdfr finds
   the boxes again on the upright page. Undo turns it back. Pages with the
   PDF's own form fields can't be turned.
+- Today's date in one key: Ctrl+Shift+D fills the box you're in (in the
+  format its label asks for), or puts the date where you click next.
+- Initials: Ctrl+Shift+I draws or types them like a signature. Right-click
+  a signature or initials → "Put on every page" for contracts that ask
+  for initials on each page.
 - Password-protected PDFs open: pdfr asks for the password (and never keeps
   it). The saved copy is not password-protected, and pdfr says so when
   saving.

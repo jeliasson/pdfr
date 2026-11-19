@@ -305,6 +305,21 @@ impl AssistState {
         self.a.confident(&self.an, &fields, k)
     }
 
+    /// For a box that asks for a date: which part of it (day, month, year)
+    /// or `None` for the whole date. Not a date box: `Err`.
+    pub fn date_part(
+        &self,
+        doc: &Doc,
+        i: usize,
+    ) -> Result<Option<pdfr_assist::meaning::Part>, ()> {
+        let id = doc.entries.get(i).ok_or(())?.id;
+        let k = self.index(doc, id).ok_or(())?;
+        match self.an.meanings.get(k).cloned().flatten() {
+            Some(m) if m.is_date() => Ok(m.part),
+            _ => Err(()),
+        }
+    }
+
     /// After saving: remember everything, nothing, or ask what to remember.
     pub fn on_save(&mut self, doc: &mut Doc) {
         self.ensure(doc, false);

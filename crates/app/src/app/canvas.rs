@@ -217,6 +217,22 @@ impl App {
             );
         }
 
+        // Today's date follows the pointer while placing it.
+        if self.tool == Tool::PlaceDate
+            && let Some(p) = pointer
+            && let Some(page) = rects.iter().position(|r| r.contains(p))
+        {
+            let xf = PageXf {
+                origin: rects[page].min,
+                zoom: self.zoom,
+            };
+            let (x, y) = xf.to_page(p);
+            let (r, v) = self.date_rect_at(x, y);
+            let mut f = Field::new_text(page, r, TextMode::Single, Origin::Manual);
+            f.font_size = Some(11.0);
+            draw::text(&painter, &xf, &layout(&f, &v), Color32::from_black_alpha(120));
+        }
+
         // The signature being placed follows the pointer.
         if self.tool == Tool::PlaceSignature
             && let (Some(p), Some(ink)) = (pointer, self.placing.clone())
@@ -544,6 +560,17 @@ impl App {
                 }
                 return;
             }
+            Tool::PlaceDate if editable => {
+                if clicked && let Some(page) = rects.iter().position(|r| r.contains(p)) {
+                    let (x, y) = PageXf {
+                        origin: rects[page].min,
+                        zoom: self.zoom,
+                    }
+                    .to_page(p);
+                    self.place_date(page, x, y);
+                }
+                return;
+            }
             Tool::PlaceSignature if editable => {
                 if clicked
                     && let Some((page, r)) = self.placement_at(rects, p)
@@ -679,9 +706,15 @@ impl App {
         if let Some(locked) = sig_lock {
             let mut remove = false;
             let mut lock = false;
+            let mut every = false;
+            let pages = self.doc.as_ref().map_or(1, |d| d.sizes.len());
             let shown = resp.context_menu(|ui| {
                 if editable && ui.button("Remove signature").clicked() {
                     remove = true;
+                }
+                if editable && pages > 1 && ui.button("Put on every page").clicked() {
+                    every = true;
+                    ui.close();
                 }
                 if editable
                     && ui
@@ -701,8 +734,10 @@ impl App {
                 self.remove_field(id);
             } else if lock {
                 self.toggle_lock(id);
+            } else if every {
+                self.sign_every_page(id);
             }
-            if shown.is_none() || remove || lock {
+            if shown.is_none() || remove || lock || every {
                 self.ctx_field = None;
             }
             return;

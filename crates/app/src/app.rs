@@ -162,6 +162,8 @@ enum Tool {
     AddCheckbox,
     /// Putting down the signature in `App::placing`.
     PlaceSignature,
+    /// Putting today's date where the user clicks.
+    PlaceDate,
 }
 
 pub struct App {
@@ -721,6 +723,7 @@ mod search;
 mod select;
 mod sidebar;
 mod signature;
+mod stamps;
 mod toolbar;
 mod view;
 

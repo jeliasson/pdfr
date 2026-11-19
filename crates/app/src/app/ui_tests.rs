@@ -1022,3 +1022,40 @@ fn protected_file_asks_for_its_password() {
     assert!(d.form.was_protected);
     assert_eq!(d.entries.iter().filter(|e| e.f.is_real()).count(), 9);
 }
+
+#[test]
+fn todays_date_and_signing_every_page() {
+    use pdfr_assist::dates;
+    let mut h = harness("flat_form.pdf", data_dir("stamps", None));
+    // Into the focused box.
+    click_doc(&mut h, 300.0, 178.0);
+    let id = focused_id(&h).unwrap();
+    ctrl_shift(&mut h, Key::D);
+    assert_eq!(dates::parse(&value_of(&h, id), None), Some(dates::today()));
+    // With no box focused, a click places it.
+    key(&mut h, Key::Escape);
+    ctrl_shift(&mut h, Key::D);
+    assert!(h.state().tool == Tool::PlaceDate);
+    let n = h.state().doc.as_ref().unwrap().entries.len();
+    click_doc(&mut h, 400.0, 760.0);
+    let d = h.state().doc.as_ref().unwrap();
+    assert_eq!(d.entries.len(), n + 1);
+    let placed = d.entries.last().unwrap();
+    assert_eq!(dates::parse(&placed.f.value, None), Some(dates::today()));
+    assert!(placed.f.rect.contains(402.0, 760.0));
+
+    // Initials on every page of a three-page document.
+    let mut h = harness("links.pdf", data_dir("every-page", None));
+    ctrl_shift(&mut h, Key::I);
+    assert!(h.state().sign.as_ref().is_some_and(|s| s.initials));
+    key(&mut h, Key::Escape);
+    let ink = Arc::new(pdfr_core::signature::Ink::typed("AL"));
+    let r = ink.fit(&PRect::new(500.0, 780.0, 560.0, 810.0));
+    h.state_mut().place_signature(0, r, ink);
+    let id = signatures(&h)[0].id;
+    h.state_mut().sign_every_page(id);
+    let pages: Vec<usize> = signatures(&h).iter().map(|e| e.f.page).collect();
+    assert_eq!(pages, vec![0, 1, 2]);
+    ctrl(&mut h, Key::Z);
+    assert_eq!(signatures(&h).len(), 1);
+}
