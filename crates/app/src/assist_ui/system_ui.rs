@@ -9,7 +9,11 @@ use crate::theme::Palette;
 use crate::updates;
 use eframe::egui::{self, Align, Align2, Layout, RichText, Ui, vec2};
 use pdfr_assist::memory::now;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+/// How long to wait for an answer in macOS's "use pdfr?" dialog.
+const AWAIT_DEFAULT: Duration = Duration::from_secs(60);
+const LOOK_AGAIN: Duration = Duration::from_secs(1);
 
 pub struct SystemUi {
     install: InstallKind,
@@ -18,6 +22,11 @@ pub struct SystemUi {
     on_path: Option<bool>,
     /// The last action's outcome: (worked, message).
     msg: Option<(bool, String)>,
+    /// macOS: when pdfr asked the system to make it the default. The system
+    /// answers in its own dialog, so the default app is looked up again
+    /// until it is pdfr (and the "confirm" message goes) or a minute passes.
+    awaiting_default: Option<Instant>,
+    last_default_look: Option<Instant>,
     checker: updates::Checker,
     check_error: Option<String>,
     /// "Check now" was pressed: report the answer in Settings.
@@ -34,6 +43,8 @@ impl Default for SystemUi {
             default_app: None,
             on_path: None,
             msg: None,
+            awaiting_default: None,
+            last_default_look: None,
             checker: Default::default(),
             check_error: None,
             manual_check: false,
@@ -75,6 +86,9 @@ impl AssistState {
         if res.is_ok() {
             res = system::make_default();
         }
+        if res.is_ok() && cfg!(target_os = "macos") {
+            self.sys.awaiting_default = Some(Instant::now());
+        }
         self.sys.msg = Some(match res {
             Ok(m) => (true, m),
             Err(e) => (false, e),
@@ -82,9 +96,28 @@ impl AssistState {
         self.refresh_system();
     }
 
+    /// While the system's "use pdfr?" dialog may be open: look again once a
+    /// second, and drop the "confirm" message once it's answered or stale.
+    fn follow_default_dialog(&mut self, ctx: &eframe::egui::Context) {
+        let Some(since) = self.sys.awaiting_default else {
+            return;
+        };
+        if self.sys.default_app == Some(DefaultApp::Pdfr) || since.elapsed() > AWAIT_DEFAULT {
+            self.sys.awaiting_default = None;
+            self.sys.msg = None;
+            return;
+        }
+        if self.sys.last_default_look.is_none_or(|t| t.elapsed() >= LOOK_AGAIN) {
+            self.sys.default_app = None;
+            self.sys.last_default_look = Some(Instant::now());
+        }
+        ctx.request_repaint_after(LOOK_AGAIN);
+    }
+
     /// The General section of Settings. Returns true if a setting changed.
     pub(super) fn general_section(&mut self, ui: &mut Ui, c: &Colors) -> bool {
         let mut changed = false;
+        self.follow_default_dialog(ui.ctx());
         let install = self.sys.install;
         let default = self.default_app();
         let direct = install == InstallKind::Direct;
@@ -398,5 +431,50 @@ impl AssistState {
             return None;
         }
         self.sys.msg.take().map(|(_, m)| m)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state(tag: &str) -> AssistState {
+        let dir = std::env::temp_dir().join(format!("pdfr-sys-{tag}-{}", std::process::id()));
+        AssistState::new(egui::Context::default(), true, Some(dir), false)
+    }
+
+    fn waiting(a: &mut AssistState, since: Instant) {
+        a.sys.awaiting_default = Some(since);
+        a.sys.msg = Some((true, "Confirm in the dialog macOS shows.".into()));
+    }
+
+    #[test]
+    fn confirm_message_goes_once_pdfr_is_the_default() {
+        let mut a = state("confirmed");
+        waiting(&mut a, Instant::now());
+        a.sys.default_app = Some(DefaultApp::Other("Preview".into()));
+        a.sys.last_default_look = Some(Instant::now());
+        a.follow_default_dialog(&egui::Context::default());
+        assert!(a.sys.msg.is_some(), "still waiting for the answer");
+
+        // The dialog was answered: the next look finds pdfr.
+        a.sys.default_app = Some(DefaultApp::Pdfr);
+        a.follow_default_dialog(&egui::Context::default());
+        assert!(a.sys.msg.is_none());
+        assert!(a.sys.awaiting_default.is_none());
+    }
+
+    #[test]
+    fn looks_again_while_waiting_and_gives_up_after_a_minute() {
+        let mut a = state("stale");
+        waiting(&mut a, Instant::now());
+        a.sys.default_app = Some(DefaultApp::Other("Preview".into()));
+        a.follow_default_dialog(&egui::Context::default());
+        assert!(a.sys.default_app.is_none(), "forgotten, so it is looked up again");
+
+        waiting(&mut a, Instant::now() - AWAIT_DEFAULT - Duration::from_secs(1));
+        a.sys.default_app = Some(DefaultApp::Other("Preview".into()));
+        a.follow_default_dialog(&egui::Context::default());
+        assert!(a.sys.msg.is_none(), "an unanswered dialog doesn't leave the message forever");
     }
 }

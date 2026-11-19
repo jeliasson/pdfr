@@ -5,6 +5,11 @@ version's section into its GitHub release notes.
 
 ## [Unreleased]
 
+### Fixed
+
+- macOS: “Confirm in the dialog macOS shows” no longer stays in Settings
+  after you answer. pdfr sees the new default app within a second.
+
 ## [0.2.0] - 2026-11-19
 
 ### Added
