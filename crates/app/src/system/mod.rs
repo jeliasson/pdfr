@@ -76,6 +76,11 @@ pub const ICON_SVG: &[u8] = include_bytes!("../../../../assets/icon/pdfr.svg");
 /// The window icon (X11, Windows, an unbundled macOS app; Wayland desktops
 /// take the installed icon named by the app id instead).
 pub fn window_icon() -> Option<eframe::egui::IconData> {
+    // macOS shows this in the Dock in place of the bundle's icon, so it
+    // must leave Apple's margins like the .icns does.
+    #[cfg(target_os = "macos")]
+    let png: &[u8] = include_bytes!("../../../../assets/icon/png/pdfr-macos-512.png");
+    #[cfg(not(target_os = "macos"))]
     let png = ICONS.iter().find(|(s, _)| *s == 256)?.1;
     let mut dec = png::Decoder::new(std::io::Cursor::new(png));
     dec.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);

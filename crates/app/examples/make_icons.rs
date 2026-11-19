@@ -41,6 +41,12 @@ fn main() {
         std::fs::write(png_dir.join(format!("pdfr-{s}.png")), png).unwrap();
     }
 
+    // The icon macOS shows while pdfr runs (the Dock takes it from the
+    // window): drawn on Apple's grid like the .icns, so it is as large as
+    // other apps' icons, not edge to edge.
+    let png = render(&dir, "pdfr-macos.svg", 512);
+    std::fs::write(png_dir.join("pdfr-macos-512.png"), png).unwrap();
+
     // .ico: a directory of PNG images (Windows Vista and later).
     let images: Vec<(u32, Vec<u8>)> = ICO_SIZES
         .iter()
