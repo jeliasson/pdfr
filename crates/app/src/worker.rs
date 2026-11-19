@@ -34,6 +34,12 @@ pub enum Msg {
         fields: Vec<Field>,
         text: Vec<pdfr_core::text::TextRun>,
     },
+    /// A page's text, for documents without detection (search, copy).
+    Text {
+        generation: u64,
+        page: usize,
+        text: Vec<pdfr_core::text::TextRun>,
+    },
 }
 
 #[derive(Default)]
@@ -43,6 +49,8 @@ struct State {
     /// page -> (scale, priority); lower priority value is served first.
     renders: HashMap<usize, (f32, f32)>,
     detect: VecDeque<usize>,
+    /// Pages whose text is wanted without detection.
+    text: VecDeque<usize>,
     quit: bool,
 }
 
@@ -59,6 +67,7 @@ pub struct Worker {
 enum Job {
     Render(usize, f32),
     Detect(usize),
+    Text(usize),
 }
 
 impl Worker {
@@ -88,10 +97,11 @@ impl Worker {
         s.generation += 1;
         s.bytes = Some(bytes);
         s.renders.clear();
-        s.detect = if detect {
-            (0..pages).collect()
+        // Detection reads each page's text too; without it, read only the text.
+        (s.detect, s.text) = if detect {
+            ((0..pages).collect(), VecDeque::new())
         } else {
-            VecDeque::new()
+            (VecDeque::new(), (0..pages).collect())
         };
         self.shared.cv.notify_all();
         s.generation
@@ -164,6 +174,9 @@ fn next_job(shared: &Shared, generation: u64) -> Option<Job> {
         if let Some(p) = s.detect.pop_front() {
             return Some(Job::Detect(p));
         }
+        if let Some(p) = s.text.pop_front() {
+            return Some(Job::Text(p));
+        }
         s = shared.cv.wait(s).unwrap();
     }
 }
@@ -185,6 +198,11 @@ fn serve(
                     generation,
                     page,
                     fields: vec![],
+                    text: vec![],
+                },
+                Job::Text(page) => Msg::Text {
+                    generation,
+                    page,
                     text: vec![],
                 },
             };
@@ -231,6 +249,28 @@ fn serve(
                         requested,
                         scale,
                         tex,
+                    })
+                    .is_err()
+                {
+                    return;
+                }
+                ctx.request_repaint();
+            }
+            Job::Text(page) => {
+                let text = pages
+                    .get(page)
+                    .and_then(|p| {
+                        catch_unwind(AssertUnwindSafe(|| {
+                            pdfr_core::text::extract(p, &text_cache)
+                        }))
+                        .ok()
+                    })
+                    .unwrap_or_default();
+                if tx
+                    .send(Msg::Text {
+                        generation,
+                        page,
+                        text,
                     })
                     .is_err()
                 {

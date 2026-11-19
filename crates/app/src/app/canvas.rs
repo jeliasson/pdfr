@@ -93,6 +93,7 @@ impl App {
         if doc.form.editable() {
             self.draw_sign_spots(&painter, &rects);
         }
+        self.draw_hits(&painter, &rects);
 
         // Fields.
         let editable_doc = doc.form.editable();
@@ -312,10 +313,14 @@ impl App {
                 dy
             });
             self.scroll.y += dy;
-            // Esc puts down an add-box tool.
-            if self.tool != Tool::None && ctx.input(|i| i.key_pressed(Key::Escape)) {
-                self.tool = Tool::None;
-                self.placing = None;
+            // Esc puts down an add-box tool, else hides search highlights.
+            if ctx.input(|i| i.key_pressed(Key::Escape)) {
+                if self.tool != Tool::None {
+                    self.tool = Tool::None;
+                    self.placing = None;
+                } else if let Some(s) = self.search.as_mut().filter(|s| s.shown) {
+                    s.shown = false;
+                }
             }
             if ctx.input(|i| i.key_pressed(Key::Tab)) {
                 let back = ctx.input(|i| i.modifiers.shift);

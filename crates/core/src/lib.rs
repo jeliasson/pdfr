@@ -14,5 +14,6 @@ pub mod pdf_font;
 pub mod pipeline;
 pub mod render;
 pub mod save;
+pub mod search;
 pub mod signature;
 pub mod text;

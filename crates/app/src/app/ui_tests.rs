@@ -659,7 +659,7 @@ fn palette_runs_commands_and_never_types_into_boxes() {
 #[test]
 fn find_box_and_go_to_page() {
     let mut h = harness("flat_form.pdf", data_dir("find-box", None));
-    ctrl(&mut h, Key::F);
+    ctrl_shift(&mut h, Key::F);
     // Box mode lists every box; Down + Enter focuses the second one.
     key(&mut h, Key::ArrowDown);
     key(&mut h, Key::Enter);
@@ -783,4 +783,48 @@ fn sign_place_move_remove_and_undo() {
     assert!(signatures(&h).is_empty());
     ctrl(&mut h, Key::Z);
     assert_eq!(signatures(&h).len(), 1);
+}
+
+#[test]
+fn ctrl_f_searches_the_text_and_remembers_the_query() {
+    let mut h = harness("flat_form.pdf", data_dir("search", None));
+    ctrl(&mut h, Key::F);
+    type_text(&mut h, "thirty days");
+    h.run_steps(3);
+    {
+        let s = h.state().search.as_ref().unwrap();
+        assert_eq!(s.hits.len(), 1, "{:?}", s.hits);
+        assert_eq!(s.current, Some(0), "the first hit is shown while typing");
+        assert!(s.shown);
+    }
+    key(&mut h, Key::Enter);
+    h.run_steps(1);
+    assert!(h.state().overlay.is_none());
+    assert!(h.state().search.as_ref().unwrap().shown, "highlights stay");
+    // Esc on the page hides them; Ctrl+F brings the query back.
+    key(&mut h, Key::Escape);
+    assert!(!h.state().search.as_ref().unwrap().shown);
+    ctrl(&mut h, Key::F);
+    match &h.state().overlay {
+        Some(palette::Overlay::Palette(f)) => assert_eq!(f.query, "thirty days"),
+        _ => panic!("palette not open"),
+    }
+    // Boxes are found by label in the same search.
+    key(&mut h, Key::Escape);
+    ctrl(&mut h, Key::F);
+    h.event(Event::Key {
+        key: Key::A,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: Modifiers::COMMAND,
+    });
+    type_text(&mut h, "Occupation");
+    h.run_steps(2);
+    key(&mut h, Key::Enter);
+    h.run_steps(1);
+    let id = focused_id(&h).expect("the Occupation box is focused");
+    let d = h.state().doc.as_ref().unwrap();
+    let label = d.entries[d.index_of(id).unwrap()].f.label.clone();
+    assert_eq!(label.as_deref(), Some("Occupation"));
 }

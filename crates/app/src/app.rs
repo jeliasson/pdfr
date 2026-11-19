@@ -189,6 +189,8 @@ pub struct App {
     placing_initials: bool,
     /// A placed signature being moved or resized.
     sig_drag: Option<signature::SigDrag>,
+    /// The text search (Ctrl+F): query, hits, highlights.
+    search: Option<search::Search>,
     pub palette: Palette,
     omarchy_active: bool,
     theme_rx: Receiver<Option<Palette>>,
@@ -275,6 +277,7 @@ impl App {
             placing: None,
             placing_initials: false,
             sig_drag: None,
+            search: None,
             palette,
             omarchy_active,
             theme_rx,
@@ -366,6 +369,13 @@ impl App {
                     if doc.first_page_ms.is_none() {
                         doc.first_page_ms = Some(doc.opened_at.elapsed().as_secs_f64() * 1e3);
                     }
+                }
+                Msg::Text {
+                    generation,
+                    page,
+                    text,
+                } if generation == doc.generation => {
+                    doc.text.insert(page, text);
                 }
                 Msg::Detected {
                     generation,
@@ -633,6 +643,7 @@ mod history;
 mod palette;
 mod print;
 mod record;
+mod search;
 mod signature;
 mod toolbar;
 mod view;

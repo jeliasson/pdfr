@@ -41,3 +41,25 @@ fn labels_with_positions() {
     // The scan has no text layer.
     assert!(runs("scanned_form.pdf").is_empty());
 }
+
+#[test]
+fn character_boxes_and_search_on_a_real_page() {
+    for name in ["flat_form.pdf", "flat_rotated.pdf"] {
+        let r = runs(name);
+        for run in &r {
+            assert_eq!(run.ws.len(), run.text.chars().count(), "{name}");
+            assert!(run.ws.iter().all(|w| *w > 0.0 && *w < 2.0 * run.size));
+        }
+        // "Full name" sits at x 50: its "name" is about four letters wide.
+        let hits = pdfr_core::search::search_page(0, &r, "name");
+        let full = r.iter().find(|x| x.text == "Full name").unwrap();
+        let h = hits
+            .iter()
+            .find(|h| h.rects[0].y1 == full.rect.y1)
+            .expect("name in Full name");
+        let w = h.rects[0].width();
+        assert!(w > 1.5 * full.size && w < 3.5 * full.size, "{name}: {w}");
+        assert!((h.rects[0].x1 - full.rect.x1).abs() < 0.5, "{name}");
+        assert_eq!(pdfr_core::search::search_page(0, &r, "membership application").len(), 1);
+    }
+}

@@ -108,14 +108,19 @@ impl App {
     pub(super) fn scroll_to_field(&mut self, id: u64) {
         let Some(doc) = &self.doc else { return };
         let Some(i) = doc.index_of(id) else { return };
-        let f = &doc.entries[i].f;
+        let (page, rect) = (doc.entries[i].f.page, doc.entries[i].f.rect);
+        self.scroll_to_rect(page, rect);
+    }
+
+    /// Scrolls as little as needed to bring a rectangle of a page into view.
+    pub(super) fn scroll_to_rect(&mut self, page: usize, rect: PRect) {
         let rects = self.page_rects();
-        let Some(pr) = rects.get(f.page) else { return };
+        let Some(pr) = rects.get(page) else { return };
         let xf = PageXf {
             origin: pr.min,
             zoom: self.zoom,
         };
-        let r = xf.rect(&f.rect);
+        let r = xf.rect(&rect);
         let vp = self.viewport.shrink(30.0);
         if r.top() < vp.top() {
             self.scroll.y -= vp.top() - r.top();

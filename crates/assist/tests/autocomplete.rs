@@ -102,6 +102,7 @@ fn synthetic(labels: &[&str]) -> (Vec<Field>, HashMap<usize, Vec<TextRun>>, Vec<
             text: l.to_string(),
             size: 9.0,
             xs: vec![],
+            ws: vec![],
         });
     }
     (
@@ -231,6 +232,7 @@ fn stored_date_fills_three_part_group_and_iban_fills_boxes() {
                 text: "IBAN".into(),
                 size: 9.0,
                 xs: vec![],
+                ws: vec![],
             }],
         )])
     };
@@ -457,6 +459,7 @@ fn two_people_form() -> (Vec<Field>, HashMap<usize, Vec<TextRun>>, Vec<PageGeom>
             text: heading.to_string(),
             size: 11.0,
             xs: vec![],
+            ws: vec![],
         });
         for (i, l) in labels.iter().enumerate() {
             let y = top + 25.0 + i as f32 * 30.0;
@@ -471,6 +474,7 @@ fn two_people_form() -> (Vec<Field>, HashMap<usize, Vec<TextRun>>, Vec<PageGeom>
                 text: l.to_string(),
                 size: 9.0,
                 xs: vec![],
+                ws: vec![],
             });
         }
     }
@@ -736,6 +740,7 @@ fn label_at(x: f32, y: f32, t: &str) -> TextRun {
         text: t.into(),
         size: 9.0,
         xs: vec![],
+        ws: vec![],
     }
 }
 

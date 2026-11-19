@@ -147,6 +147,12 @@ impl App {
         self.drag_start = None;
         self.tool = Tool::None;
         self.assist.close_list();
+        if let Some(s) = &mut self.search {
+            let q = std::mem::take(&mut s.query);
+            *s = Default::default();
+            s.query = q;
+            s.shown = false;
+        }
         self.doc = Some(doc);
         self.zoom = self
             .cli

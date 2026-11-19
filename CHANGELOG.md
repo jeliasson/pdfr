@@ -17,6 +17,16 @@ version's section into its GitHub release notes.
 - Choose how signatures are saved (Settings → General, or right-click one):
   as a signature other PDF apps can still move, or locked into the page.
   These are drawn signatures, not cryptographic ones.
+- Search the document's text with Ctrl+F. Matches are listed with the words
+  around them and highlighted on the pages; browsing the list shows each
+  one. Case and accents don't matter ("malmo" finds "Malmö"), and phrases
+  are found across line breaks and hyphenated words. Boxes whose label
+  matches are listed first. Next and previous match are in the command
+  palette, and Ctrl+F remembers the last search.
+
+### Changed
+
+- Finding a box by its label (without the text) moved to Ctrl+Shift+F.
 
 ### Fixed
 

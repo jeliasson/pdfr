@@ -224,7 +224,8 @@ into a box is ever taken as a command.
 | Next / previous box | Tab / Shift+Tab |
 | Next / previous **empty** box | Ctrl+N / Ctrl+Shift+N |
 | Jump to any box you can see (letters appear on each) | Ctrl+L, then the letters |
-| Find a box by its label | Ctrl+F |
+| Search the document's text (and boxes by their label) | Ctrl+F |
+| Find a box by its label | Ctrl+Shift+F |
 | Tick a checkbox | Space or click |
 | Sign (draw or type, then click where it goes) | Ctrl+I |
 | Open and pick in a drop-down | Space or Alt+↓, then ↑ / ↓ or a letter, Enter |

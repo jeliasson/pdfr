@@ -1,4 +1,5 @@
-//! The command palette (Ctrl+Shift+P / Ctrl+Space), "find a box" (Ctrl+F),
+//! The command palette (Ctrl+Shift+P / Ctrl+Space), search (Ctrl+F: the
+//! document's text and boxes by label), "find a box" (Ctrl+Shift+F),
 //! "go to page" (Ctrl+G) and the F1 cheatsheet: overlays in the Settings
 //! design, built from the command registry so they never fall out of date.
 
@@ -13,12 +14,16 @@ pub enum Scope {
     Commands,
     Boxes,
     Page,
+    /// The document's text, plus boxes by label (Ctrl+F).
+    Find,
 }
 
 pub struct Finder {
     pub scope: Scope,
     pub query: String,
     pub sel: usize,
+    /// The search hit last scrolled to while browsing the list.
+    previewed: Option<usize>,
 }
 
 pub enum Overlay {
@@ -31,6 +36,10 @@ enum Item {
     Cmd(Command),
     Box(u64),
     Page(usize),
+    /// A text search hit (index into the search's hits).
+    Hit(usize),
+    /// A line of information; never runs.
+    Info,
 }
 
 /// One row: what it does, a weak detail on the right, whether it can run.
@@ -50,10 +59,19 @@ impl App {
     pub(super) fn open_palette(&mut self, scope: Scope) {
         self.choice_open = None;
         self.assist.close_list();
+        // Search starts from the last query, its highlights back on.
+        let query = match (scope, &mut self.search) {
+            (Scope::Find, Some(s)) => {
+                s.shown = true;
+                s.query.clone()
+            }
+            _ => String::new(),
+        };
         self.overlay = Some(Overlay::Palette(Finder {
             scope,
-            query: String::new(),
+            query,
             sel: 0,
+            previewed: None,
         }));
     }
 
@@ -100,42 +118,42 @@ impl App {
                 rows.sort_by_key(|(s, _)| std::cmp::Reverse(*s));
                 rows.into_iter().map(|(_, r)| r).collect()
             }
-            Scope::Boxes => {
-                let Some(doc) = &self.doc else { return vec![] };
-                let mut rows: Vec<(i32, Row)> = self
-                    .editable_ids()
-                    .into_iter()
-                    .enumerate()
-                    .filter_map(|(n, id)| {
-                        let e = &doc.entries[doc.index_of(id)?];
-                        let title = box_name(e, n);
-                        let score = fuzzy(q, &title)?;
-                        let detail = if e.f.kind.is_toggle() {
-                            if e.f.checked {
-                                "ticked".into()
-                            } else {
-                                String::new()
-                            }
-                        } else if e.f.kind.is_password() {
-                            String::new()
-                        } else {
-                            e.f.shown_text().chars().take(40).collect()
-                        };
-                        Some((
-                            score,
-                            Row {
-                                item: Item::Box(id),
-                                title,
-                                detail: format!("{detail}   p. {}", e.f.page + 1)
-                                    .trim()
-                                    .to_string(),
-                                enabled: true,
-                            },
-                        ))
-                    })
-                    .collect();
-                rows.sort_by_key(|(s, _)| std::cmp::Reverse(*s));
-                rows.into_iter().map(|(_, r)| r).collect()
+            Scope::Boxes => self.box_rows(q),
+            Scope::Find => {
+                let mut rows = Vec::new();
+                if !q.is_empty() {
+                    // The best few boxes by label first.
+                    rows.extend(self.box_rows(q).into_iter().take(5).map(|mut r| {
+                        r.detail = format!("box \u{b7} {}", r.detail);
+                        r
+                    }));
+                }
+                if let Some(s) = self.search.as_ref().filter(|s| s.query == q) {
+                    rows.extend(s.hits.iter().enumerate().map(|(i, h)| Row {
+                        item: Item::Hit(i),
+                        title: h.snippet.clone(),
+                        detail: format!("p. {}", h.page + 1),
+                        enabled: true,
+                    }));
+                    if s.hits.len() >= super::search::MAX_HITS {
+                        rows.push(Row {
+                            item: Item::Info,
+                            title: format!("Showing the first {}", super::search::MAX_HITS),
+                            detail: String::new(),
+                            enabled: false,
+                        });
+                    }
+                }
+                let (read, n) = self.text_progress();
+                if !q.is_empty() && !rows.is_empty() && read < n {
+                    rows.push(Row {
+                        item: Item::Info,
+                        title: format!("Still reading pages\u{2026} {read} of {n}"),
+                        detail: String::new(),
+                        enabled: false,
+                    });
+                }
+                rows
             }
             Scope::Page => {
                 let n = self.doc.as_ref().map_or(0, |d| d.sizes.len());
@@ -152,7 +170,52 @@ impl App {
         }
     }
 
+    /// Boxes whose label matches `q`, best first.
+    fn box_rows(&self, q: &str) -> Vec<Row> {
+        let Some(doc) = &self.doc else { return vec![] };
+        let mut rows: Vec<(i32, Row)> = self
+            .editable_ids()
+            .into_iter()
+            .enumerate()
+            .filter_map(|(n, id)| {
+                let e = &doc.entries[doc.index_of(id)?];
+                let title = box_name(e, n);
+                let score = fuzzy(q, &title)?;
+                let detail = if e.f.kind.is_toggle() {
+                    if e.f.checked {
+                        "ticked".into()
+                    } else {
+                        String::new()
+                    }
+                } else if e.f.kind.is_password() || e.f.kind.is_signature() {
+                    String::new()
+                } else {
+                    e.f.shown_text().chars().take(40).collect()
+                };
+                Some((
+                    score,
+                    Row {
+                        item: Item::Box(id),
+                        title,
+                        detail: format!("{detail}   p. {}", e.f.page + 1)
+                            .trim()
+                            .to_string(),
+                        enabled: true,
+                    },
+                ))
+            })
+            .collect();
+        rows.sort_by_key(|(s, _)| std::cmp::Reverse(*s));
+        rows.into_iter().map(|(_, r)| r).collect()
+    }
+
     fn palette_ui(&mut self, ctx: &egui::Context) {
+        if let Some(Overlay::Palette(f)) = &self.overlay
+            && f.scope == Scope::Find
+        {
+            let q = f.query.trim().to_string();
+            self.update_search(&q);
+        }
         let Some(Overlay::Palette(f)) = &self.overlay else {
             return;
         };
@@ -201,6 +264,19 @@ impl App {
         let (placeholder, empty_text) = match scope {
             Scope::Commands => ("Type a command…", "No command matches".to_string()),
             Scope::Boxes => ("Find a box by its label…", "No box matches".to_string()),
+            Scope::Find => {
+                let (read, n) = self.text_progress();
+                let none = if query.trim().is_empty() {
+                    "Type a word to find it in the document".to_string()
+                } else if read < n {
+                    format!("Nothing yet \u{2014} still reading pages\u{2026} {read} of {n}")
+                } else if read > 0 && self.doc.as_ref().is_some_and(|d| d.text.values().all(|t| t.is_empty())) {
+                    "This document has no text to search (a scan?)".to_string()
+                } else {
+                    "Not found".to_string()
+                };
+                ("Search the document\u{2026}", none)
+            }
             Scope::Page => {
                 let n = self.doc.as_ref().map_or(0, |d| d.sizes.len());
                 ("Page number…", format!("Type a page number from 1 to {n}"))
@@ -292,22 +368,46 @@ impl App {
                     });
             });
         let backdrop = resp.backdrop_response.clicked();
+        // Browsing search hits shows each one on the page.
+        let mut preview = None;
         if let Some(Overlay::Palette(f)) = &mut self.overlay {
             if f.query != query {
                 f.query = query;
                 sel = 0;
+                ctx.request_repaint();
+            } else if let Some(Row {
+                item: Item::Hit(i), ..
+            }) = rows.get(sel)
+                && f.previewed != Some(*i)
+            {
+                f.previewed = Some(*i);
+                preview = Some(*i);
             }
             f.sel = sel;
+        }
+        if let Some(i) = preview {
+            self.show_hit(i);
         }
         if close || backdrop || run.is_some() {
             self.overlay = None;
             ctx.memory_mut(|m| m.surrender_focus(Id::unique(QUERY_ID)));
+            if scope == Scope::Find
+                && !matches!(run, Some(Item::Hit(_)))
+                && let Some(s) = &mut self.search
+            {
+                s.shown = false;
+            }
         }
         match run {
             Some(Item::Cmd(c)) => self.run(c),
             Some(Item::Box(id)) => self.focus_field(id, true, ctx),
             Some(Item::Page(p)) => self.scroll_to_page(p),
-            None => {}
+            Some(Item::Hit(i)) => {
+                self.show_hit(i);
+                let n = self.search.as_ref().map_or(0, |s| s.hits.len());
+                self.status = format!("Match {} of {n}", i + 1);
+            }
+            Some(Item::Info) | None => {}
         }
     }
 

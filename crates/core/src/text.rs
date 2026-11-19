@@ -21,9 +21,39 @@ pub struct TextRun {
     /// Left x of each char of `text` (same count as `text.chars()`), or
     /// empty when unknown.
     pub xs: Vec<f32>,
+    /// Width of each char (parallel to `xs`): up to where the next glyph
+    /// starts, or an estimate for the last one on a stretch.
+    pub ws: Vec<f32>,
 }
 
 impl TextRun {
+    /// The box of character `i`, in display space.
+    pub fn char_rect(&self, i: usize) -> Rect {
+        match (self.xs.get(i), self.ws.get(i)) {
+            (Some(&x), Some(&w)) => Rect::new(x, self.rect.y0, x + w, self.rect.y1),
+            _ => self.rect,
+        }
+    }
+
+    /// The character nearest to x (by its middle), and whether `x` lies
+    /// past that character's middle (a caret would go after it).
+    pub fn char_at(&self, x: f32) -> (usize, bool) {
+        let n = self.xs.len();
+        if n == 0 {
+            return (0, false);
+        }
+        let mut best = (0, f32::MAX);
+        for i in 0..n {
+            let r = self.char_rect(i);
+            let d = (r.x0 - x).max(x - r.x1).max(0.0);
+            if d < best.1 {
+                best = (i, d);
+            }
+        }
+        let r = self.char_rect(best.0);
+        (best.0, x > (r.x0 + r.x1) / 2.0)
+    }
+
     /// The part of the text whose characters start within `x0..x1`, trimmed.
     pub fn clip(&self, x0: f32, x1: f32) -> String {
         if self.xs.len() != self.text.chars().count() {
@@ -167,6 +197,7 @@ fn group(mut gs: Vec<G>) -> Vec<TextRun> {
                     text: g.s.clone(),
                     size: g.size,
                     xs,
+                    ws: vec![],
                 },
                 g.x,
             ));
@@ -198,7 +229,40 @@ fn finish(mut r: TextRun) -> TextRun {
         text.pop();
         xs.pop();
     }
+    r.ws = widths(&text, &mut xs, r.size);
+    if let (Some(x), Some(w)) = (xs.last(), r.ws.last()) {
+        r.rect.x1 = x + w;
+    }
     r.text = text;
     r.xs = xs;
     r
+}
+
+/// Character widths from where each glyph starts: up to the next glyph
+/// when it follows closely, else an estimate. Characters sharing one glyph
+/// (a ligature like "fi") split its width, and their x is spread to match.
+fn widths(text: &str, xs: &mut [f32], size: f32) -> Vec<f32> {
+    let est = 0.55 * size;
+    let spaces: Vec<bool> = text.chars().map(|c| c == ' ').collect();
+    let mut ws = vec![est; xs.len()];
+    let mut i = 0;
+    while i < xs.len() {
+        let mut j = i + 1;
+        while j < xs.len() && (xs[j] - xs[i]).abs() < 1e-3 {
+            j += 1;
+        }
+        let w = match xs.get(j) {
+            Some(&nx) if nx > xs[i] && nx - xs[i] < 1.6 * size => nx - xs[i],
+            _ if spaces.get(i) == Some(&true) => est * 0.5,
+            _ => est,
+        };
+        let part = w / (j - i) as f32;
+        let x0 = xs[i];
+        for k in i..j {
+            xs[k] = x0 + part * (k - i) as f32;
+            ws[k] = part;
+        }
+        i = j;
+    }
+    ws
 }

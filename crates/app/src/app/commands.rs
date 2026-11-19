@@ -40,6 +40,9 @@ pub enum Command {
     NextEmpty,
     PrevEmpty,
     JumpHints,
+    Find,
+    NextMatch,
+    PrevMatch,
     FindBox,
     ClearField,
     RemoveField,
@@ -86,7 +89,8 @@ const GO_TO_PAGE: &[KeyboardShortcut] = &[ctrl(Key::G)];
 const NEXT_EMPTY: &[KeyboardShortcut] = &[ctrl(Key::N)];
 const PREV_EMPTY: &[KeyboardShortcut] = &[ctrl_shift(Key::N)];
 const JUMP_HINTS: &[KeyboardShortcut] = &[ctrl(Key::L)];
-const FIND_BOX: &[KeyboardShortcut] = &[ctrl(Key::F)];
+const FIND: &[KeyboardShortcut] = &[ctrl(Key::F)];
+const FIND_BOX: &[KeyboardShortcut] = &[ctrl_shift(Key::F)];
 const SIGN: &[KeyboardShortcut] = &[ctrl(Key::I)];
 const REMOVE_FIELD: &[KeyboardShortcut] = &[ctrl_shift(Key::Delete)];
 const PALETTE: &[KeyboardShortcut] = &[ctrl_shift(Key::P), ctrl(Key::Space)];
@@ -120,6 +124,9 @@ impl Command {
         Command::NextEmpty,
         Command::PrevEmpty,
         Command::JumpHints,
+        Command::Find,
+        Command::NextMatch,
+        Command::PrevMatch,
         Command::FindBox,
         Command::ClearField,
         Command::RemoveField,
@@ -215,6 +222,14 @@ impl Command {
                 Icon::Sparkle,
                 JUMP_HINTS,
             ),
+            Find => (
+                "Search…",
+                "Find words in the document, and boxes by their label",
+                Icon::Search,
+                FIND,
+            ),
+            NextMatch => ("Next match", "", Icon::Search, NONE),
+            PrevMatch => ("Previous match", "", Icon::Search, NONE),
             FindBox => (
                 "Find a box…",
                 "Search the boxes by their label",
@@ -287,7 +302,8 @@ impl App {
             Redo => doc.is_some() && !self.redo.is_empty(),
             ZoomOut | ZoomIn | ActualSize | FitWidth => doc.is_some(),
             ScrollDown | ScrollUp | HalfPageDown | HalfPageUp | NextPage | PrevPage
-            | GoToPage | FindBox | JumpHints => doc.is_some(),
+            | GoToPage | Find | FindBox | JumpHints => doc.is_some(),
+            NextMatch | PrevMatch => self.search.as_ref().is_some_and(|s| !s.hits.is_empty()),
             NextEmpty | PrevEmpty => editable,
             ClearField => editable && self.focused_editable(),
             RemoveField => editable && self.focused_editable() && self.focused_added(),
@@ -375,6 +391,9 @@ impl App {
             NextEmpty => self.focus_empty(false),
             PrevEmpty => self.focus_empty(true),
             JumpHints => self.start_hints(),
+            Find => self.open_palette(super::palette::Scope::Find),
+            NextMatch => self.step_hit(false),
+            PrevMatch => self.step_hit(true),
             FindBox => self.open_palette(super::palette::Scope::Boxes),
             ClearField => {
                 if let Some(id) = self.focus.as_ref().map(|f| f.id) {

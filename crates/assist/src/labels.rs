@@ -453,6 +453,7 @@ mod tests {
                 text: text.to_string(),
                 size: 9.0,
                 xs,
+                ws: vec![],
             }
         };
         // The blank over chars `a..b` of a line.
@@ -526,6 +527,7 @@ mod tests {
             text,
             size: 8.0,
             xs,
+            ws: vec![],
         };
         assert_eq!(run.clip(8.0, 55.0), "TELEFONO:");
         assert_eq!(run.clip(55.0, 200.0), "CORREO");
