@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 #[derive(Clone, Default)]
 struct Cache {
-    /// (drawing, width bucket, height bucket) -> texture, last frame used.
-    tex: HashMap<(usize, u32, u32), (TextureHandle, u64)>,
+    /// (drawing, width, height, dark) -> texture, last frame used.
+    tex: HashMap<(usize, u32, u32, bool), (TextureHandle, u64)>,
     /// Keeps the drawings alive while their textures are cached, so a
     /// pointer key is never reused by another drawing.
     inks: HashMap<usize, Arc<Ink>>,
@@ -25,11 +25,11 @@ fn bucket(px: f32) -> u32 {
 }
 
 /// A texture of `ink` for a box of `size` screen pixels.
-pub fn texture(ctx: &egui::Context, ink: &Arc<Ink>, size: egui::Vec2) -> TextureHandle {
+pub fn texture(ctx: &egui::Context, ink: &Arc<Ink>, size: egui::Vec2, dark: bool) -> TextureHandle {
     // Only the scale is bucketed; the box keeps its exact shape.
     let h = bucket(size.y);
     let w = ((h as f32 * size.x / size.y.max(1.0)).round() as u32).clamp(1, 4096);
-    let key = (Arc::as_ptr(ink) as usize, w, h);
+    let key = (Arc::as_ptr(ink) as usize, w, h, dark);
     let frame = ctx.cumulative_frame_nr();
     let id = Id::unique("pdfr-ink-cache");
     if let Some(t) = ctx.data_mut(|d| {
@@ -41,7 +41,7 @@ pub fn texture(ctx: &egui::Context, ink: &Arc<Ink>, size: egui::Vec2) -> Texture
     }) {
         return t;
     }
-    let img = pdfr_core::signature::render(ink, key.1, key.2);
+    let img = pdfr_core::signature::render_in(ink, key.1, key.2, dark);
     let color =
         ColorImage::from_rgba_unmultiplied([img.width as usize, img.height as usize], &img.rgba);
     let tex = ctx.load_texture(format!("ink-{key:?}"), color, TextureOptions::LINEAR);
@@ -59,13 +59,20 @@ pub fn texture(ctx: &egui::Context, ink: &Arc<Ink>, size: egui::Vec2) -> Texture
     tex
 }
 
-/// Paints `ink` fitted (keeping its shape) into `rect`.
-pub fn paint(painter: &egui::Painter, ink: &Arc<Ink>, rect: egui::Rect, tint: egui::Color32) {
+/// Paints `ink` fitted (keeping its shape) into `rect`; lightened for a
+/// page shown dark when `dark`.
+pub fn paint(
+    painter: &egui::Painter,
+    ink: &Arc<Ink>,
+    rect: egui::Rect,
+    tint: egui::Color32,
+    dark: bool,
+) {
     if ink.is_empty() || rect.width() < 1.0 || rect.height() < 1.0 {
         return;
     }
     let ppp = painter.ctx().pixels_per_point();
-    let tex = texture(painter.ctx(), ink, rect.size() * ppp);
+    let tex = texture(painter.ctx(), ink, rect.size() * ppp, dark);
     painter.image(
         tex.id(),
         rect,

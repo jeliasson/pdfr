@@ -68,6 +68,7 @@ impl App {
         });
         let pal = self.palette.clone();
         let focus_id = self.focus.as_ref().map(|f| f.id);
+        let ink = self.page_ink();
 
         // Pages.
         let doc = self.doc.as_ref().unwrap();
@@ -150,16 +151,16 @@ impl App {
                 // Hovering an empty box previews the mark a click would make.
                 FieldKind::Checkbox { .. } => {
                     if f.checked {
-                        draw::check(&painter, &xf, f, Color32::BLACK);
+                        draw::check(&painter, &xf, f, ink);
                     } else if hover_id == Some(e.id) && editable_doc && !f.read_only {
-                        draw::check(&painter, &xf, f, Color32::from_black_alpha(90));
+                        draw::check(&painter, &xf, f, ink.gamma_multiply(0.35));
                     }
                 }
                 FieldKind::Radio { .. } => {
                     if f.checked {
-                        draw::radio_dot(&painter, &xf, f, Color32::BLACK);
+                        draw::radio_dot(&painter, &xf, f, ink);
                     } else if hover_id == Some(e.id) && editable_doc && !f.read_only {
-                        draw::radio_dot(&painter, &xf, f, Color32::from_black_alpha(90));
+                        draw::radio_dot(&painter, &xf, f, ink.gamma_multiply(0.35));
                     }
                 }
                 _ => {
@@ -172,7 +173,7 @@ impl App {
                         }
                     }
                     let pclip = painter.with_clip_rect(r.expand(2.0).intersect(full));
-                    draw::text(&pclip, &xf, &l, Color32::BLACK);
+                    draw::text(&pclip, &xf, &l, ink);
                     if focused {
                         let fo = self.focus.as_ref().unwrap();
                         // Browsing alternatives previews the highlighted one.
@@ -230,7 +231,7 @@ impl App {
             let (r, v) = self.date_rect_at(x, y);
             let mut f = Field::new_text(page, r, TextMode::Single, Origin::Manual);
             f.font_size = Some(11.0);
-            draw::text(&painter, &xf, &layout(&f, &v), Color32::from_black_alpha(120));
+            draw::text(&painter, &xf, &layout(&f, &v), ink.gamma_multiply(0.5));
         }
 
         // The signature being placed follows the pointer.
@@ -244,7 +245,7 @@ impl App {
                 zoom: self.zoom,
             }
             .rect(&pr);
-            crate::ink::paint(&painter, &ink, r, Color32::from_white_alpha(170));
+            crate::ink::paint(&painter, &ink, r, Color32::from_white_alpha(170), self.dark_pages());
             painter.rect_stroke(
                 r.expand(2.0),
                 2.0,

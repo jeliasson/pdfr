@@ -22,7 +22,27 @@ pub struct Image {
     pub rgba: Vec<u8>,
 }
 
+/// Darkest and lightest grey of a page shown dark: soft, not pure black
+/// and white.
+pub const DARK_PAPER: u8 = 28;
+pub const DARK_INK: u8 = 226;
+
 impl Image {
+    /// Swaps light and dark but keeps colours' hue and saturation (HSL
+    /// lightness L becomes 1 − L), on a soft grey range: white paper turns
+    /// dark grey, black text light grey, a blue stamp stays blue.
+    pub fn invert_lightness(&mut self) {
+        let (lo, hi) = (DARK_PAPER as f32, DARK_INK as f32);
+        for p in self.rgba.as_chunks_mut::<4>().0 {
+            let max = p[0].max(p[1]).max(p[2]) as i32;
+            let min = p[0].min(p[1]).min(p[2]) as i32;
+            for c in &mut p[..3] {
+                let v = (*c as i32 + 255 - max - min).clamp(0, 255) as f32;
+                *c = (lo + v * (hi - lo) / 255.0).round() as u8;
+            }
+        }
+    }
+
     /// Grayscale copy (luma), one byte per pixel.
     pub fn to_gray(&self) -> Vec<u8> {
         self.rgba
@@ -74,5 +94,24 @@ pub fn render_page<'a>(page: &'a Page<'a>, cache: &RenderCache<'a>, scale: f32) 
         width: pix.width() as u32,
         height: pix.height() as u32,
         rgba: pix.data_as_u8_slice().to_vec(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dark_pages_keep_hue() {
+        let mut img = Image {
+            width: 3,
+            height: 1,
+            rgba: vec![255, 255, 255, 255, 0, 0, 0, 255, 30, 60, 200, 255],
+        };
+        img.invert_lightness();
+        assert_eq!(&img.rgba[0..3], &[DARK_PAPER; 3], "white paper turns dark");
+        assert_eq!(&img.rgba[4..7], &[DARK_INK; 3], "black text turns light");
+        let b = &img.rgba[8..11];
+        assert!(b[2] > b[0] && b[2] > b[1], "blue stays blue: {b:?}");
     }
 }

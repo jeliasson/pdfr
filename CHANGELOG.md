@@ -49,6 +49,9 @@ version's section into its GitHub release notes.
 - Initials: Ctrl+Shift+I draws or types them like a signature. Right-click
   a signature or initials → "Put on every page" for contracts that ask
   for initials on each page.
+- Dark pages (Ctrl+M, or Settings → General): pages are shown light on
+  dark, with colours kept recognisable. Screen only: saving and printing
+  are unchanged.
 - Password-protected PDFs open: pdfr asks for the password (and never keeps
   it). The saved copy is not password-protected, and pdfr says so when
   saving.

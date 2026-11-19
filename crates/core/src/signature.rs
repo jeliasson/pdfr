@@ -464,6 +464,11 @@ pub fn appearance(ink: &Ink, w: f32, h: f32) -> String {
 /// background, drawn by the same renderer as the pages from the same content
 /// stream that is saved, so the screen shows exactly what is written.
 pub fn render(ink: &Ink, w: u32, h: u32) -> Image {
+    render_in(ink, w, h, false)
+}
+
+/// [`render`], with the ink lightened for a page shown dark when `dark`.
+pub fn render_in(ink: &Ink, w: u32, h: u32, dark: bool) -> Image {
     let (w, h) = (w.clamp(1, 4096), h.clamp(1, 4096));
     let content = appearance(ink, w as f32, h as f32);
     let mut d = Document::with_version("1.7");
@@ -508,8 +513,17 @@ pub fn render(ink: &Ink, w: u32, h: u32) -> Image {
         return img;
     }
     // On white, how dark a pixel is says how much ink covers it.
-    let [cr, cg, cb] = INK_RGB.map(|c| (c * 255.0).round() as u8);
+    let [mut cr, mut cg, mut cb] = INK_RGB.map(|c| (c * 255.0).round() as u8);
     let min = cr.min(cg).min(cb) as f32;
+    if dark {
+        let mut px = Image {
+            width: 1,
+            height: 1,
+            rgba: vec![cr, cg, cb, 255],
+        };
+        px.invert_lightness();
+        [cr, cg, cb] = [px.rgba[0], px.rgba[1], px.rgba[2]];
+    }
     for (o, p) in img
         .rgba
         .as_chunks_mut::<4>()

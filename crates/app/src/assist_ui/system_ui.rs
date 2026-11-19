@@ -275,6 +275,21 @@ impl AssistState {
         if !install.checks_for_updates() {
             note(ui, c, &format!("pdfr {}.", updates::current()));
         }
+        card(ui, c, Some("Pages"), |ui| {
+            let mut on = self.a.store.settings.dark_pages;
+            setting_row(
+                ui,
+                c,
+                "Dark pages",
+                "Show pages light on dark, for reading at night (Ctrl+M). Saving and printing are unchanged.",
+                |ui| {
+                    if toggle(ui, c, &mut on).changed() {
+                        self.a.store.settings.dark_pages = on;
+                        changed = true;
+                    }
+                },
+            );
+        });
         card(ui, c, Some("Recent files"), |ui| {
             let st = &mut self.a.store.settings;
             let mut on = st.remember_recent;

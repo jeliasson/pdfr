@@ -244,6 +244,7 @@ into a box is ever taken as a command.
 | Undo / redo | Ctrl+Z / Ctrl+Shift+Z |
 | Zoom in / out / 100% / fit width / fit page | Ctrl+= / Ctrl+− / Ctrl+0 / Ctrl+2 / Ctrl+3 (or Ctrl+scroll) |
 | Turn this page / every page | Ctrl+R / Ctrl+Shift+R |
+| Dark pages | Ctrl+M |
 | Settings | Ctrl+, |
 
 ---

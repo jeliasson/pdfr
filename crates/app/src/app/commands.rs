@@ -27,6 +27,7 @@ pub enum Command {
     ActualSize,
     FitWidth,
     FitPage,
+    DarkPages,
     RotatePage,
     RotatePageBack,
     RotateAll,
@@ -91,6 +92,7 @@ const ACTUAL_SIZE: &[KeyboardShortcut] = &[ctrl(Key::Num0), ctrl(Key::Num1)];
 const FIT_WIDTH: &[KeyboardShortcut] = &[ctrl(Key::Num2)];
 const SIDEBAR: &[KeyboardShortcut] = &[ctrl(Key::B)];
 const FIT_PAGE: &[KeyboardShortcut] = &[ctrl(Key::Num3)];
+const DARK_PAGES: &[KeyboardShortcut] = &[ctrl(Key::M)];
 const ROTATE: &[KeyboardShortcut] = &[ctrl(Key::R)];
 const ROTATE_ALL: &[KeyboardShortcut] = &[ctrl_shift(Key::R)];
 const SETTINGS: &[KeyboardShortcut] = &[ctrl(Key::Comma)];
@@ -130,6 +132,7 @@ impl Command {
         Command::ActualSize,
         Command::FitWidth,
         Command::FitPage,
+        Command::DarkPages,
         Command::RotatePage,
         Command::RotatePageBack,
         Command::RotateAll,
@@ -207,6 +210,12 @@ impl Command {
                 "Zoom so the whole page fits in the window",
                 Icon::FitPage,
                 FIT_PAGE,
+            ),
+            DarkPages => (
+                "Dark pages",
+                "Show pages light on dark (screen only; saving and printing are unchanged)",
+                Icon::Moon,
+                DARK_PAGES,
             ),
             RotatePage => (
                 "Turn page clockwise",
@@ -393,6 +402,7 @@ impl App {
             Undo => doc.is_some() && !self.undo.is_empty(),
             Redo => doc.is_some() && !self.redo.is_empty(),
             ZoomOut | ZoomIn | ActualSize | FitWidth | FitPage | Sidebar => doc.is_some(),
+            DarkPages => true,
             RotatePage | RotatePageBack | RotateAll => editable,
             ScrollDown | ScrollUp | HalfPageDown | HalfPageUp | NextPage | PrevPage
             | GoToPage | Find | FindBox | JumpHints => doc.is_some(),
@@ -423,6 +433,7 @@ impl App {
             Command::TodaysDate => self.tool == Tool::PlaceDate,
             Command::Settings => self.assist.settings_open,
             Command::Sidebar => self.sidebar_open(),
+            Command::DarkPages => self.dark_pages(),
             Command::ToggleRemember => self.focused_entry().is_some_and(|e| e.no_memory),
             _ => false,
         }
@@ -473,6 +484,10 @@ impl App {
                 }
             }
             FitPage => self.fit_page(),
+            DarkPages => {
+                let on = !self.dark_pages();
+                self.set_dark_pages(on);
+            }
             RotatePage | RotatePageBack => {
                 let p = self.current_page();
                 self.rotate_pages(vec![p], if c == RotatePage { 1 } else { -1 });

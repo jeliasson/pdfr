@@ -6,7 +6,48 @@ use super::*;
 impl App {
     /// The colour of paper under the page images.
     pub(super) fn page_fill(&self) -> Color32 {
-        Color32::WHITE
+        if self.dark_pages() {
+            Color32::from_gray(pdfr_core::render::DARK_PAPER)
+        } else {
+            Color32::WHITE
+        }
+    }
+
+    /// Colour of what is written on the page (typed text, ticks).
+    pub(super) fn page_ink(&self) -> Color32 {
+        if self.dark_pages() {
+            Color32::from_gray(pdfr_core::render::DARK_INK)
+        } else {
+            Color32::BLACK
+        }
+    }
+
+    pub(super) fn dark_pages(&self) -> bool {
+        self.assist.a.store.settings.dark_pages
+    }
+
+    /// Switches pages between light and dark (screen only).
+    pub(super) fn set_dark_pages(&mut self, on: bool) {
+        self.assist.a.store.settings.dark_pages = on;
+        self.assist.a.save();
+    }
+
+    /// Makes the page images follow the light/dark setting (it can also
+    /// change in Settings).
+    pub(super) fn follow_dark_pages(&mut self) {
+        let on = self.dark_pages();
+        if self.dark_applied == on {
+            return;
+        }
+        self.dark_applied = on;
+        let generation = self.worker.set_dark(on);
+        if let Some(doc) = &mut self.doc {
+            doc.generation = generation;
+            doc.tex.clear();
+            doc.thumbs.clear();
+            doc.pending.clear();
+        }
+        self.thumbs_asked.clear();
     }
 
     pub(super) fn max_page_width(&self) -> f32 {

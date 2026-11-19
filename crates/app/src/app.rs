@@ -212,6 +212,8 @@ pub struct App {
     outline_open: HashMap<usize, bool>,
     /// Where to return to in a reopened file: page, offset, zoom.
     restore: Option<(usize, f32, f32)>,
+    /// Whether the workers draw pages dark.
+    dark_applied: bool,
     pub palette: Palette,
     omarchy_active: bool,
     theme_rx: Receiver<Option<Palette>>,
@@ -309,6 +311,7 @@ impl App {
             thumbs_asked: vec![],
             outline_open: HashMap::new(),
             restore: None,
+            dark_applied: false,
             palette,
             omarchy_active,
             theme_rx,
@@ -344,6 +347,7 @@ impl App {
         if let Some(s) = &cli.settings {
             app.assist.open_settings(s);
         }
+        app.follow_dark_pages();
         if let Some(p) = cli.file {
             app.open(p);
         }
@@ -351,6 +355,7 @@ impl App {
     }
 
     fn poll(&mut self, ctx: &egui::Context) {
+        self.follow_dark_pages();
         self.poll_dialog();
         for p in crate::system::take_opened() {
             self.open_from_system(p);

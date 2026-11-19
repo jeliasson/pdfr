@@ -555,7 +555,7 @@ impl AssistState {
                 ui.horizontal(|ui| {
                     let (r, _) = ui.allocate_exact_size(vec2(120.0, 40.0), Sense::hover());
                     ui.painter().rect_filled(r, 4.0, Color32::WHITE);
-                    crate::ink::paint(ui.painter(), &ink, r.shrink(4.0), Color32::WHITE);
+                    crate::ink::paint(ui.painter(), &ink, r.shrink(4.0), Color32::WHITE, false);
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 1.0;
                         let what = if s.initials { "Initials" } else { "Signature" };

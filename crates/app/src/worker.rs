@@ -61,6 +61,8 @@ struct State {
     text: VecDeque<usize>,
     /// Sidebar thumbnails wanted, most recent request first.
     thumbs: VecDeque<usize>,
+    /// Pages are shown dark (lightness inverted).
+    dark: bool,
     quit: bool,
 }
 
@@ -156,6 +158,18 @@ impl Worker {
         self.shared.cv.notify_one();
     }
 
+    /// Shows pages dark (or light again). Images in the making are dropped:
+    /// returns the new generation number. Detection carries on.
+    pub fn set_dark(&self, dark: bool) -> u64 {
+        let mut s = self.shared.state.lock().unwrap();
+        s.dark = dark;
+        s.generation += 1;
+        s.renders.clear();
+        s.thumbs.clear();
+        self.shared.cv.notify_all();
+        s.generation
+    }
+
     /// Asks for sidebar thumbnails of these pages (only these: older
     /// requests are dropped, as they scrolled out of the sidebar).
     pub fn request_thumbs(&self, pages: &[usize]) {
@@ -209,6 +223,10 @@ fn run(shared: Arc<Shared>, tx: Sender<Msg>, ctx: egui::Context) {
         };
         serve(&shared, &tx, &ctx, generation, &bytes);
     }
+}
+
+fn dark(shared: &Shared) -> bool {
+    shared.state.lock().map(|s| s.dark).unwrap_or(false)
 }
 
 fn next_job(shared: &Shared, generation: u64) -> Option<Job> {
@@ -289,13 +307,16 @@ fn serve(
                 let (w, h) = page_geom(p).display_size();
                 let scale = requested.min(MAX_TEX_SIDE / w.max(h)).max(0.05);
                 let res = catch_unwind(AssertUnwindSafe(|| render_page(p, &cache, scale)));
-                let Ok(img) = res else {
+                let Ok(mut img) = res else {
                     cache = RenderCache::new();
                     if !failed(tx) {
                         return;
                     }
                     continue;
                 };
+                if dark(shared) {
+                    img.invert_lightness();
+                }
                 let image = ColorImage::from_rgba_premultiplied(
                     [img.width as usize, img.height as usize],
                     &img.rgba,
@@ -319,7 +340,11 @@ fn serve(
                 let tex = pages.get(page).and_then(|p| {
                     let (w, h) = page_geom(p).display_size();
                     let scale = (THUMB_PX / w.max(1.0)).min(THUMB_PX * 2.0 / h.max(1.0));
-                    let img = catch_unwind(AssertUnwindSafe(|| render_page(p, &cache, scale))).ok()?;
+                    let mut img =
+                        catch_unwind(AssertUnwindSafe(|| render_page(p, &cache, scale))).ok()?;
+                    if dark(shared) {
+                        img.invert_lightness();
+                    }
                     let image = ColorImage::from_rgba_premultiplied(
                         [img.width as usize, img.height as usize],
                         &img.rgba,

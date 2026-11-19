@@ -52,6 +52,9 @@ pub struct Settings {
     /// The page sidebar is shown.
     #[serde(default)]
     pub sidebar: bool,
+    /// Pages are shown dark (screen only).
+    #[serde(default)]
+    pub dark_pages: bool,
     /// Keep a list of recently opened files and where they were left.
     #[serde(default = "yes")]
     pub remember_recent: bool,
@@ -107,6 +110,7 @@ impl Default for Settings {
             dismissed_version: String::new(),
             lock_signatures: false,
             sidebar: false,
+            dark_pages: false,
             remember_recent: true,
             recent: vec![],
         }

@@ -35,6 +35,7 @@ pub enum Icon {
     Sidebar,
     FitPage,
     Rotate,
+    Moon,
 }
 
 /// Maps the 24×24 design grid into a rectangle.
@@ -217,6 +218,22 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 (17.5, 13.0),
                 (20.0, 12.0),
             ]);
+        }
+        Icon::Moon => {
+            // A crescent: an outer arc and an inner one.
+            let arc = |cx: f32, cy: f32, r: f32, a0: f32, a1: f32| -> Vec<(f32, f32)> {
+                (0..=16)
+                    .map(|i| {
+                        let a = a0 + (a1 - a0) * i as f32 / 16.0;
+                        (cx + r * a.cos(), cy + r * a.sin())
+                    })
+                    .collect()
+            };
+            let pi = std::f32::consts::PI;
+            let mut pts = arc(12.0, 12.0, 8.0, -0.35 * pi, 1.35 * pi);
+            let mut inner = arc(15.5, 9.5, 6.5, 1.12 * pi, -0.12 * pi);
+            pts.append(&mut inner);
+            closed(&pts);
         }
         Icon::FitPage => {
             // A page with corner marks around it.

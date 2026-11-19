@@ -1059,3 +1059,22 @@ fn todays_date_and_signing_every_page() {
     ctrl(&mut h, Key::Z);
     assert_eq!(signatures(&h).len(), 1);
 }
+
+#[test]
+fn dark_pages_redraw_and_stay_on() {
+    let dir = data_dir("dark", None);
+    let mut h = harness("flat_form.pdf", dir.clone());
+    ctrl(&mut h, Key::M);
+    assert!(h.state().dark_pages() && h.state().dark_applied);
+    assert_eq!(h.state().page_fill(), Color32::from_gray(pdfr_core::render::DARK_PAPER));
+    // The page is drawn again (dark).
+    let start = Instant::now();
+    while !h.state().doc.as_ref().unwrap().tex.contains_key(&0) {
+        h.run_steps(1);
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(start.elapsed() < Duration::from_secs(10), "page not redrawn");
+    }
+    assert!(Store::load(&dir.join("memory.json")).settings.dark_pages, "remembered");
+    ctrl(&mut h, Key::M);
+    assert!(!h.state().dark_pages());
+}

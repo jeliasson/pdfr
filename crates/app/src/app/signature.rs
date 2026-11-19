@@ -409,7 +409,7 @@ impl App {
         let FieldKind::Signature { ink, lock } = &f.kind else {
             return;
         };
-        crate::ink::paint(painter, ink, r, Color32::WHITE);
+        crate::ink::paint(painter, ink, r, Color32::WHITE, self.dark_pages());
         if selected || hovered {
             let c = if selected {
                 self.palette.accent
@@ -482,7 +482,7 @@ impl App {
                             let fill = if resp.hovered() { c.hover } else { c.card };
                             p.rect_filled(r, 6.0, fill);
                             p.rect_filled(r.shrink(4.0), 4.0, Color32::WHITE);
-                            crate::ink::paint(p, ink, r.shrink(8.0), Color32::WHITE);
+                            crate::ink::paint(p, ink, r.shrink(8.0), Color32::WHITE, false);
                             let who = person
                                 .and_then(|pid| people.iter().find(|(i, _)| *i == pid))
                                 .map(|(_, n)| n.clone());
@@ -751,7 +751,7 @@ fn type_pad(ui: &mut egui::Ui, dlg: &mut SignDialog, c: &Colors) {
     p.rect_filled(r, 6.0, Color32::WHITE);
     p.rect_stroke(r, 6.0, Stroke::new(1.0, c.border), egui::StrokeKind::Inside);
     if let Some(ink) = typed_ink(dlg) {
-        crate::ink::paint(&p, &ink, r.shrink(14.0), Color32::WHITE);
+        crate::ink::paint(&p, &ink, r.shrink(14.0), Color32::WHITE, false);
     }
 }
 
