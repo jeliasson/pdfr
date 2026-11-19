@@ -209,6 +209,8 @@ You can also turn it on later in **Settings → General**.
   **✨** shows suggestions.
 - **Missed a box?** Use the toolbar to add a text box (drag) or a checkbox
   (click) yourself. Right-click a box pdfr added by mistake to remove it.
+- **Copy text from the PDF:** drag over it (or double-click a word), then
+  press **Ctrl+C**.
 - **Undo anything** with **Ctrl+Z**.
 
 ### Keyboard shortcuts

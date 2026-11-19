@@ -191,6 +191,10 @@ pub struct App {
     sig_drag: Option<signature::SigDrag>,
     /// The text search (Ctrl+F): query, hits, highlights.
     search: Option<search::Search>,
+    /// Page text selected with the mouse.
+    text_sel: Option<select::TextSel>,
+    /// The right-click menu of the page (not of a box) is open.
+    page_menu_open: bool,
     pub palette: Palette,
     omarchy_active: bool,
     theme_rx: Receiver<Option<Palette>>,
@@ -278,6 +282,8 @@ impl App {
             placing_initials: false,
             sig_drag: None,
             search: None,
+            text_sel: None,
+            page_menu_open: false,
             palette,
             omarchy_active,
             theme_rx,
@@ -644,6 +650,7 @@ mod palette;
 mod print;
 mod record;
 mod search;
+mod select;
 mod signature;
 mod toolbar;
 mod view;

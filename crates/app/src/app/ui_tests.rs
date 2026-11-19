@@ -34,6 +34,8 @@ fn harness(file: &str, dir: PathBuf) -> Harness<'static, App> {
     };
     let mut h = Harness::builder()
         .with_size(egui::vec2(1000.0, 1100.0))
+        // Frames as on screen, so two quick clicks are a double-click.
+        .with_step_dt(1.0 / 60.0)
         .build_eframe(move |cc| App::new(cc, cli));
     // Wait for the document and detection (background threads).
     let start = Instant::now();
@@ -827,4 +829,27 @@ fn ctrl_f_searches_the_text_and_remembers_the_query() {
     let d = h.state().doc.as_ref().unwrap();
     let label = d.entries[d.index_of(id).unwrap()].f.label.clone();
     assert_eq!(label.as_deref(), Some("Occupation"));
+}
+
+#[test]
+fn select_page_text_and_copy() {
+    let mut h = harness("flat_form.pdf", data_dir("select", None));
+    // Drag along the "Full name" label (it starts at x 50, baseline 184).
+    let a = screen(&h, 45.0, 180.0);
+    let b = screen(&h, 140.0, 180.0);
+    drag(&mut h, a, b);
+    assert_eq!(h.state().selection_text().as_deref(), Some("Full name"));
+    assert!(h.state().focus.is_none(), "selecting never focuses a box");
+    ctrl(&mut h, Key::C);
+    assert_eq!(h.state().status, "Copied 9 characters.");
+    // Double-click a word; a click elsewhere drops the selection.
+    let p = screen(&h, 60.0, 180.0);
+    click(&mut h, p);
+    click(&mut h, p);
+    assert_eq!(h.state().selection_text().as_deref(), Some("Full"));
+    click_doc(&mut h, 30.0, 400.0);
+    assert!(h.state().text_sel.is_none());
+    // Dragging that starts on a box still edits the box.
+    click_doc(&mut h, 300.0, 178.0);
+    assert!(focused_id(&h).is_some());
 }

@@ -94,6 +94,7 @@ impl App {
             self.draw_sign_spots(&painter, &rects);
         }
         self.draw_hits(&painter, &rects);
+        self.draw_text_selection(&painter, &rects);
 
         // Fields.
         let editable_doc = doc.form.editable();
@@ -281,8 +282,13 @@ impl App {
             && self.sign_target_at(&rects, p).is_some_and(|t| !t.on_line)
         {
             ctx.set_cursor_icon(CursorIcon::PointingHand);
+        } else if self.text_sel.as_ref().is_some_and(|s| s.dragging)
+            || pointer.is_some_and(|p| self.over_text(&rects, p))
+        {
+            ctx.set_cursor_icon(CursorIcon::Text);
         }
         self.context_menu(&resp);
+        self.page_menu(&resp, &ctx);
         self.choice_popup(&ctx, &rects);
         self.assist_list_popup(&ctx, &rects);
 
@@ -313,11 +319,18 @@ impl App {
                 dy
             });
             self.scroll.y += dy;
-            // Esc puts down an add-box tool, else hides search highlights.
+            // Copying selected page text (egui turns Ctrl+C into a Copy event).
+            if self.text_sel.is_some() && ctx.input(|i| i.events.contains(&Event::Copy)) {
+                self.copy_selection(&ctx);
+            }
+            // Esc puts down an add-box tool, else drops the selection, else
+            // hides search highlights.
             if ctx.input(|i| i.key_pressed(Key::Escape)) {
                 if self.tool != Tool::None {
                     self.tool = Tool::None;
                     self.placing = None;
+                } else if self.text_sel.is_some() {
+                    self.text_sel = None;
                 } else if let Some(s) = self.search.as_mut().filter(|s| s.shown) {
                     s.shown = false;
                 }
@@ -537,8 +550,12 @@ impl App {
         if self.sig_mouse(resp, rects, p) {
             return;
         }
+        if self.select_mouse(resp, rects, p, ctx) {
+            return;
+        }
         if resp.secondary_clicked() {
             self.ctx_field = self.field_at(rects, p).map(|h| h.0);
+            self.page_menu_open = self.ctx_field.is_none();
         }
         if clicked
             || double_clicked
@@ -608,6 +625,7 @@ impl App {
                 }
                 None => {
                     if clicked {
+                        self.text_sel = None;
                         self.focus = None;
                         self.choice_open = None;
                         self.assist.close_list();

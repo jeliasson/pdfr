@@ -40,6 +40,7 @@ pub enum Command {
     NextEmpty,
     PrevEmpty,
     JumpHints,
+    Copy,
     Find,
     NextMatch,
     PrevMatch,
@@ -90,6 +91,7 @@ const NEXT_EMPTY: &[KeyboardShortcut] = &[ctrl(Key::N)];
 const PREV_EMPTY: &[KeyboardShortcut] = &[ctrl_shift(Key::N)];
 const JUMP_HINTS: &[KeyboardShortcut] = &[ctrl(Key::L)];
 const FIND: &[KeyboardShortcut] = &[ctrl(Key::F)];
+const COPY: &[KeyboardShortcut] = &[ctrl(Key::C)];
 const FIND_BOX: &[KeyboardShortcut] = &[ctrl_shift(Key::F)];
 const SIGN: &[KeyboardShortcut] = &[ctrl(Key::I)];
 const REMOVE_FIELD: &[KeyboardShortcut] = &[ctrl_shift(Key::Delete)];
@@ -124,6 +126,7 @@ impl Command {
         Command::NextEmpty,
         Command::PrevEmpty,
         Command::JumpHints,
+        Command::Copy,
         Command::Find,
         Command::NextMatch,
         Command::PrevMatch,
@@ -222,6 +225,12 @@ impl Command {
                 Icon::Sparkle,
                 JUMP_HINTS,
             ),
+            Copy => (
+                "Copy",
+                "Copy the text selected on the page (drag over it, or double-click a word)",
+                Icon::List,
+                COPY,
+            ),
             Find => (
                 "Search…",
                 "Find words in the document, and boxes by their label",
@@ -303,6 +312,7 @@ impl App {
             ZoomOut | ZoomIn | ActualSize | FitWidth => doc.is_some(),
             ScrollDown | ScrollUp | HalfPageDown | HalfPageUp | NextPage | PrevPage
             | GoToPage | Find | FindBox | JumpHints => doc.is_some(),
+            Copy => self.focus.is_none() && self.text_sel.is_some(),
             NextMatch | PrevMatch => self.search.as_ref().is_some_and(|s| !s.hits.is_empty()),
             NextEmpty | PrevEmpty => editable,
             ClearField => editable && self.focused_editable(),
@@ -391,6 +401,10 @@ impl App {
             NextEmpty => self.focus_empty(false),
             PrevEmpty => self.focus_empty(true),
             JumpHints => self.start_hints(),
+            Copy => {
+                let ctx = self.egui_ctx.clone();
+                self.copy_selection(&ctx);
+            }
             Find => self.open_palette(super::palette::Scope::Find),
             NextMatch => self.step_hit(false),
             PrevMatch => self.step_hit(true),

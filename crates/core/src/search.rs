@@ -7,7 +7,7 @@
 //! hyphenated across a line break is found whole.
 
 use crate::geom::Rect;
-use crate::text::TextRun;
+use crate::text::{TextRun, reading_order};
 
 /// One place a query was found.
 #[derive(Clone, Debug, PartialEq)]
@@ -24,22 +24,6 @@ pub struct Hit {
 struct PageText {
     chars: Vec<char>,
     from: Vec<Option<(usize, usize)>>,
-}
-
-/// Phrases in reading order: by line, then left to right.
-fn reading_order(runs: &[TextRun]) -> Vec<usize> {
-    let mut idx: Vec<usize> = (0..runs.len()).collect();
-    idx.sort_by(|&a, &b| {
-        let (ra, rb) = (&runs[a], &runs[b]);
-        let same_line =
-            (ra.rect.y1 - rb.rect.y1).abs() < 0.3 * ra.size.max(rb.size).max(1.0);
-        if same_line {
-            ra.rect.x0.total_cmp(&rb.rect.x0)
-        } else {
-            ra.rect.y1.total_cmp(&rb.rect.y1)
-        }
-    });
-    idx
 }
 
 fn page_text(runs: &[TextRun]) -> PageText {

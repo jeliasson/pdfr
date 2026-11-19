@@ -266,3 +266,169 @@ fn widths(text: &str, xs: &mut [f32], size: f32) -> Vec<f32> {
     }
     ws
 }
+
+/// A caret position in a page's text: before character `ch` of phrase
+/// `run` (`ch` may equal the phrase's length: after its last character).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextPos {
+    pub run: usize,
+    pub ch: usize,
+}
+
+/// Whether two phrases sit on one line.
+fn same_line(a: &TextRun, b: &TextRun) -> bool {
+    (a.rect.y1 - b.rect.y1).abs() < 0.3 * a.size.max(b.size).max(1.0)
+}
+
+/// Phrase indices in reading order: by line, then left to right.
+pub fn reading_order(runs: &[TextRun]) -> Vec<usize> {
+    let mut idx: Vec<usize> = (0..runs.len()).collect();
+    idx.sort_by(|&a, &b| {
+        let (ra, rb) = (&runs[a], &runs[b]);
+        if same_line(ra, rb) {
+            ra.rect.x0.total_cmp(&rb.rect.x0)
+        } else {
+            ra.rect.y1.total_cmp(&rb.rect.y1)
+        }
+    });
+    idx
+}
+
+/// The caret position nearest to a point (display space), if the page has
+/// any text. Lines count more than columns, so dragging along a line
+/// stays on it.
+pub fn pos_at(runs: &[TextRun], x: f32, y: f32) -> Option<TextPos> {
+    let (run, _) = runs
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| !r.xs.is_empty())
+        .map(|(i, r)| {
+            let dy = (r.rect.y0 - y).max(y - r.rect.y1).max(0.0);
+            let dx = (r.rect.x0 - x).max(x - r.rect.x1).max(0.0);
+            (i, dy * 4.0 + dx)
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))?;
+    let (ch, after) = runs[run].char_at(x);
+    Some(TextPos {
+        run,
+        ch: ch + after as usize,
+    })
+}
+
+/// The selection between two caret positions as `(phrase, from, to)`
+/// character ranges, in reading order.
+pub fn selection(runs: &[TextRun], a: TextPos, b: TextPos) -> Vec<(usize, usize, usize)> {
+    let order = reading_order(runs);
+    let rank = |p: TextPos| order.iter().position(|&r| r == p.run).unwrap_or(0);
+    let (s, e) = if (rank(a), a.ch) <= (rank(b), b.ch) {
+        (a, b)
+    } else {
+        (b, a)
+    };
+    let (rs, re) = (rank(s), rank(e));
+    let mut out = Vec::new();
+    for (k, &ri) in order.iter().enumerate().take(re + 1).skip(rs) {
+        let n = runs[ri].xs.len();
+        let from = if k == rs { s.ch.min(n) } else { 0 };
+        let to = if k == re { e.ch.min(n) } else { n };
+        if to > from {
+            out.push((ri, from, to));
+        }
+    }
+    out
+}
+
+/// The text of a selection: phrases on one line joined with a space,
+/// lines with a line break.
+pub fn selected_text(runs: &[TextRun], sel: &[(usize, usize, usize)]) -> String {
+    let mut out = String::new();
+    let mut prev: Option<usize> = None;
+    for &(ri, from, to) in sel {
+        if let Some(p) = prev {
+            out.push(if same_line(&runs[p], &runs[ri]) {
+                ' '
+            } else {
+                '\n'
+            });
+        }
+        out.extend(runs[ri].text.chars().skip(from).take(to - from));
+        prev = Some(ri);
+    }
+    out
+}
+
+/// The word around character `ch` of phrase `run`, as a caret range.
+pub fn word_at(runs: &[TextRun], run: usize, ch: usize) -> (TextPos, TextPos) {
+    let chars: Vec<char> = runs[run].text.chars().collect();
+    let ch = ch.min(chars.len().saturating_sub(1));
+    let word = |c: char| c.is_alphanumeric() || matches!(c, '@' | '.' | '-' | '_' | '/');
+    let (mut a, mut b) = (ch, ch + 1);
+    if chars.get(ch).is_some_and(|c| word(*c)) {
+        while a > 0 && word(chars[a - 1]) {
+            a -= 1;
+        }
+        while b < chars.len() && word(chars[b]) {
+            b += 1;
+        }
+        // A sentence's full stop is not part of the word.
+        while b > a + 1 && matches!(chars[b - 1], '.' | '-') {
+            b -= 1;
+        }
+    }
+    (TextPos { run, ch: a }, TextPos { run, ch: b })
+}
+
+/// The whole line (every phrase on it) around phrase `run`.
+pub fn line_at(runs: &[TextRun], run: usize) -> (TextPos, TextPos) {
+    let on_line: Vec<usize> = reading_order(runs)
+        .into_iter()
+        .filter(|&r| same_line(&runs[r], &runs[run]))
+        .collect();
+    let first = *on_line.first().unwrap_or(&run);
+    let last = *on_line.last().unwrap_or(&run);
+    (
+        TextPos { run: first, ch: 0 },
+        TextPos {
+            run: last,
+            ch: runs[last].xs.len(),
+        },
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run(text: &str, x: f32, y: f32) -> TextRun {
+        let mut xs: Vec<f32> = (0..text.chars().count()).map(|i| x + i as f32 * 5.0).collect();
+        let ws = widths(text, &mut xs, 10.0);
+        TextRun {
+            rect: Rect::new(x, y - 8.0, x + xs.len() as f32 * 5.0, y + 2.0),
+            text: text.into(),
+            size: 10.0,
+            xs,
+            ws,
+        }
+    }
+
+    #[test]
+    fn select_across_phrases_and_lines() {
+        let runs = vec![
+            run("Address:", 10.0, 120.0),
+            run("Ref: AB-1234", 10.0, 100.0),
+            run("Storgatan 12", 80.0, 120.0),
+            run("411 01 Göteborg", 80.0, 140.0),
+        ];
+        // From inside "Ref" on the first line to the end of "Storgatan".
+        let a = pos_at(&runs, 16.0, 100.0).unwrap();
+        assert_eq!(a, TextPos { run: 1, ch: 1 });
+        let b = pos_at(&runs, 500.0, 121.0).unwrap();
+        let sel = selection(&runs, b, a);
+        assert_eq!(selected_text(&runs, &sel), "ef: AB-1234\nAddress: Storgatan 12");
+        let (w0, w1) = word_at(&runs, 1, 7);
+        assert_eq!(selected_text(&runs, &selection(&runs, w0, w1)), "AB-1234");
+        let (l0, l1) = line_at(&runs, 2);
+        assert_eq!(selected_text(&runs, &selection(&runs, l0, l1)), "Address: Storgatan 12");
+        assert!(pos_at(&[], 0.0, 0.0).is_none());
+    }
+}

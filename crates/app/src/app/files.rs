@@ -147,6 +147,8 @@ impl App {
         self.drag_start = None;
         self.tool = Tool::None;
         self.assist.close_list();
+        self.text_sel = None;
+        self.page_menu_open = false;
         if let Some(s) = &mut self.search {
             let q = std::mem::take(&mut s.query);
             *s = Default::default();

@@ -24,6 +24,10 @@ version's section into its GitHub release notes.
   matches are listed first. Next and previous match are in the command
   palette, and Ctrl+F remembers the last search.
 
+- Select and copy the page's own text: drag over it, double-click a word or
+  triple-click a line, then press Ctrl+C or right-click → Copy. The
+  right-click menu can also search for the selected words.
+
 ### Changed
 
 - Finding a box by its label (without the text) moved to Ctrl+Shift+F.
