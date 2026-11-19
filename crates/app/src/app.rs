@@ -84,6 +84,8 @@ pub struct Doc {
     pub detect_done_ms: Option<f64>,
     /// Text runs per page (for labels), filled by the worker.
     pub text: HashMap<usize, Vec<pdfr_core::text::TextRun>>,
+    /// Web and e-mail addresses printed on each page, as links.
+    pub text_links: HashMap<usize, Vec<pdfr_core::links::Link>>,
 }
 
 impl Doc {
@@ -195,6 +197,8 @@ pub struct App {
     text_sel: Option<select::TextSel>,
     /// The right-click menu of the page (not of a box) is open.
     page_menu_open: bool,
+    /// Where link jumps started, for Go back.
+    back: Vec<Vec2>,
     pub palette: Palette,
     omarchy_active: bool,
     theme_rx: Receiver<Option<Palette>>,
@@ -284,6 +288,7 @@ impl App {
             search: None,
             text_sel: None,
             page_menu_open: false,
+            back: vec![],
             palette,
             omarchy_active,
             theme_rx,
@@ -382,6 +387,7 @@ impl App {
                     text,
                 } if generation == doc.generation => {
                     doc.text.insert(page, text);
+                    Self::add_text_links(doc, page);
                 }
                 Msg::Detected {
                     generation,
@@ -391,6 +397,7 @@ impl App {
                 } if generation == doc.generation => {
                     doc.detected[page] = true;
                     doc.text.insert(page, text);
+                    Self::add_text_links(doc, page);
                     let existing: Vec<Field> = doc.entries.iter().map(|e| e.f.clone()).collect();
                     for f in fields {
                         if !pdfr_core::forms::overlaps_any(&existing, page, &f.rect, 0.3) {
@@ -646,6 +653,7 @@ mod editing;
 mod files;
 mod hints;
 mod history;
+mod links;
 mod palette;
 mod print;
 mod record;

@@ -131,6 +131,7 @@ impl App {
             first_page_ms: None,
             detect_done_ms: None,
             text: HashMap::new(),
+            text_links: HashMap::new(),
         };
         for f in &form.fields {
             doc.add(f.clone());
@@ -149,6 +150,7 @@ impl App {
         self.assist.close_list();
         self.text_sel = None;
         self.page_menu_open = false;
+        self.back.clear();
         if let Some(s) = &mut self.search {
             let q = std::mem::take(&mut s.query);
             *s = Default::default();

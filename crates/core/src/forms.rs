@@ -39,6 +39,8 @@ pub struct FormDoc {
     pub read_only_reason: Option<String>,
     /// Empty signature fields (`/FT /Sig`) the file asks to be signed.
     pub sign_here: Vec<(usize, crate::geom::Rect)>,
+    /// The file's link annotations.
+    pub links: Vec<crate::links::Link>,
 }
 
 #[derive(Debug)]
@@ -75,6 +77,7 @@ impl FormDoc {
             fields: vec![],
             read_only_reason: None,
             sign_here: vec![],
+            links: vec![],
         };
         match Document::load_mem(&bytes) {
             Ok(doc) if doc.is_encrypted() => return Err(OpenError::Encrypted),
@@ -88,6 +91,7 @@ impl FormDoc {
                     fd.fields
                         .extend(crate::signature::read(&doc, &ids, &fd.pages));
                     fd.sign_here = crate::signature::sign_here_spots(&doc, &ids, &fd.pages);
+                    fd.links = crate::links::read(&doc, &ids, &fd.pages);
                     fd.page_ids = ids;
                     fd.doc = Some(doc);
                 }

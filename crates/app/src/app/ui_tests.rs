@@ -853,3 +853,20 @@ fn select_page_text_and_copy() {
     click_doc(&mut h, 300.0, 178.0);
     assert!(focused_id(&h).is_some());
 }
+
+#[test]
+fn links_jump_and_go_back() {
+    use pdfr_core::links::Target;
+    let mut h = harness("links.pdf", data_dir("links", None));
+    assert_eq!(h.state().doc.as_ref().unwrap().form.links.len(), 2);
+    // "Continue in Part C" jumps to page 3; Ctrl+Shift+G comes back.
+    click_doc(&mut h, 80.0, 176.0);
+    assert_eq!(h.state().current_page(), 2);
+    ctrl_shift(&mut h, Key::G);
+    assert_eq!(h.state().current_page(), 0);
+    // The printed address is a link too (not clicked: it would open a browser).
+    let p = screen(&h, 300.0, 118.0);
+    let rects = h.state().page_rects();
+    let l = h.state().link_at(&rects, p).expect("printed address");
+    assert_eq!(l.target, Target::Uri("https://example.org/form-help".into()));
+}

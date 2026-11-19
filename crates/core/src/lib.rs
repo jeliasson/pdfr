@@ -10,6 +10,7 @@ pub mod font;
 pub mod forms;
 pub mod geom;
 pub mod layout;
+pub mod links;
 pub mod pdf_font;
 pub mod pipeline;
 pub mod render;

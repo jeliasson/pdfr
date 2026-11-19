@@ -282,6 +282,12 @@ impl App {
             && self.sign_target_at(&rects, p).is_some_and(|t| !t.on_line)
         {
             ctx.set_cursor_icon(CursorIcon::PointingHand);
+        } else if let Some(l) = pointer.and_then(|p| self.link_at(&rects, p))
+            && self.text_sel.as_ref().is_none_or(|s| !s.dragging)
+        {
+            ctx.set_cursor_icon(CursorIcon::PointingHand);
+            let tip = self.link_text(&l);
+            resp.clone().on_hover_text_at_pointer(tip);
         } else if self.text_sel.as_ref().is_some_and(|s| s.dragging)
             || pointer.is_some_and(|p| self.over_text(&rects, p))
         {
@@ -629,6 +635,10 @@ impl App {
                         self.focus = None;
                         self.choice_open = None;
                         self.assist.close_list();
+                        if let Some(l) = self.link_at(rects, p) {
+                            self.follow_link(&l);
+                            return;
+                        }
                         // The PDF's own "sign here" spot opens the signing dialog.
                         if editable
                             && let Some(t) = self.sign_target_at(rects, p).filter(|t| !t.on_line)

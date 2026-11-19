@@ -11,6 +11,8 @@ Writes (default outdir: samples/):
   scanned_form.pdf    flat_form rasterised at 150 dpi, blurred, noisy, skewed 0.25 deg
   perf_text.pdf       one dense text page (embedded TrueType font)
   perf_image.pdf      one page dominated by large photographic images
+  links.pdf           three pages: a web link, a printed address, jumps to
+                      a named destination, and an outline (bookmarks)
   big_300.pdf         (only with --big) 300 pages: flat forms and text pages
 """
 
@@ -312,6 +314,31 @@ def perf_text(path):
     c.save()
 
 
+def links(path):
+    """Links of every kind, and an outline, over three pages."""
+    c = canvas.Canvas(path, pagesize=(W, H))
+    c.setTitle("Links")
+    sections = ["Part A: Applicant", "Part B: Household", "Part C: Signatures"]
+    for i, title in enumerate(sections):
+        key = f"part{i + 1}"
+        c.bookmarkPage(key, fit="XYZ", top=H - 60)
+        c.addOutlineEntry(title, key, level=0)
+        if i == 1:
+            c.addOutlineEntry("Children", "part2", level=1)
+        c.setFont("Helvetica-Bold", 16)
+        c.drawString(50, H - 80, title)
+        c.setFont("Helvetica", 11)
+        if i == 0:
+            c.drawString(50, H - 120, "Read the instructions at https://example.org/form-help.")
+            c.drawString(50, H - 150, "Official site (link)")
+            c.linkURL("https://pdfr.app/", (50, H - 154, 160, H - 138), relative=0)
+            c.drawString(50, H - 180, "Continue in Part C")
+            c.linkAbsolute("Part C", "part3", (50, H - 184, 170, H - 168))
+        c.drawString(50, 60, f"Page {i + 1} of 3")
+        c.showPage()
+    c.save()
+
+
 def photo(w, h):
     yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
     img = np.stack([
@@ -368,6 +395,7 @@ def main():
     scanned_form(p("flat_form.pdf"), p("scanned_form.pdf"))
     perf_text(p("perf_text.pdf"))
     perf_image(p("perf_image.pdf"))
+    links(p("links.pdf"))
     if "--big" in sys.argv:
         big(p("big_300.pdf"))
     print("wrote samples to", out)

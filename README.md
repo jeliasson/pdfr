@@ -237,6 +237,7 @@ into a box is ever taken as a command.
 | Leave a box | Esc |
 | Scroll / half a page | Ctrl+J / Ctrl+K, Ctrl+D / Ctrl+U |
 | Next / previous page, go to page | Ctrl+Shift+J / Ctrl+Shift+K, Ctrl+G |
+| Go back after following a link | Ctrl+Shift+G |
 | Undo / redo | Ctrl+Z / Ctrl+Shift+Z |
 | Zoom in / out / 100% / fit width | Ctrl+= / Ctrl+− / Ctrl+0 / Ctrl+2 (or Ctrl+scroll) |
 | Settings | Ctrl+, |

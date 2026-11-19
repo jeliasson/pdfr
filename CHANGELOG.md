@@ -27,6 +27,10 @@ version's section into its GitHub release notes.
 - Select and copy the page's own text: drag over it, double-click a word or
   triple-click a line, then press Ctrl+C or right-click → Copy. The
   right-click menu can also search for the selected words.
+- Links work: web links open in your browser, links within the document
+  jump to their page (Ctrl+Shift+G goes back), and web and e-mail addresses
+  printed as plain text can be clicked too. Hovering shows where a link
+  goes. Only web and e-mail links are opened.
 
 ### Changed
 

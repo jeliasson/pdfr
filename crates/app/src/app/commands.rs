@@ -37,6 +37,7 @@ pub enum Command {
     NextPage,
     PrevPage,
     GoToPage,
+    GoBack,
     NextEmpty,
     PrevEmpty,
     JumpHints,
@@ -87,6 +88,7 @@ const HALF_UP: &[KeyboardShortcut] = &[ctrl(Key::U)];
 const NEXT_PAGE: &[KeyboardShortcut] = &[ctrl_shift(Key::J)];
 const PREV_PAGE: &[KeyboardShortcut] = &[ctrl_shift(Key::K)];
 const GO_TO_PAGE: &[KeyboardShortcut] = &[ctrl(Key::G)];
+const GO_BACK: &[KeyboardShortcut] = &[ctrl_shift(Key::G)];
 const NEXT_EMPTY: &[KeyboardShortcut] = &[ctrl(Key::N)];
 const PREV_EMPTY: &[KeyboardShortcut] = &[ctrl_shift(Key::N)];
 const JUMP_HINTS: &[KeyboardShortcut] = &[ctrl(Key::L)];
@@ -123,6 +125,7 @@ impl Command {
         Command::NextPage,
         Command::PrevPage,
         Command::GoToPage,
+        Command::GoBack,
         Command::NextEmpty,
         Command::PrevEmpty,
         Command::JumpHints,
@@ -207,6 +210,12 @@ impl Command {
             NextPage => ("Next page", "", Icon::List, NEXT_PAGE),
             PrevPage => ("Previous page", "", Icon::List, PREV_PAGE),
             GoToPage => ("Go to page…", "Type a page number", Icon::Search, GO_TO_PAGE),
+            GoBack => (
+                "Go back",
+                "Back to where you were before following a link",
+                Icon::Undo,
+                GO_BACK,
+            ),
             NextEmpty => (
                 "Next empty box",
                 "Jump to the next box that still needs filling",
@@ -314,6 +323,7 @@ impl App {
             | GoToPage | Find | FindBox | JumpHints => doc.is_some(),
             Copy => self.focus.is_none() && self.text_sel.is_some(),
             NextMatch | PrevMatch => self.search.as_ref().is_some_and(|s| !s.hits.is_empty()),
+            GoBack => doc.is_some() && !self.back.is_empty(),
             NextEmpty | PrevEmpty => editable,
             ClearField => editable && self.focused_editable(),
             RemoveField => editable && self.focused_editable() && self.focused_added(),
@@ -398,6 +408,7 @@ impl App {
                 self.scroll_to_page(if at_top { cur.saturating_sub(1) } else { cur });
             }
             GoToPage => self.open_palette(super::palette::Scope::Page),
+            GoBack => self.go_back(),
             NextEmpty => self.focus_empty(false),
             PrevEmpty => self.focus_empty(true),
             JumpHints => self.start_hints(),
