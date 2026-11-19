@@ -41,6 +41,8 @@ pub struct FormDoc {
     pub sign_here: Vec<(usize, crate::geom::Rect)>,
     /// The file's link annotations.
     pub links: Vec<crate::links::Link>,
+    /// The outline (bookmarks), flattened in reading order.
+    pub outline: Vec<crate::outline::OutlineItem>,
 }
 
 #[derive(Debug)]
@@ -78,6 +80,7 @@ impl FormDoc {
             read_only_reason: None,
             sign_here: vec![],
             links: vec![],
+            outline: vec![],
         };
         match Document::load_mem(&bytes) {
             Ok(doc) if doc.is_encrypted() => return Err(OpenError::Encrypted),
@@ -92,6 +95,7 @@ impl FormDoc {
                         .extend(crate::signature::read(&doc, &ids, &fd.pages));
                     fd.sign_here = crate::signature::sign_here_spots(&doc, &ids, &fd.pages);
                     fd.links = crate::links::read(&doc, &ids, &fd.pages);
+                    fd.outline = crate::outline::read(&doc, &ids, &fd.pages);
                     fd.page_ids = ids;
                     fd.doc = Some(doc);
                 }

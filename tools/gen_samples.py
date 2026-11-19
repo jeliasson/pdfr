@@ -324,7 +324,8 @@ def links(path):
         c.bookmarkPage(key, fit="XYZ", top=H - 60)
         c.addOutlineEntry(title, key, level=0)
         if i == 1:
-            c.addOutlineEntry("Children", "part2", level=1)
+            c.bookmarkPage("part2kids", fit="XYZ", top=H - 300)
+            c.addOutlineEntry("Children", "part2kids", level=1)
         c.setFont("Helvetica-Bold", 16)
         c.drawString(50, H - 80, title)
         c.setFont("Helvetica", 11)

@@ -78,7 +78,7 @@ impl App {
                 2.0,
                 Color32::from_black_alpha(60),
             );
-            painter.rect_filled(*r, 0.0, Color32::WHITE);
+            painter.rect_filled(*r, 0.0, self.page_fill());
             if let Some(t) = doc.tex.get(&i) {
                 // A stale texture (after a zoom) is shown stretched until the new one arrives.
                 painter.image(

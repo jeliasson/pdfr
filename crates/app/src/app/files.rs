@@ -132,6 +132,7 @@ impl App {
             detect_done_ms: None,
             text: HashMap::new(),
             text_links: HashMap::new(),
+            thumbs: HashMap::new(),
         };
         for f in &form.fields {
             doc.add(f.clone());
@@ -151,6 +152,9 @@ impl App {
         self.text_sel = None;
         self.page_menu_open = false;
         self.back.clear();
+        self.side_follow = None;
+        self.thumbs_asked.clear();
+        self.outline_open.clear();
         if let Some(s) = &mut self.search {
             let q = std::mem::take(&mut s.query);
             *s = Default::default();

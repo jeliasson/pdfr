@@ -25,6 +25,7 @@ pub enum Command {
     ZoomIn,
     ActualSize,
     FitWidth,
+    Sidebar,
     AddTextField,
     AddCheckbox,
     Sign,
@@ -80,6 +81,7 @@ const ZOOM_OUT: &[KeyboardShortcut] = &[ctrl(Key::Minus)];
 const ZOOM_IN: &[KeyboardShortcut] = &[ctrl(Key::Plus), ctrl(Key::Equals)];
 const ACTUAL_SIZE: &[KeyboardShortcut] = &[ctrl(Key::Num0), ctrl(Key::Num1)];
 const FIT_WIDTH: &[KeyboardShortcut] = &[ctrl(Key::Num2)];
+const SIDEBAR: &[KeyboardShortcut] = &[ctrl(Key::B)];
 const SETTINGS: &[KeyboardShortcut] = &[ctrl(Key::Comma)];
 const SCROLL_DOWN: &[KeyboardShortcut] = &[ctrl(Key::J)];
 const SCROLL_UP: &[KeyboardShortcut] = &[ctrl(Key::K)];
@@ -113,6 +115,7 @@ impl Command {
         Command::ZoomIn,
         Command::ActualSize,
         Command::FitWidth,
+        Command::Sidebar,
         Command::AddTextField,
         Command::AddCheckbox,
         Command::Sign,
@@ -172,6 +175,12 @@ impl Command {
                 "Zoom so the page fills the window's width",
                 Icon::FitWidth,
                 FIT_WIDTH,
+            ),
+            Sidebar => (
+                "Page sidebar",
+                "Thumbnails of every page, and the document's outline",
+                Icon::Sidebar,
+                SIDEBAR,
             ),
             AddTextField => (
                 "Add text field",
@@ -285,6 +294,7 @@ impl Command {
 
     /// Toolbar layout: groups separated by dividers.
     pub const TOOLBAR: &'static [&'static [Command]] = &[
+        &[Command::Sidebar],
         &[
             Command::Open,
             Command::Save,
@@ -318,7 +328,7 @@ impl App {
             AddTextField | AddCheckbox | Sign => editable,
             Undo => doc.is_some() && !self.undo.is_empty(),
             Redo => doc.is_some() && !self.redo.is_empty(),
-            ZoomOut | ZoomIn | ActualSize | FitWidth => doc.is_some(),
+            ZoomOut | ZoomIn | ActualSize | FitWidth | Sidebar => doc.is_some(),
             ScrollDown | ScrollUp | HalfPageDown | HalfPageUp | NextPage | PrevPage
             | GoToPage | Find | FindBox | JumpHints => doc.is_some(),
             Copy => self.focus.is_none() && self.text_sel.is_some(),
@@ -339,6 +349,7 @@ impl App {
             Command::AddCheckbox => self.tool == Tool::AddCheckbox,
             Command::Sign => self.tool == Tool::PlaceSignature || self.sign.is_some(),
             Command::Settings => self.assist.settings_open,
+            Command::Sidebar => self.sidebar_open(),
             Command::ToggleRemember => self.focused_entry().is_some_and(|e| e.no_memory),
             _ => false,
         }
@@ -387,6 +398,7 @@ impl App {
                     self.open_sign(false, target);
                 }
             }
+            Sidebar => self.toggle_sidebar(),
             Settings => self.assist.settings_open = !self.assist.settings_open,
             Register => self.license.open_register(),
             // Inside an open list (suggestions, drop-down) J/K move the

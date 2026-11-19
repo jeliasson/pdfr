@@ -4,6 +4,11 @@
 use super::*;
 
 impl App {
+    /// The colour of paper under the page images.
+    pub(super) fn page_fill(&self) -> Color32 {
+        Color32::WHITE
+    }
+
     pub(super) fn max_page_width(&self) -> f32 {
         self.doc
             .as_ref()

@@ -49,6 +49,9 @@ pub struct Settings {
     /// being annotations other PDF apps can move.
     #[serde(default)]
     pub lock_signatures: bool,
+    /// The page sidebar is shown.
+    #[serde(default)]
+    pub sidebar: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -79,6 +82,7 @@ impl Default for Settings {
             latest_version: String::new(),
             dismissed_version: String::new(),
             lock_signatures: false,
+            sidebar: false,
         }
     }
 }

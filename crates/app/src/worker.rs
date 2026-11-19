@@ -15,6 +15,8 @@ use std::sync::{Arc, Condvar, Mutex};
 
 /// Largest texture side we render (GPU limits and memory).
 pub const MAX_TEX_SIDE: f32 = 8192.0;
+/// Width of a sidebar thumbnail image, in pixels.
+pub const THUMB_PX: f32 = 240.0;
 
 pub enum Msg {
     /// `requested`: the scale asked for; `scale`: the one used (capped by
@@ -28,6 +30,12 @@ pub enum Msg {
     },
     /// A render could not be made; the page is no longer pending.
     RenderFailed { generation: u64, page: usize },
+    /// A small image of a page for the sidebar (`None` if it failed).
+    Thumb {
+        generation: u64,
+        page: usize,
+        tex: Option<TextureHandle>,
+    },
     Detected {
         generation: u64,
         page: usize,
@@ -51,6 +59,8 @@ struct State {
     detect: VecDeque<usize>,
     /// Pages whose text is wanted without detection.
     text: VecDeque<usize>,
+    /// Sidebar thumbnails wanted, most recent request first.
+    thumbs: VecDeque<usize>,
     quit: bool,
 }
 
@@ -68,6 +78,7 @@ enum Job {
     Render(usize, f32),
     Detect(usize),
     Text(usize),
+    Thumb(usize),
 }
 
 impl Worker {
@@ -97,6 +108,7 @@ impl Worker {
         s.generation += 1;
         s.bytes = Some(bytes);
         s.renders.clear();
+        s.thumbs.clear();
         // Detection reads each page's text too; without it, read only the text.
         (s.detect, s.text) = if detect {
             ((0..pages).collect(), VecDeque::new())
@@ -113,6 +125,16 @@ impl Worker {
         let mut s = self.shared.state.lock().unwrap();
         s.renders.insert(page, (scale, priority));
         self.shared.cv.notify_one();
+    }
+
+    /// Asks for sidebar thumbnails of these pages (only these: older
+    /// requests are dropped, as they scrolled out of the sidebar).
+    pub fn request_thumbs(&self, pages: &[usize]) {
+        let mut s = self.shared.state.lock().unwrap();
+        s.thumbs = pages.iter().copied().collect();
+        if !pages.is_empty() {
+            self.shared.cv.notify_all();
+        }
     }
 
     /// Drops queued renders for pages that are no longer wanted.
@@ -171,6 +193,9 @@ fn next_job(shared: &Shared, generation: u64) -> Option<Job> {
             s.renders.remove(&page);
             return Some(Job::Render(page, scale));
         }
+        if let Some(p) = s.thumbs.pop_front() {
+            return Some(Job::Thumb(p));
+        }
         if let Some(p) = s.detect.pop_front() {
             return Some(Job::Detect(p));
         }
@@ -204,6 +229,11 @@ fn serve(
                     generation,
                     page,
                     text: vec![],
+                },
+                Job::Thumb(page) => Msg::Thumb {
+                    generation,
+                    page,
+                    tex: None,
                 },
             };
             if tx.send(msg).is_err() {
@@ -248,6 +278,29 @@ fn serve(
                         page,
                         requested,
                         scale,
+                        tex,
+                    })
+                    .is_err()
+                {
+                    return;
+                }
+                ctx.request_repaint();
+            }
+            Job::Thumb(page) => {
+                let tex = pages.get(page).and_then(|p| {
+                    let (w, h) = page_geom(p).display_size();
+                    let scale = (THUMB_PX / w.max(1.0)).min(THUMB_PX * 2.0 / h.max(1.0));
+                    let img = catch_unwind(AssertUnwindSafe(|| render_page(p, &cache, scale))).ok()?;
+                    let image = ColorImage::from_rgba_premultiplied(
+                        [img.width as usize, img.height as usize],
+                        &img.rgba,
+                    );
+                    Some(ctx.load_texture(format!("thumb-{page}"), image, TextureOptions::LINEAR))
+                });
+                if tx
+                    .send(Msg::Thumb {
+                        generation,
+                        page,
                         tex,
                     })
                     .is_err()

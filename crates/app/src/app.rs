@@ -86,6 +86,8 @@ pub struct Doc {
     pub text: HashMap<usize, Vec<pdfr_core::text::TextRun>>,
     /// Web and e-mail addresses printed on each page, as links.
     pub text_links: HashMap<usize, Vec<pdfr_core::links::Link>>,
+    /// Sidebar thumbnails.
+    thumbs: HashMap<usize, TextureHandle>,
 }
 
 impl Doc {
@@ -199,6 +201,13 @@ pub struct App {
     page_menu_open: bool,
     /// Where link jumps started, for Go back.
     back: Vec<Vec2>,
+    side_tab: sidebar::SideTab,
+    /// The page the thumbnails last scrolled to.
+    side_follow: Option<usize>,
+    /// Thumbnails last asked of the workers.
+    thumbs_asked: Vec<usize>,
+    /// Outline entries opened or closed by the user.
+    outline_open: HashMap<usize, bool>,
     pub palette: Palette,
     omarchy_active: bool,
     theme_rx: Receiver<Option<Palette>>,
@@ -289,6 +298,10 @@ impl App {
             text_sel: None,
             page_menu_open: false,
             back: vec![],
+            side_tab: Default::default(),
+            side_follow: None,
+            thumbs_asked: vec![],
+            outline_open: HashMap::new(),
             palette,
             omarchy_active,
             theme_rx,
@@ -380,6 +393,16 @@ impl App {
                     if doc.first_page_ms.is_none() {
                         doc.first_page_ms = Some(doc.opened_at.elapsed().as_secs_f64() * 1e3);
                     }
+                }
+                Msg::Thumb {
+                    generation,
+                    page,
+                    tex,
+                } if generation == doc.generation => {
+                    if let Some(t) = tex {
+                        doc.thumbs.insert(page, t);
+                    }
+                    self.thumbs_asked.retain(|p| *p != page);
                 }
                 Msg::Text {
                     generation,
@@ -552,6 +575,18 @@ impl eframe::App for App {
                     .inner_margin(egui::Margin::symmetric(8, 3)),
             )
             .show(ui, |ui| self.status_bar(ui));
+        if self.sidebar_open() {
+            egui::Panel::left("sidebar")
+                .resizable(true)
+                .default_size(170.0)
+                .size_range(130.0..=320.0)
+                .frame(
+                    egui::Frame::new()
+                        .fill(self.palette.toolbar)
+                        .inner_margin(egui::Margin::symmetric(6, 6)),
+                )
+                .show(ui, |ui| self.sidebar(ui));
+        }
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(self.palette.canvas))
             .show(ui, |ui| self.canvas(ui));
@@ -659,6 +694,7 @@ mod print;
 mod record;
 mod search;
 mod select;
+mod sidebar;
 mod signature;
 mod toolbar;
 mod view;

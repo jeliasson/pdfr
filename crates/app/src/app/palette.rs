@@ -38,6 +38,8 @@ enum Item {
     Page(usize),
     /// A text search hit (index into the search's hits).
     Hit(usize),
+    /// An outline entry (index into the document's outline).
+    Outline(usize),
     /// A line of information; never runs.
     Info,
 }
@@ -157,7 +159,7 @@ impl App {
             }
             Scope::Page => {
                 let n = self.doc.as_ref().map_or(0, |d| d.sizes.len());
-                match q.parse::<usize>() {
+                let mut rows = match q.parse::<usize>() {
                     Ok(p) if (1..=n).contains(&p) => vec![Row {
                         item: Item::Page(p - 1),
                         title: format!("Go to page {p}"),
@@ -165,7 +167,40 @@ impl App {
                         enabled: true,
                     }],
                     _ => vec![],
+                };
+                // Sections of the outline by name.
+                if let Some(doc) = &self.doc {
+                    let mut hits: Vec<(i32, Row)> = doc
+                        .form
+                        .outline
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, o)| o.target.is_some())
+                        .filter_map(|(i, o)| {
+                            let score = fuzzy(q, &o.title)?;
+                            let detail = match &o.target {
+                                Some(pdfr_core::links::Target::Dest { page, .. }) => {
+                                    format!("p. {}", page + 1)
+                                }
+                                _ => String::new(),
+                            };
+                            Some((
+                                score,
+                                Row {
+                                    item: Item::Outline(i),
+                                    title: o.title.clone(),
+                                    detail,
+                                    enabled: true,
+                                },
+                            ))
+                        })
+                        .collect();
+                    if !q.is_empty() {
+                        hits.sort_by_key(|(s, _)| std::cmp::Reverse(*s));
+                    }
+                    rows.extend(hits.into_iter().map(|(_, r)| r));
                 }
+                rows
             }
         }
     }
@@ -279,7 +314,12 @@ impl App {
             }
             Scope::Page => {
                 let n = self.doc.as_ref().map_or(0, |d| d.sizes.len());
-                ("Page number…", format!("Type a page number from 1 to {n}"))
+                let sections = self.doc.as_ref().is_some_and(|d| !d.form.outline.is_empty());
+                if sections {
+                    ("Page number or section\u{2026}", format!("Type a page number from 1 to {n}, or a section"))
+                } else {
+                    ("Page number…", format!("Type a page number from 1 to {n}"))
+                }
             }
         };
         let top = ctx.content_rect().top() + 80.0;
@@ -406,6 +446,21 @@ impl App {
                 self.show_hit(i);
                 let n = self.search.as_ref().map_or(0, |s| s.hits.len());
                 self.status = format!("Match {} of {n}", i + 1);
+            }
+            Some(Item::Outline(i)) => {
+                let target = self
+                    .doc
+                    .as_ref()
+                    .and_then(|d| d.form.outline.get(i))
+                    .and_then(|o| o.target.clone());
+                if let Some(t) = target {
+                    let link = pdfr_core::links::Link {
+                        page: 0,
+                        rect: PRect::default(),
+                        target: t,
+                    };
+                    self.follow_link(&link);
+                }
             }
             Some(Item::Info) | None => {}
         }

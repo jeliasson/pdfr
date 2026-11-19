@@ -870,3 +870,32 @@ fn links_jump_and_go_back() {
     let l = h.state().link_at(&rects, p).expect("printed address");
     assert_eq!(l.target, Target::Uri("https://example.org/form-help".into()));
 }
+
+#[test]
+fn sidebar_thumbnails_and_outline() {
+    use egui_kittest::kittest::Queryable;
+    let mut h = harness("links.pdf", data_dir("sidebar", None));
+    ctrl(&mut h, Key::B);
+    assert!(h.state().sidebar_open());
+    // Thumbnails arrive from the workers.
+    let start = Instant::now();
+    while h.state().doc.as_ref().unwrap().thumbs.len() < 3 {
+        h.run_steps(1);
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(start.elapsed() < Duration::from_secs(10), "no thumbnails");
+    }
+    // The outline goes to its sections.
+    h.state_mut().side_tab = sidebar::SideTab::Outline;
+    h.run_steps(2);
+    h.get_by_label("Part C: Signatures").click();
+    h.run_steps(2);
+    assert_eq!(h.state().current_page(), 2);
+    // Ctrl+G finds sections by name.
+    ctrl(&mut h, Key::G);
+    type_text(&mut h, "household");
+    key(&mut h, Key::Enter);
+    h.run_steps(1);
+    assert_eq!(h.state().current_page(), 1);
+    ctrl(&mut h, Key::B);
+    assert!(!h.state().sidebar_open());
+}

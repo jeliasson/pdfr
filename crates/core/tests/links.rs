@@ -102,3 +102,24 @@ fn printed_address_becomes_a_link() {
     assert_eq!(links[0].target, Target::Uri("https://example.org/form".into()));
     assert!(links[0].rect.x0 > 100.0, "the box starts at the address");
 }
+
+#[test]
+fn outline_of_the_links_sample() {
+    let bytes = std::fs::read(format!("{}/../../samples/links.pdf", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let fd = FormDoc::open(bytes).unwrap();
+    let titles: Vec<(&str, usize)> = fd.outline.iter().map(|o| (o.title.as_str(), o.depth)).collect();
+    assert_eq!(
+        titles,
+        vec![
+            ("Part A: Applicant", 0),
+            ("Part B: Household", 0),
+            ("Children", 1),
+            ("Part C: Signatures", 0),
+        ]
+    );
+    match &fd.outline[3].target {
+        Some(Target::Dest { page: 2, y: Some(y) }) => assert!((*y - 60.0).abs() < 1.0, "{y}"),
+        t => panic!("{t:?}"),
+    }
+    assert!(fd.outline[1].has_children);
+}

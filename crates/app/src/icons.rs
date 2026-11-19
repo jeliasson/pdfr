@@ -32,6 +32,7 @@ pub enum Icon {
     Brain,
     Key,
     Signature,
+    Sidebar,
 }
 
 /// Maps the 24×24 design grid into a rectangle.
@@ -214,6 +215,13 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 (17.5, 13.0),
                 (20.0, 12.0),
             ]);
+        }
+        Icon::Sidebar => {
+            closed(&[(3.5, 5.0), (20.5, 5.0), (20.5, 19.0), (3.5, 19.0)]);
+            line(&[(9.0, 5.0), (9.0, 19.0)]);
+            line(&[(5.5, 8.5), (7.0, 8.5)]);
+            line(&[(5.5, 11.5), (7.0, 11.5)]);
+            line(&[(5.5, 14.5), (7.0, 14.5)]);
         }
         Icon::Close => {
             line(&[(6.0, 6.0), (18.0, 18.0)]);

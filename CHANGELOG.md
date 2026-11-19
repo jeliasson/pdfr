@@ -31,6 +31,10 @@ version's section into its GitHub release notes.
   jump to their page (Ctrl+Shift+G goes back), and web and e-mail addresses
   printed as plain text can be clicked too. Hovering shows where a link
   goes. Only web and e-mail links are opened.
+- A page sidebar (Ctrl+B, or the button at the left of the toolbar):
+  thumbnails of every page, marked where boxes are filled in, and the
+  document's outline (bookmarks) when it has one. Ctrl+G also finds the
+  outline's sections by name.
 
 ### Changed
 
