@@ -119,6 +119,35 @@ impl Worker {
         s.generation
     }
 
+    /// Switches to a changed version of the same document (pages turned):
+    /// only `pages` are detected (or read for text) again. Returns the new
+    /// generation number.
+    pub fn replace_document(&self, bytes: Arc<Vec<u8>>, pages: &[usize], detect: bool) -> u64 {
+        let mut s = self.shared.state.lock().unwrap();
+        s.generation += 1;
+        s.bytes = Some(bytes);
+        s.renders.clear();
+        s.thumbs.clear();
+        let mut redo: VecDeque<usize> = pages.iter().copied().collect();
+        // Pages still waiting from before keep waiting.
+        let waiting: Vec<usize> = std::mem::take(&mut s.detect)
+            .into_iter()
+            .chain(std::mem::take(&mut s.text))
+            .collect();
+        for p in waiting {
+            if !redo.contains(&p) {
+                redo.push_back(p);
+            }
+        }
+        (s.detect, s.text) = if detect {
+            (redo, VecDeque::new())
+        } else {
+            (VecDeque::new(), redo)
+        };
+        self.shared.cv.notify_all();
+        s.generation
+    }
+
     /// Requests a render of `page` at `scale` (pixels per point). Replaces any
     /// queued request for that page.
     pub fn request(&self, page: usize, scale: f32, priority: f32) {

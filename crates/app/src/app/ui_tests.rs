@@ -941,3 +941,48 @@ fn recent_files_reopen_where_left() {
     assert_eq!(h.state().current_page(), 2);
     assert!(h.state().status.starts_with("Back where you left off"));
 }
+
+#[test]
+fn turn_a_page_undo_and_fit_page() {
+    let mut h = harness("flat_form.pdf", data_dir("rotate", None));
+    // Fill the "Full name" box, then turn the page.
+    click_doc(&mut h, 300.0, 178.0);
+    type_text(&mut h, "Anna");
+    let id = focused_id(&h).unwrap();
+    let before = {
+        let d = h.state().doc.as_ref().unwrap();
+        d.entries[d.index_of(id).unwrap()].f.rect
+    };
+    key(&mut h, Key::Escape);
+    ctrl(&mut h, Key::R);
+    {
+        let d = h.state().doc.as_ref().unwrap();
+        assert_eq!(d.form.pages[0].rotate, 90);
+        assert!(d.sizes[0].0 > d.sizes[0].1, "landscape now");
+        let e = &d.entries[d.index_of(id).unwrap()];
+        assert_eq!(e.f.value, "Anna", "typed text stays");
+        assert!((e.f.rect.width() - before.width()).abs() < 0.01);
+        assert!(d.dirty);
+    }
+    // Detection runs again on the turned page.
+    let start = Instant::now();
+    while !h.state().doc.as_ref().unwrap().detected[0] {
+        h.run_steps(1);
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(start.elapsed() < Duration::from_secs(20));
+    }
+    ctrl(&mut h, Key::Z);
+    {
+        let d = h.state().doc.as_ref().unwrap();
+        assert_eq!(d.form.pages[0].rotate, 0, "undo turns it back");
+        let e = &d.entries[d.index_of(id).unwrap()];
+        assert!((e.f.rect.x0 - before.x0).abs() < 0.01 && (e.f.rect.y0 - before.y0).abs() < 0.01);
+    }
+    ctrl_shift(&mut h, Key::Z);
+    assert_eq!(h.state().doc.as_ref().unwrap().form.pages[0].rotate, 90, "redo");
+    // Fit page: the whole page is in the window.
+    ctrl(&mut h, Key::Num3);
+    let s = h.state();
+    let r = s.page_rects()[0];
+    assert!(r.height() <= s.viewport.height() && r.width() <= s.viewport.width());
+}

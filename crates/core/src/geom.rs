@@ -130,6 +130,17 @@ impl PageGeom {
         [a.0.min(b.0), a.1.min(b.1), a.0.max(b.0), a.1.max(b.1)]
     }
 
+    /// Where a display rectangle of this page lands on the same page shown
+    /// with geometry `to` (another rotation): its centre follows the paper,
+    /// its size stays, so boxes and signatures keep their shape.
+    pub fn move_to(&self, to: &PageGeom, r: &Rect) -> Rect {
+        let (cx, cy) = r.center();
+        let (ux, uy) = self.to_user(cx, cy);
+        let (nx, ny) = to.to_display(ux, uy);
+        let (hw, hh) = (r.width() / 2.0, r.height() / 2.0);
+        Rect::new(nx - hw, ny - hh, nx + hw, ny + hh)
+    }
+
     /// Size of a display rectangle as seen in the unrotated form space
     /// (what an appearance stream's BBox must be).
     pub fn form_size(&self, r: &Rect) -> (f32, f32) {

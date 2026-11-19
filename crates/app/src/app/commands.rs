@@ -26,6 +26,10 @@ pub enum Command {
     ZoomIn,
     ActualSize,
     FitWidth,
+    FitPage,
+    RotatePage,
+    RotatePageBack,
+    RotateAll,
     Sidebar,
     AddTextField,
     AddCheckbox,
@@ -84,6 +88,9 @@ const ZOOM_IN: &[KeyboardShortcut] = &[ctrl(Key::Plus), ctrl(Key::Equals)];
 const ACTUAL_SIZE: &[KeyboardShortcut] = &[ctrl(Key::Num0), ctrl(Key::Num1)];
 const FIT_WIDTH: &[KeyboardShortcut] = &[ctrl(Key::Num2)];
 const SIDEBAR: &[KeyboardShortcut] = &[ctrl(Key::B)];
+const FIT_PAGE: &[KeyboardShortcut] = &[ctrl(Key::Num3)];
+const ROTATE: &[KeyboardShortcut] = &[ctrl(Key::R)];
+const ROTATE_ALL: &[KeyboardShortcut] = &[ctrl_shift(Key::R)];
 const SETTINGS: &[KeyboardShortcut] = &[ctrl(Key::Comma)];
 const SCROLL_DOWN: &[KeyboardShortcut] = &[ctrl(Key::J)];
 const SCROLL_UP: &[KeyboardShortcut] = &[ctrl(Key::K)];
@@ -118,6 +125,10 @@ impl Command {
         Command::ZoomIn,
         Command::ActualSize,
         Command::FitWidth,
+        Command::FitPage,
+        Command::RotatePage,
+        Command::RotatePageBack,
+        Command::RotateAll,
         Command::Sidebar,
         Command::AddTextField,
         Command::AddCheckbox,
@@ -184,6 +195,30 @@ impl Command {
                 "Zoom so the page fills the window's width",
                 Icon::FitWidth,
                 FIT_WIDTH,
+            ),
+            FitPage => (
+                "Fit page",
+                "Zoom so the whole page fits in the window",
+                Icon::FitPage,
+                FIT_PAGE,
+            ),
+            RotatePage => (
+                "Turn page clockwise",
+                "Turn this page a quarter turn (saved turned too)",
+                Icon::Rotate,
+                ROTATE,
+            ),
+            RotatePageBack => (
+                "Turn page anticlockwise",
+                "Turn this page a quarter turn the other way",
+                Icon::Rotate,
+                NONE,
+            ),
+            RotateAll => (
+                "Turn all pages clockwise",
+                "Turn every page a quarter turn",
+                Icon::Rotate,
+                ROTATE_ALL,
             ),
             Sidebar => (
                 "Page sidebar",
@@ -316,6 +351,8 @@ impl Command {
             Command::ZoomIn,
             Command::ActualSize,
             Command::FitWidth,
+            Command::FitPage,
+            Command::RotatePage,
         ],
         &[Command::AddTextField, Command::AddCheckbox, Command::Sign],
     ];
@@ -337,7 +374,8 @@ impl App {
             AddTextField | AddCheckbox | Sign => editable,
             Undo => doc.is_some() && !self.undo.is_empty(),
             Redo => doc.is_some() && !self.redo.is_empty(),
-            ZoomOut | ZoomIn | ActualSize | FitWidth | Sidebar => doc.is_some(),
+            ZoomOut | ZoomIn | ActualSize | FitWidth | FitPage | Sidebar => doc.is_some(),
+            RotatePage | RotatePageBack | RotateAll => editable,
             ScrollDown | ScrollUp | HalfPageDown | HalfPageUp | NextPage | PrevPage
             | GoToPage | Find | FindBox | JumpHints => doc.is_some(),
             Copy => self.focus.is_none() && self.text_sel.is_some(),
@@ -407,6 +445,15 @@ impl App {
                     let target = self.focused_sign_target();
                     self.open_sign(false, target);
                 }
+            }
+            FitPage => self.fit_page(),
+            RotatePage | RotatePageBack => {
+                let p = self.current_page();
+                self.rotate_pages(vec![p], if c == RotatePage { 1 } else { -1 });
+            }
+            RotateAll => {
+                let n = self.doc.as_ref().map_or(0, |d| d.sizes.len());
+                self.rotate_pages((0..n).collect(), 1);
             }
             Sidebar => self.toggle_sidebar(),
             Settings => self.assist.settings_open = !self.assist.settings_open,

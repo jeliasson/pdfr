@@ -241,7 +241,8 @@ into a box is ever taken as a command.
 | Go back after following a link | Ctrl+Shift+G |
 | Page sidebar (thumbnails, outline) | Ctrl+B |
 | Undo / redo | Ctrl+Z / Ctrl+Shift+Z |
-| Zoom in / out / 100% / fit width | Ctrl+= / Ctrl+− / Ctrl+0 / Ctrl+2 (or Ctrl+scroll) |
+| Zoom in / out / 100% / fit width / fit page | Ctrl+= / Ctrl+− / Ctrl+0 / Ctrl+2 / Ctrl+3 (or Ctrl+scroll) |
+| Turn this page / every page | Ctrl+R / Ctrl+Shift+R |
 | Settings | Ctrl+, |
 
 ---

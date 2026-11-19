@@ -38,6 +38,12 @@ version's section into its GitHub release notes.
 - Recent files: Ctrl+E lists the files you opened (the empty window shows
   them too), and a file opens again on the page and at the zoom where you
   left it. Turn it off or clear the list in Settings → General.
+- Fit page (Ctrl+3) shows the whole page in the window.
+- Turn sideways or upside-down pages: Ctrl+R turns the current page a
+  quarter turn clockwise, Ctrl+Shift+R turns every page (anticlockwise is
+  in the command palette). The page is saved turned too, and pdfr finds
+  the boxes again on the upright page. Undo turns it back. Pages with the
+  PDF's own form fields can't be turned.
 
 ### Changed
 

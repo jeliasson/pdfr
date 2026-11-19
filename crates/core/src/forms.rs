@@ -111,6 +111,27 @@ impl FormDoc {
         self.doc.is_some()
     }
 
+    /// A copy with `pages` turned clockwise by `turns` quarter turns (the
+    /// page's `/Rotate`, so it is saved turned too).
+    pub fn rotated(&self, pages: &[usize], turns: i32) -> Result<FormDoc, String> {
+        let Some(doc) = &self.doc else {
+            return Err("this file cannot be edited".into());
+        };
+        let mut d = doc.clone();
+        for &p in pages {
+            let (Some(&id), Some(g)) = (self.page_ids.get(p), self.pages.get(p)) else {
+                continue;
+            };
+            let rot = (g.rotate as i64 + 90 * turns as i64).rem_euclid(360);
+            if let Ok(page) = d.get_dictionary_mut(id) {
+                page.set("Rotate", rot);
+            }
+        }
+        let mut out = Vec::new();
+        d.save_to(&mut out).map_err(|e| e.to_string())?;
+        FormDoc::open(out).map_err(|e| e.to_string())
+    }
+
     /// Bytes for rendering: the document with text-field values blanked from
     /// their appearances and toggles switched off, so live values drawn on
     /// top never show over stale ones. Borders and backgrounds are kept.

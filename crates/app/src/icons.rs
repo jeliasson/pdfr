@@ -33,6 +33,8 @@ pub enum Icon {
     Key,
     Signature,
     Sidebar,
+    FitPage,
+    Rotate,
 }
 
 /// Maps the 24×24 design grid into a rectangle.
@@ -215,6 +217,27 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 (17.5, 13.0),
                 (20.0, 12.0),
             ]);
+        }
+        Icon::FitPage => {
+            // A page with corner marks around it.
+            closed(&[(8.0, 6.0), (16.0, 6.0), (16.0, 18.0), (8.0, 18.0)]);
+            line(&[(3.0, 6.0), (3.0, 3.0), (6.0, 3.0)]);
+            line(&[(18.0, 3.0), (21.0, 3.0), (21.0, 6.0)]);
+            line(&[(21.0, 18.0), (21.0, 21.0), (18.0, 21.0)]);
+            line(&[(6.0, 21.0), (3.0, 21.0), (3.0, 18.0)]);
+        }
+        Icon::Rotate => {
+            // A page under a clockwise arrow.
+            closed(&[(5.0, 10.0), (13.0, 10.0), (13.0, 21.0), (5.0, 21.0)]);
+            let n = 10;
+            let pts: Vec<(f32, f32)> = (0..=n)
+                .map(|i| {
+                    let a = std::f32::consts::PI * (1.0 + 0.5 * i as f32 / n as f32);
+                    (16.0 + 6.0 * a.cos(), 10.0 + 6.0 * a.sin())
+                })
+                .collect();
+            line(&pts);
+            line(&[(19.5, 2.5), (16.0, 4.0), (19.0, 6.5)]);
         }
         Icon::Sidebar => {
             closed(&[(3.5, 5.0), (20.5, 5.0), (20.5, 19.0), (3.5, 19.0)]);

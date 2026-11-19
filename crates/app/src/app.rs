@@ -216,8 +216,8 @@ pub struct App {
     open_rx: Receiver<(PathBuf, Result<Opened, String>, Instant)>,
     open_tx: Sender<(PathBuf, Result<Opened, String>, Instant)>,
     pub status: String,
-    undo: Vec<Vec<Entry>>,
-    redo: Vec<Vec<Entry>>,
+    undo: Vec<history::Snap>,
+    redo: Vec<history::Snap>,
     typing_run: Option<u64>,
     /// Unsaved changes would be lost: ask first.
     confirm: Option<Confirm>,
@@ -432,8 +432,8 @@ impl App {
                             // state gets them too, so undo never removes them.
                             let e = doc.entries.last().cloned().unwrap();
                             for snap in self.undo.iter_mut().chain(self.redo.iter_mut()) {
-                                if !snap.iter().any(|x| x.id == id) {
-                                    snap.push(e.clone());
+                                if !snap.entries.iter().any(|x| x.id == id) {
+                                    snap.entries.push(e.clone());
                                 }
                             }
                         }
@@ -700,6 +700,7 @@ mod palette;
 mod print;
 mod recent;
 mod record;
+mod rotate;
 mod search;
 mod select;
 mod sidebar;

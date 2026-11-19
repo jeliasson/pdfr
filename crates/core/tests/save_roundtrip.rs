@@ -438,3 +438,28 @@ fn print_copy_keeps_signatures() {
     let flat = pdfr_core::flatten::flatten_for_print(&saved).unwrap();
     assert!(inked_pixels(&flat, r) > 30);
 }
+
+#[test]
+fn rotating_a_page_turns_it_and_keeps_boxes_on_the_paper() {
+    let fd = FormDoc::open(sample("flat_rotated.pdf")).unwrap();
+    assert_eq!(fd.pages[0].rotate, 90);
+    // Turned back upright (three more quarter turns clockwise).
+    let up = fd.rotated(&[0], 3).unwrap();
+    assert_eq!(up.pages[0].rotate, 0);
+    let (w0, h0) = fd.pages[0].display_size();
+    assert_eq!(up.pages[0].display_size(), (h0, w0));
+    // A box keeps its place on the paper and its size.
+    let r = Rect::new(150.0, 168.0, 545.0, 188.0);
+    let moved = fd.pages[0].move_to(&up.pages[0], &r);
+    assert!((moved.width() - r.width()).abs() < 0.01);
+    let back = up.pages[0].move_to(&fd.pages[0], &moved);
+    assert!((back.x0 - r.x0).abs() < 0.01 && (back.y0 - r.y0).abs() < 0.01);
+    // A filled box saved on the turned page reopens there.
+    let mut f = Field::new_text(0, moved, TextMode::Single, Origin::Manual);
+    f.value = "Upright".into();
+    let saved = save(&up, &[f]).unwrap();
+    let again = FormDoc::open(saved).unwrap();
+    assert_eq!(again.pages[0].rotate, 0);
+    let g = &again.fields[0];
+    assert!((g.rect.x0 - moved.x0).abs() < 0.01 && (g.rect.y1 - moved.y1).abs() < 0.01);
+}
