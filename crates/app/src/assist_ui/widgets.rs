@@ -272,7 +272,11 @@ pub(crate) fn danger_button(ui: &mut Ui, label: &str, confirming: bool) -> egui:
         ui,
         RichText::new(label).color(text),
         fill,
-        if confirming { mix(DANGER, Color32::WHITE, 0.12) } else { DANGER.gamma_multiply(0.12) },
+        if confirming {
+            mix(DANGER, Color32::WHITE, 0.12)
+        } else {
+            DANGER.gamma_multiply(0.12)
+        },
         Stroke::new(1.0, DANGER),
         96.0,
     )
@@ -317,9 +321,21 @@ mod tests {
     /// Hovering a button must not change the size of what is drawn.
     #[test]
     fn buttons_keep_their_size_on_hover() {
-        assert!(check("primary", |ui, c| primary_button(ui, c, "Get free license")));
-        assert!(check("secondary", |ui, c| secondary_button(ui, c, "Enter license key\u{2026}")));
-        assert!(check("danger", |ui, _| danger_button(ui, "Remove\u{2026}", false)));
+        assert!(check("primary", |ui, c| primary_button(
+            ui,
+            c,
+            "Get free license"
+        )));
+        assert!(check("secondary", |ui, c| secondary_button(
+            ui,
+            c,
+            "Enter license key\u{2026}"
+        )));
+        assert!(check("danger", |ui, _| danger_button(
+            ui,
+            "Remove\u{2026}",
+            false
+        )));
     }
 
     /// The old way (overriding the stroke) does shrink: the test can see it.

@@ -7,12 +7,12 @@
 
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "macos")]
+mod macos;
 #[cfg(target_os = "linux")]
 pub mod mimeapps;
 #[cfg(target_os = "linux")]
 pub mod portal;
-#[cfg(target_os = "macos")]
-mod macos;
 #[cfg(windows)]
 mod windows;
 
@@ -33,15 +33,42 @@ pub const INSTALL_COMMAND: &str = "curl -fsSL https://pdfr.app/install.sh | sh";
 
 /// The icon, pre-rendered at the sizes desktops ask for.
 pub const ICONS: &[(u32, &[u8])] = &[
-    (16, include_bytes!("../../../../assets/icon/png/pdfr-16.png")),
-    (22, include_bytes!("../../../../assets/icon/png/pdfr-22.png")),
-    (24, include_bytes!("../../../../assets/icon/png/pdfr-24.png")),
-    (32, include_bytes!("../../../../assets/icon/png/pdfr-32.png")),
-    (48, include_bytes!("../../../../assets/icon/png/pdfr-48.png")),
-    (64, include_bytes!("../../../../assets/icon/png/pdfr-64.png")),
-    (128, include_bytes!("../../../../assets/icon/png/pdfr-128.png")),
-    (256, include_bytes!("../../../../assets/icon/png/pdfr-256.png")),
-    (512, include_bytes!("../../../../assets/icon/png/pdfr-512.png")),
+    (
+        16,
+        include_bytes!("../../../../assets/icon/png/pdfr-16.png"),
+    ),
+    (
+        22,
+        include_bytes!("../../../../assets/icon/png/pdfr-22.png"),
+    ),
+    (
+        24,
+        include_bytes!("../../../../assets/icon/png/pdfr-24.png"),
+    ),
+    (
+        32,
+        include_bytes!("../../../../assets/icon/png/pdfr-32.png"),
+    ),
+    (
+        48,
+        include_bytes!("../../../../assets/icon/png/pdfr-48.png"),
+    ),
+    (
+        64,
+        include_bytes!("../../../../assets/icon/png/pdfr-64.png"),
+    ),
+    (
+        128,
+        include_bytes!("../../../../assets/icon/png/pdfr-128.png"),
+    ),
+    (
+        256,
+        include_bytes!("../../../../assets/icon/png/pdfr-256.png"),
+    ),
+    (
+        512,
+        include_bytes!("../../../../assets/icon/png/pdfr-512.png"),
+    ),
 ];
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub const ICON_SVG: &[u8] = include_bytes!("../../../../assets/icon/pdfr.svg");
@@ -165,7 +192,8 @@ fn in_cargo_target(exe: &std::path::Path) -> bool {
 /// Whether `pdfr` can be typed in a terminal.
 pub fn command_on_path() -> bool {
     let exe = if cfg!(windows) { "pdfr.exe" } else { "pdfr" };
-    std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d.join(exe).is_file()))
+    std::env::var_os("PATH")
+        .is_some_and(|p| std::env::split_paths(&p).any(|d| d.join(exe).is_file()))
 }
 
 /// Adds pdfr to the app menu, "Open with" and the terminal for this user

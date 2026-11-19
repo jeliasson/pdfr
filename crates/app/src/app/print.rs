@@ -116,7 +116,12 @@ impl App {
             .show(ctx, |ui| {
                 ui.set_width(420.0);
                 ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
-                ui.label(egui::RichText::new("Print").size(20.0).strong().color(c.text));
+                ui.label(
+                    egui::RichText::new("Print")
+                        .size(20.0)
+                        .strong()
+                        .color(c.text),
+                );
                 card(ui, &c, None, |ui| {
                     setting_row(ui, &c, "Printer", "", |ui| {
                         egui::ComboBox::from_id_salt("pdfr-printer")
@@ -159,7 +164,9 @@ impl App {
         let printer = d.printers[d.sel].name.clone();
         self.status = "Printing…".into();
         self.dialog_in_background(move || {
-            DialogResult::Printed(super::cups::print(&printer, &d.bytes, &d.title, d.copies).map(|_| true))
+            DialogResult::Printed(
+                super::cups::print(&printer, &d.bytes, &d.title, d.copies).map(|_| true),
+            )
         });
     }
 }

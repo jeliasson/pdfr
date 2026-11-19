@@ -5,7 +5,8 @@ use super::{APP_ID, DefaultApp, ICON_SVG, ICONS, InstallKind, mimeapps, portal};
 use std::path::{Path, PathBuf};
 
 const PDF: &str = "application/pdf";
-const DESKTOP_ENTRY: &str = include_str!("../../../../packaging/linux/io.github.kjellberg.pdfr.desktop");
+const DESKTOP_ENTRY: &str =
+    include_str!("../../../../packaging/linux/io.github.kjellberg.pdfr.desktop");
 
 fn desktop_id() -> String {
     format!("{APP_ID}.desktop")
@@ -143,7 +144,8 @@ pub fn make_default() -> Result<String, String> {
     for f in targets {
         let old = std::fs::read_to_string(&f).unwrap_or_default();
         let new = mimeapps::set_default(&old, PDF, &desktop_id());
-        write_atomic(&f, new.as_bytes()).map_err(|e| format!("could not update {}: {e}", f.display()))?;
+        write_atomic(&f, new.as_bytes())
+            .map_err(|e| format!("could not update {}: {e}", f.display()))?;
     }
     Ok("PDF files now open with pdfr.".into())
 }
@@ -208,9 +210,12 @@ pub fn install_kind() -> InstallKind {
         d.any(|e| {
             e.is_ok_and(|e| {
                 // "pdfr-0.1.0-1" or "pdfr-bin-0.1.0-1".
-                e.file_name().to_string_lossy().strip_prefix("pdfr-").is_some_and(|r| {
-                    r.starts_with(|c: char| c.is_ascii_digit()) || r.starts_with("bin-")
-                })
+                e.file_name()
+                    .to_string_lossy()
+                    .strip_prefix("pdfr-")
+                    .is_some_and(|r| {
+                        r.starts_with(|c: char| c.is_ascii_digit()) || r.starts_with("bin-")
+                    })
             })
         })
     });
@@ -294,11 +299,8 @@ pub fn register() -> Result<String, String> {
         }
         std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
     }
-    write_atomic(
-        &apps.join(desktop_id()),
-        desktop_entry_for(&exe).as_bytes(),
-    )
-    .map_err(|e| e.to_string())?;
+    write_atomic(&apps.join(desktop_id()), desktop_entry_for(&exe).as_bytes())
+        .map_err(|e| e.to_string())?;
     let mut done = vec!["added pdfr to the app menu and \u{201c}Open with\u{201d}".to_string()];
     if let Some(bin) = local_bin() {
         let link = bin.join("pdfr");
@@ -317,7 +319,10 @@ pub fn register() -> Result<String, String> {
                     done.push(if on_path {
                         "the pdfr command works in a terminal".into()
                     } else {
-                        format!("linked the pdfr command in {} (add it to your PATH)", bin.display())
+                        format!(
+                            "linked the pdfr command in {} (add it to your PATH)",
+                            bin.display()
+                        )
                     });
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
@@ -360,10 +365,7 @@ mod tests {
             exec_quote(Path::new("/home/a b/pdfr")),
             "\"/home/a b/pdfr\""
         );
-        assert_eq!(
-            exec_quote(Path::new("/x/$y/pdfr")),
-            "\"/x/\\\\$y/pdfr\""
-        );
+        assert_eq!(exec_quote(Path::new("/x/$y/pdfr")), "\"/x/\\\\$y/pdfr\"");
     }
 
     #[test]

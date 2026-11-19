@@ -96,7 +96,11 @@ pub fn remove_default(text: &str, mime: &str, drop: impl Fn(&str) -> bool) -> Op
             && let Some((k, v)) = t.split_once('=')
             && k.trim() == mime
         {
-            let ids: Vec<&str> = v.split(';').map(str::trim).filter(|s| !s.is_empty()).collect();
+            let ids: Vec<&str> = v
+                .split(';')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .collect();
             let keep: Vec<&str> = ids.iter().copied().filter(|id| !drop(id)).collect();
             if keep.len() != ids.len() {
                 changed = true;
@@ -193,10 +197,16 @@ mod tests {
     fn removes_only_pdfr_from_the_default() {
         let t = "[Default Applications]\napplication/pdf=pdfr.desktop;org.gnome.Evince.desktop;\ntext/plain=gedit.desktop;\n";
         let r = remove_default(t, PDF, |id| id == "pdfr.desktop").unwrap();
-        assert_eq!(r, "[Default Applications]\napplication/pdf=org.gnome.Evince.desktop;\ntext/plain=gedit.desktop;\n");
+        assert_eq!(
+            r,
+            "[Default Applications]\napplication/pdf=org.gnome.Evince.desktop;\ntext/plain=gedit.desktop;\n"
+        );
         let only = "[Default Applications]\napplication/pdf=pdfr.desktop;\n[Added Associations]\napplication/pdf=pdfr.desktop;\n";
         let r = remove_default(only, PDF, |id| id == "pdfr.desktop").unwrap();
-        assert_eq!(r, "[Default Applications]\n[Added Associations]\napplication/pdf=pdfr.desktop;\n");
+        assert_eq!(
+            r,
+            "[Default Applications]\n[Added Associations]\napplication/pdf=pdfr.desktop;\n"
+        );
         assert_eq!(remove_default(&r, PDF, |id| id == "pdfr.desktop"), None);
     }
 

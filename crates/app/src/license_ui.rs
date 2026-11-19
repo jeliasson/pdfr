@@ -26,8 +26,7 @@ const CHECK_EVERY: u64 = 24 * 60 * 60;
 /// …and at launch only if the last one is older than this.
 const CHECK_AT_LAUNCH: u64 = 60 * 60;
 
-const MESSAGE: &str =
-    "Using pdfr is free, but it may not always be. Sign up and register your copy for a free lifetime license.";
+const MESSAGE: &str = "Using pdfr is free, but it may not always be. Sign up and register your copy for a free lifetime license.";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Dialog {
@@ -152,7 +151,10 @@ impl LicenseUi {
 
     /// Saves a verified key and registers this copy.
     pub fn register(&mut self, l: License) -> Result<(), String> {
-        let dir = self.dir.as_ref().ok_or("No data folder to keep the key in.")?;
+        let dir = self
+            .dir
+            .as_ref()
+            .ok_or("No data folder to keep the key in.")?;
         lic::save_key(dir, &l.key).map_err(|e| format!("Couldn't save the key: {e}"))?;
         self.license = Some(l);
         self.state.last_check = 0;
@@ -263,7 +265,12 @@ impl LicenseUi {
                 ui.horizontal(|ui| {
                     let (r, _) = ui.allocate_exact_size(vec2(26.0, 26.0), egui::Sense::hover());
                     icons::paint(ui.painter(), r, Icon::Key, c.accent);
-                    ui.label(RichText::new("This copy of pdfr isn't registered").size(19.0).strong().color(c.text));
+                    ui.label(
+                        RichText::new("This copy of pdfr isn't registered")
+                            .size(19.0)
+                            .strong()
+                            .color(c.text),
+                    );
                 });
                 ui.add(egui::Label::new(RichText::new(MESSAGE).size(14.5).color(c.text)).wrap());
                 ui.add(
@@ -367,14 +374,26 @@ impl LicenseUi {
         }
     }
 
-    fn notice_window(&mut self, ctx: &egui::Context, pal: &Palette, c: &Colors, msg: &str, esc: bool) {
+    fn notice_window(
+        &mut self,
+        ctx: &egui::Context,
+        pal: &Palette,
+        c: &Colors,
+        msg: &str,
+        esc: bool,
+    ) {
         let mut close = esc;
         egui::Modal::new(Id::unique("pdfr-license-notice"))
             .frame(panel_frame(ctx, pal, c, 26))
             .show(ctx, |ui| {
                 ui.set_width(420.0);
                 ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
-                ui.label(RichText::new("Your pdfr licence").size(19.0).strong().color(c.text));
+                ui.label(
+                    RichText::new("Your pdfr licence")
+                        .size(19.0)
+                        .strong()
+                        .color(c.text),
+                );
                 ui.add(egui::Label::new(RichText::new(msg).color(c.text)).wrap());
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
@@ -403,13 +422,22 @@ impl LicenseUi {
                     });
                     row_divider(ui, c);
                     setting_row(ui, c, "Licence", "Lifetime: every update included.", |ui| {
-                        ui.label(RichText::new(format!("{} \u{b7} issued {}", l.plan.label(), l.issued)).color(c.text));
+                        ui.label(
+                            RichText::new(format!("{} \u{b7} issued {}", l.plan.label(), l.issued))
+                                .color(c.text),
+                        );
                     });
                     row_divider(ui, c);
                     let checked = match (self.state.last_check, self.state.last_status.as_deref()) {
-                        (0, _) => "Not checked online yet. pdfr checks once a day when it has internet.".to_string(),
-                        (_, Some("device_limit")) => "In use on too many computers. Free one on your account.".to_string(),
-                        _ => "Checked online. pdfr checks once a day when it has internet.".to_string(),
+                        (0, _) => {
+                            "Not checked online yet. pdfr checks once a day when it has internet."
+                                .to_string()
+                        }
+                        (_, Some("device_limit")) => {
+                            "In use on too many computers. Free one on your account.".to_string()
+                        }
+                        _ => "Checked online. pdfr checks once a day when it has internet."
+                            .to_string(),
                     };
                     setting_row(ui, c, "Computers", &checked, |ui| {
                         if secondary_button(ui, c, "Manage").clicked() {
@@ -429,7 +457,11 @@ impl LicenseUi {
                             "This computer becomes unregistered. The key stays on your account."
                         },
                         |ui| {
-                            let label = if confirming { "Remove" } else { "Remove\u{2026}" };
+                            let label = if confirming {
+                                "Remove"
+                            } else {
+                                "Remove\u{2026}"
+                            };
                             if danger_button(ui, label, confirming).clicked() {
                                 if confirming {
                                     self.unregister();
@@ -457,17 +489,35 @@ impl LicenseUi {
                     note(ui, c, "The key on this computer was revoked by pdfr.app.");
                 }
                 card(ui, c, Some("Plans"), |ui| {
-                    setting_row(ui, c, "Personal", "Free for life, one key per account. Non-commercial use.", |ui| {
-                        ui.label(RichText::new("Free").color(c.text));
-                    });
+                    setting_row(
+                        ui,
+                        c,
+                        "Personal",
+                        "Free for life, one key per account. Non-commercial use.",
+                        |ui| {
+                            ui.label(RichText::new("Free").color(c.text));
+                        },
+                    );
                     row_divider(ui, c);
-                    setting_row(ui, c, "Business", "Use pdfr at work. One key per person, up to 3 computers.", |ui| {
-                        ui.label(RichText::new("$39 once").color(c.text));
-                    });
+                    setting_row(
+                        ui,
+                        c,
+                        "Business",
+                        "Use pdfr at work. One key per person, up to 3 computers.",
+                        |ui| {
+                            ui.label(RichText::new("$39 once").color(c.text));
+                        },
+                    );
                     row_divider(ui, c);
-                    setting_row(ui, c, "Founder", "100 keys to use, give away or resell, and your name on pdfr.app.", |ui| {
-                        ui.label(RichText::new("$499 once").color(c.text));
-                    });
+                    setting_row(
+                        ui,
+                        c,
+                        "Founder",
+                        "100 keys to use, give away or resell, and your name on pdfr.app.",
+                        |ui| {
+                            ui.label(RichText::new("$499 once").color(c.text));
+                        },
+                    );
                 });
                 if link(ui, c, "Compare plans on pdfr.app").clicked() {
                     let _ = crate::system::open_url(lic::PRICING_URL);
@@ -482,8 +532,10 @@ fn tick(ui: &mut Ui, color: egui::Color32, side: f32) {
     let (rect, _) = ui.allocate_exact_size(vec2(side, side), egui::Sense::hover());
     let s = egui::Stroke::new(2.0, color);
     let pt = |x: f32, y: f32| rect.min + vec2(x * rect.width(), y * rect.height());
-    ui.painter().line_segment([pt(0.18, 0.52), pt(0.42, 0.75)], s);
-    ui.painter().line_segment([pt(0.42, 0.75), pt(0.84, 0.25)], s);
+    ui.painter()
+        .line_segment([pt(0.18, 0.52), pt(0.42, 0.75)], s);
+    ui.painter()
+        .line_segment([pt(0.42, 0.75), pt(0.84, 0.25)], s);
 }
 
 /// Text with a tick before it, in a right-to-left control slot.
@@ -535,7 +587,11 @@ mod tests {
         u.tick(&ctx, true);
         assert_eq!(u.dialog, None, "not over another dialog");
         u.tick(&ctx, false);
-        assert_eq!(u.dialog, Some(Dialog::Nag), "at launch after the grace period");
+        assert_eq!(
+            u.dialog,
+            Some(Dialog::Nag),
+            "at launch after the grace period"
+        );
         u.closed();
         u.tick(&ctx, false);
         assert_eq!(u.dialog, None, "not again straight away");
@@ -559,7 +615,8 @@ mod tests {
         let d = dir("registered");
         let mut u = ui(&d);
         age(&mut u, &d, GRACE.as_secs() * 2);
-        u.register(lic::verify(lic::TEST_KEY, &lic::test_keys()).unwrap()).unwrap();
+        u.register(lic::verify(lic::TEST_KEY, &lic::test_keys()).unwrap())
+            .unwrap();
         let ctx = egui::Context::default();
         u.tick(&ctx, false);
         for _ in 0..SAVES * 2 {
@@ -576,7 +633,8 @@ mod tests {
     fn online_answers() {
         let d = dir("answers");
         let mut u = ui(&d);
-        u.register(lic::verify(lic::TEST_KEY, &lic::test_keys()).unwrap()).unwrap();
+        u.register(lic::verify(lic::TEST_KEY, &lic::test_keys()).unwrap())
+            .unwrap();
         u.apply_answer("active", None);
         assert!(u.registered());
         u.apply_answer("device_limit", Some("Too many".into()));

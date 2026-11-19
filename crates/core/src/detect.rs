@@ -581,9 +581,10 @@ fn dotted_lines(m: &Masks, scale: f32) -> Vec<Seg> {
     out.sort_by(|a, b| a.a0.total_cmp(&b.a0));
     let mut kept: Vec<Seg> = Vec::new();
     for s in out {
-        if let Some(o) = kept.iter_mut().find(|o| {
-            (s.pos - o.pos).abs() <= 1.5 && s.a0 <= o.a1 + 3.0 && o.a0 <= s.a1 + 3.0
-        }) {
+        if let Some(o) = kept
+            .iter_mut()
+            .find(|o| (s.pos - o.pos).abs() <= 1.5 && s.a0 <= o.a1 + 3.0 && o.a0 <= s.a1 + 3.0)
+        {
             o.a0 = o.a0.min(s.a0);
             o.a1 = o.a1.max(s.a1);
             continue;
@@ -1029,7 +1030,12 @@ pub fn detect_with_analysis(g: &Gray) -> (Vec<Field>, Analysis) {
     let flat_g;
     let g = match &flat {
         Some(px) => {
-            flat_g = Gray { w: g.w, h: g.h, px, scale: g.scale };
+            flat_g = Gray {
+                w: g.w,
+                h: g.h,
+                px,
+                scale: g.scale,
+            };
             &flat_g
         }
         None => g,

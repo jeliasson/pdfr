@@ -39,7 +39,9 @@ pub fn can_make_default() -> bool {
 /// The running app's bundle, when started from pdfr.app.
 fn bundle_url() -> Option<objc2::rc::Retained<NSURL>> {
     let exe = std::env::current_exe().ok()?;
-    let app = exe.ancestors().find(|p| p.extension().is_some_and(|e| e == "app"))?;
+    let app = exe
+        .ancestors()
+        .find(|p| p.extension().is_some_and(|e| e == "app"))?;
     let s = NSString::from_str(&app.to_string_lossy());
     Some(NSURL::fileURLWithPath(&s))
 }

@@ -53,7 +53,14 @@ fn uuid_v4() -> String {
     b[6] = (b[6] & 0x0f) | 0x40;
     b[8] = (b[8] & 0x3f) | 0x80;
     let h: String = b.iter().map(|x| format!("{x:02x}")).collect();
-    format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..])
+    format!(
+        "{}-{}-{}-{}-{}",
+        &h[0..8],
+        &h[8..12],
+        &h[12..16],
+        &h[16..20],
+        &h[20..]
+    )
 }
 
 fn today() -> String {
@@ -94,11 +101,18 @@ fn main() {
             );
             write_private(&out, &body);
             println!("Wrote {out}\n");
-            println!("pdfr.app secret:\n  LICENSE_KID={kid}\n  LICENSE_SIGNING_KEY={}\n  LICENSE_PUBLIC_KEY={}\n", lic::encode(&seed), lic::encode(&public));
-            println!("pdfr TRUSTED_KEYS entry (crates/license/src/lib.rs):\n  ({kid}, {public:?}),");
+            println!(
+                "pdfr.app secret:\n  LICENSE_KID={kid}\n  LICENSE_SIGNING_KEY={}\n  LICENSE_PUBLIC_KEY={}\n",
+                lic::encode(&seed),
+                lic::encode(&public)
+            );
+            println!(
+                "pdfr TRUSTED_KEYS entry (crates/license/src/lib.rs):\n  ({kid}, {public:?}),"
+            );
         }
         Some("issue") => {
-            let (kid, seed) = read_key(&arg(&args, "--key").unwrap_or_else(|| fail("--key <file> is required")));
+            let (kid, seed) =
+                read_key(&arg(&args, "--key").unwrap_or_else(|| fail("--key <file> is required")));
             let name = arg(&args, "--name").unwrap_or_else(|| fail("--name is required"));
             let payload = lic::Payload {
                 v: 1,
@@ -114,7 +128,9 @@ fn main() {
             let key = args.get(1).unwrap_or_else(|| fail("verify needs a key"));
             let mut keys = lic::trusted_keys();
             if let Some(p) = arg(&args, "--public") {
-                keys.push(lic::parse_public(&p).unwrap_or_else(|| fail("--public is <kid>:<base64url>")));
+                keys.push(
+                    lic::parse_public(&p).unwrap_or_else(|| fail("--public is <kid>:<base64url>")),
+                );
             }
             match lic::verify(key, &keys) {
                 Ok(l) => println!(

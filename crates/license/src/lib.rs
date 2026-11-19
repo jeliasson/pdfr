@@ -126,7 +126,10 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::NotFound => write!(f, "No licence key found. Keys start with \"PDFR1.\"."),
-            Error::Malformed => write!(f, "This key is incomplete. Copy the whole key and try again."),
+            Error::Malformed => write!(
+                f,
+                "This key is incomplete. Copy the whole key and try again."
+            ),
             Error::UnknownSigner(_) => {
                 write!(f, "This key isn't from pdfr.app, or needs a newer pdfr.")
             }
@@ -219,7 +222,11 @@ pub fn verify(text: &str, keys: &[(u8, [u8; 32])]) -> Result<License, Error> {
 pub fn issue(payload: &Payload, seed: &[u8; 32]) -> String {
     let bytes = serde_json::to_vec(payload).expect("payload serialises");
     let sig = SigningKey::from_bytes(seed).sign(&bytes);
-    format!("{PREFIX}{}.{}", B64.encode(&bytes), B64.encode(sig.to_bytes()))
+    format!(
+        "{PREFIX}{}.{}",
+        B64.encode(&bytes),
+        B64.encode(sig.to_bytes())
+    )
 }
 
 /// The public key for a private seed.
@@ -452,7 +459,10 @@ mod tests {
     fn rejects() {
         let k = key("personal", "Jane");
         assert_eq!(verify("hello", &test_keys()), Err(Error::NotFound));
-        assert_eq!(verify(&k[..k.len() - 5], &test_keys()), Err(Error::Malformed));
+        assert_eq!(
+            verify(&k[..k.len() - 5], &test_keys()),
+            Err(Error::Malformed)
+        );
         assert_eq!(verify(&k, &[]), Err(Error::UnknownSigner(TEST_KID)));
         // Another payload under the same signature.
         let other = key("founder", "Jane");
@@ -480,7 +490,10 @@ mod tests {
         // Newer format.
         let mut p = test_payload();
         p.v = 2;
-        assert_eq!(verify(&issue(&p, &TEST_SEED), &test_keys()), Err(Error::Version(2)));
+        assert_eq!(
+            verify(&issue(&p, &TEST_SEED), &test_keys()),
+            Err(Error::Version(2))
+        );
     }
 
     #[test]
@@ -496,7 +509,11 @@ mod tests {
         let id = install_id(&dir);
         assert_eq!(id.len(), 32);
         assert_eq!(install_id(&dir), id);
-        let s = State { first_run: 5, saves: 2, ..Default::default() };
+        let s = State {
+            first_run: 5,
+            saves: 2,
+            ..Default::default()
+        };
         s.save(&dir).unwrap();
         assert_eq!(State::load(&dir), s);
         let _ = std::fs::remove_dir_all(&dir);

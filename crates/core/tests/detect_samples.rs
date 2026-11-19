@@ -128,7 +128,10 @@ fn scanned_household_form_finds_every_field() {
     let vals: Value = serde_json::from_slice(&sample("household_values.json")).unwrap();
     let mut missed = Vec::new();
     for v in vals.as_array().unwrap() {
-        let (x, y) = (v["x"].as_f64().unwrap() as f32, v["y"].as_f64().unwrap() as f32);
+        let (x, y) = (
+            v["x"].as_f64().unwrap() as f32,
+            v["y"].as_f64().unwrap() as f32,
+        );
         let hit = fields.iter().any(|f| {
             let r = f.rect;
             r.x0 - 2.0 <= x && x <= r.x1 + 2.0 && r.y0 - 6.0 <= y && y <= r.y1 + 6.0
@@ -162,5 +165,10 @@ fn hand_drawn_boxes() {
             fields.iter().map(|f| f.rect).collect::<Vec<_>>()
         );
     }
-    assert_eq!(fields.len(), spots.len(), "{:?}", fields.iter().map(|f| f.rect).collect::<Vec<_>>());
+    assert_eq!(
+        fields.len(),
+        spots.len(),
+        "{:?}",
+        fields.iter().map(|f| f.rect).collect::<Vec<_>>()
+    );
 }

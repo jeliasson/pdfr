@@ -131,7 +131,10 @@ mod tests {
             parse_latest(r#"{"tag_name":"v0.3.1","prerelease":false,"name":"x"}"#).as_deref(),
             Some("0.3.1")
         );
-        assert_eq!(parse_latest(r#"{"tag_name":"v0.4.0","prerelease":true}"#), None);
+        assert_eq!(
+            parse_latest(r#"{"tag_name":"v0.4.0","prerelease":true}"#),
+            None
+        );
         assert_eq!(parse_latest(r#"{"message":"Not Found"}"#), None);
         assert_eq!(parse_latest("<html>"), None);
     }
@@ -147,6 +150,9 @@ mod live {
         println!("{r:?}");
         // Before the first release GitHub answers 404; any HTTP answer
         // proves the TLS connection works.
-        assert!(r.is_ok() || r.as_ref().unwrap_err().contains("404"), "{r:?}");
+        assert!(
+            r.is_ok() || r.as_ref().unwrap_err().contains("404"),
+            "{r:?}"
+        );
     }
 }

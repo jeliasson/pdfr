@@ -115,7 +115,8 @@ pub fn watch_color_scheme(ctx: eframe::egui::Context) {
                 }
                 let Ok(mut stream) = stream else { return };
                 while let Some(Ok(msg)) = stream.next().await {
-                    if let Ok((ns, key, v)) = msg.body().deserialize::<(String, String, OwnedValue)>()
+                    if let Ok((ns, key, v)) =
+                        msg.body().deserialize::<(String, String, OwnedValue)>()
                         && ns == "org.freedesktop.appearance"
                         && key == "color-scheme"
                         && let Some(n) = unwrap_u32(&v)
@@ -151,10 +152,7 @@ mod tests {
     #[test]
     fn colour_scheme_values() {
         assert_eq!(unwrap_u32(&Value::U32(1)), Some(1));
-        assert_eq!(
-            unwrap_u32(&Value::Value(Box::new(Value::U32(2)))),
-            Some(2)
-        );
+        assert_eq!(unwrap_u32(&Value::Value(Box::new(Value::U32(2)))), Some(2));
         assert_eq!(unwrap_u32(&Value::from("x")), None);
     }
 }

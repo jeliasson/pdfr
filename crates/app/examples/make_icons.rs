@@ -20,8 +20,8 @@ fn source_for(size: u32) -> &'static str {
 
 fn render(dir: &Path, svg: &str, size: u32) -> Vec<u8> {
     let data = std::fs::read(dir.join(svg)).expect("read svg");
-    let tree = resvg::usvg::Tree::from_data(&data, &resvg::usvg::Options::default())
-        .expect("parse svg");
+    let tree =
+        resvg::usvg::Tree::from_data(&data, &resvg::usvg::Options::default()).expect("parse svg");
     let mut pixmap = resvg::tiny_skia::Pixmap::new(size, size).unwrap();
     let scale = size as f32 / tree.size().width();
     resvg::render(

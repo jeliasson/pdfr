@@ -117,7 +117,10 @@ mod tests {
     fn reads_answers() {
         assert_eq!(
             parse(r#"{"status":"active","manage_url":"https://pdfr.app/account"}"#),
-            Some(Answer { status: "active".into(), message: None })
+            Some(Answer {
+                status: "active".into(),
+                message: None
+            })
         );
         let a = parse(r#"{"status":"revoked","message":"The purchase was refunded."}"#).unwrap();
         assert_eq!(a.status, "revoked");

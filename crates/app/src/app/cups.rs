@@ -32,7 +32,11 @@ pub struct Printer {
 
 impl Printer {
     pub fn label(&self) -> &str {
-        if self.info.is_empty() { &self.name } else { &self.info }
+        if self.info.is_empty() {
+            &self.name
+        } else {
+            &self.info
+        }
     }
 }
 
@@ -105,7 +109,10 @@ fn parse(body: &[u8]) -> Result<(u16, Vec<Attr>), String> {
             continue;
         }
         let rd = |i: &mut usize| -> Result<Vec<u8>, String> {
-            let n = u16::from_be_bytes([*body.get(*i).ok_or_else(bad)?, *body.get(*i + 1).ok_or_else(bad)?]) as usize;
+            let n = u16::from_be_bytes([
+                *body.get(*i).ok_or_else(bad)?,
+                *body.get(*i + 1).ok_or_else(bad)?,
+            ]) as usize;
             *i += 2;
             let v = body.get(*i..*i + n).ok_or_else(bad)?.to_vec();
             *i += n;
@@ -199,7 +206,9 @@ pub fn printers() -> Result<(Vec<Printer>, Option<String>), String> {
         .more(T_KEYWORD, b"printer-info");
     let (status, attrs) = call("/", &r.finish(&[]))?;
     if status > 0xff && status != 0x0406 {
-        return Err(format!("the printing service answered with error {status:#06x}"));
+        return Err(format!(
+            "the printing service answered with error {status:#06x}"
+        ));
     }
     // One printer-attributes group per printer.
     let mut by_group: Vec<(usize, Printer)> = Vec::new();
@@ -208,7 +217,13 @@ pub fn printers() -> Result<(Vec<Printer>, Option<String>), String> {
             continue;
         }
         if by_group.last().is_none_or(|(n, _)| n != no) {
-            by_group.push((*no, Printer { name: String::new(), info: String::new() }));
+            by_group.push((
+                *no,
+                Printer {
+                    name: String::new(),
+                    info: String::new(),
+                },
+            ));
         }
         let p = &mut by_group.last_mut().unwrap().1;
         match name.as_str() {
@@ -247,7 +262,9 @@ pub fn print(printer: &str, pdf: &[u8], title: &str, copies: u32) -> Result<(), 
     if status <= 0xff {
         Ok(())
     } else {
-        Err(format!("the printer did not accept the document (error {status:#06x})"))
+        Err(format!(
+            "the printer did not accept the document (error {status:#06x})"
+        ))
     }
 }
 
@@ -286,7 +303,11 @@ mod tests {
         b.push(G_END);
         let (status, attrs) = parse(&b).unwrap();
         assert_eq!(status, 0);
-        let groups: Vec<_> = attrs.iter().filter(|a| a.0 == G_PRINTER).map(|a| a.1).collect();
+        let groups: Vec<_> = attrs
+            .iter()
+            .filter(|a| a.0 == G_PRINTER)
+            .map(|a| a.1)
+            .collect();
         assert_eq!(groups, vec![2, 3, 3]);
         assert!(parse(&[1, 1]).is_err());
     }
@@ -298,7 +319,10 @@ mod tests {
 
     #[test]
     fn printer_labels() {
-        let p = Printer { name: "HP_OfficeJet".into(), info: String::new() };
+        let p = Printer {
+            name: "HP_OfficeJet".into(),
+            info: String::new(),
+        };
         assert_eq!(p.label(), "HP_OfficeJet");
     }
 }
