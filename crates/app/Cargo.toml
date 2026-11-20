@@ -19,6 +19,8 @@ path = "src/main.rs"
 pdfr-core = { path = "../core" }
 pdfr-assist = { path = "../assist" }
 pdfr-license = { path = "../license" }
+pdfr-sign = { path = "../sign" }
+zeroize = "1"
 eframe = { version = "0.37", default-features = false, features = ["glow", "x11", "wayland", "clipboard", "default_fonts", "accesskit"] }
 rfd = "0.18"
 pollster = "1"

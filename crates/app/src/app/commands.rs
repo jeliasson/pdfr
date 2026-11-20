@@ -40,6 +40,7 @@ pub enum Command {
     AddCheckbox,
     Sign,
     Initials,
+    SignDigitally,
     TodaysDate,
     Settings,
     Register,
@@ -118,6 +119,7 @@ const COPY: &[KeyboardShortcut] = &[ctrl(Key::C)];
 const FIND_BOX: &[KeyboardShortcut] = &[ctrl_shift(Key::F)];
 const SIGN: &[KeyboardShortcut] = &[ctrl(Key::I)];
 const INITIALS: &[KeyboardShortcut] = &[ctrl_shift(Key::I)];
+const SIGN_DIGITALLY: &[KeyboardShortcut] = &[ctrl_shift(Key::C)];
 const TODAY: &[KeyboardShortcut] = &[ctrl_shift(Key::D)];
 const REMOVE_FIELD: &[KeyboardShortcut] = &[ctrl_shift(Key::Delete)];
 const PALETTE: &[KeyboardShortcut] = &[ctrl_shift(Key::P), ctrl(Key::Space)];
@@ -151,6 +153,7 @@ impl Command {
         Command::AddCheckbox,
         Command::Sign,
         Command::Initials,
+        Command::SignDigitally,
         Command::TodaysDate,
         Command::Settings,
         Command::Register,
@@ -292,6 +295,12 @@ impl Command {
                 "Draw or type your signature, then click where it goes",
                 Icon::Signature,
                 SIGN,
+            ),
+            SignDigitally => (
+                "Sign with certificate",
+                "Sign digitally with your certificate, ID card or .p12 file",
+                Icon::Key,
+                SIGN_DIGITALLY,
             ),
             Initials => (
                 "Initials",
@@ -438,6 +447,7 @@ impl App {
             Save | SaveAs => editable && !self.dialog_open(),
             Print => doc.is_some() && super::print::AVAILABLE && !self.dialog_open(),
             AddTextField | AddCheckbox | Sign | Initials | TodaysDate => editable,
+            SignDigitally => editable && !self.digital.busy() && !self.dialog_open(),
             Undo => doc.is_some() && !self.undo.is_empty(),
             Redo => doc.is_some() && !self.redo.is_empty(),
             ZoomOut | ZoomIn | ActualSize | FitWidth | FitPage | Sidebar => doc.is_some(),
@@ -465,6 +475,11 @@ impl App {
             Command::Sign => {
                 (self.tool == Tool::PlaceSignature && !self.placing_initials)
                     || self.sign.as_ref().is_some_and(|s| !s.initials)
+            }
+            Command::SignDigitally => {
+                self.digital.dialog.is_some()
+                    || self.digital.pending.is_some()
+                    || self.digital.busy()
             }
             Command::Initials => {
                 (self.tool == Tool::PlaceSignature && self.placing_initials)
@@ -562,6 +577,16 @@ impl App {
                 self.rotate_pages((0..n).collect(), 1);
             }
             Sidebar => self.toggle_sidebar(),
+            SignDigitally => {
+                if self.digital.pending.is_some() {
+                    self.digital.pending = None;
+                    self.tool = Tool::None;
+                    self.placing = None;
+                } else {
+                    let target = self.focused_sign_target();
+                    self.open_digital(target);
+                }
+            }
             Initials => {
                 if self.tool == Tool::PlaceSignature {
                     self.tool = Tool::None;

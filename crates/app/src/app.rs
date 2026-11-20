@@ -195,6 +195,8 @@ pub struct App {
     placing_initials: bool,
     /// A placed signature being moved or resized.
     sig_drag: Option<signature::SigDrag>,
+    /// Signing with a certificate, and the open file's signature checks.
+    digital: digital_sign::DigitalState,
     /// The text search (Ctrl+F): query, hits, highlights.
     search: Option<search::Search>,
     /// Page text selected with the mouse.
@@ -311,6 +313,7 @@ impl App {
             placing: None,
             placing_initials: false,
             sig_drag: None,
+            digital: Default::default(),
             search: None,
             text_sel: None,
             page_menu_open: false,
@@ -656,6 +659,7 @@ impl eframe::App for App {
         self.assist.notices(&ctx, &self.palette, automated);
         self.overlay_ui(&ctx);
         self.sign_window(&ctx);
+        self.digital_window(&ctx);
         self.password_window(&ctx);
         // The reminder waits while anything else asks for attention.
         let busy = self.confirm.is_some()
@@ -663,6 +667,7 @@ impl eframe::App for App {
             || self.assist.settings_open
             || self.overlay.is_some()
             || self.sign.is_some()
+            || self.digital.dialog.is_some()
             || self.password.is_some()
             || self.dialog_open();
         self.license.tick(&ctx, busy);
@@ -737,6 +742,7 @@ use files::ParentWindow;
 mod commands;
 #[cfg(target_os = "linux")]
 mod cups;
+mod digital_sign;
 mod editing;
 mod files;
 mod hints;

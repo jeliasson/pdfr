@@ -16,6 +16,24 @@ version's section into its GitHub release notes.
 
 ### Added
 
+- **Sign with a certificate** (Ctrl+Shift+C). Besides the drawn signature,
+  pdfr now makes real digital signatures (PAdES, as eIDAS asks) with the
+  certificates already on your computer: those installed in Chrome,
+  Chromium or Firefox (such as the Spanish FNMT certificate), ID cards and
+  USB tokens, or a .p12 / .pfx file. Choose how it looks (your signature
+  with who signed and when, only the details, or invisible), click where
+  it goes, and save the signed copy. A trusted timestamp is added by
+  default; only a fingerprint of the signature is sent for it, never the
+  document. The private key never leaves the browser's store or the card,
+  and pdfr never stores a PIN or password.
+- **Checks signatures.** Signed PDFs show their signatures in the sidebar:
+  who signed, when, whether the document is as it was signed, and whether
+  it was changed afterwards (filling in a form or adding a comment is
+  allowed; changing the pages is not).
+- **Signed files stay signed.** Changes to a signed PDF are added after
+  its signatures instead of rewriting the file, so they stay valid.
+- **Signature pictures.** The Sign dialog has an Image tab: choose a photo
+  or scan of your signature, and pdfr removes the paper around it.
 - **Grey panels are fields.** Forms made in Word often mark each answer
   with a light grey panel and a caption under it, without any outline.
   pdfr now finds those panels and lets you type in them.

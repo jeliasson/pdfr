@@ -379,8 +379,71 @@ impl AssistState {
         note(
             ui,
             c,
-            "For new signatures. Right-click a signature to change it. These are drawn signatures, not cryptographic ones.",
+            "For new drawn signatures. Right-click a signature to change it. To sign with a certificate, use Sign with certificate (Ctrl+Shift+C).",
         );
+        card(ui, c, Some("Signing with a certificate"), |ui| {
+            let st = &mut self.a.store.settings;
+            let mut on = st.sign_timestamp;
+            setting_row(
+                ui,
+                c,
+                "Add a trusted timestamp",
+                "Proves when you signed, and keeps the signature checkable after your certificate expires. Only a fingerprint of the signature is sent to the timestamp server, never the document.",
+                |ui| {
+                    if toggle(ui, c, &mut on).changed() {
+                        st.sign_timestamp = on;
+                        changed = true;
+                    }
+                },
+            );
+            if st.sign_timestamp {
+                row_divider(ui, c);
+                setting_row(
+                    ui,
+                    c,
+                    "Timestamp server",
+                    "Leave empty for pdfr's default.",
+                    |ui| {
+                        if ui
+                            .add(
+                                egui::TextEdit::singleline(&mut st.tsa_url)
+                                    .hint_text(pdfr_sign::tsa::DEFAULT_TSA)
+                                    .desired_width(240.0),
+                            )
+                            .changed()
+                        {
+                            changed = true;
+                        }
+                    },
+                );
+            }
+            row_divider(ui, c);
+            let nss = pdfr_sign::signer::pkcs11::nss_dir();
+            let where_ = match &nss {
+                Some(d) => format!(
+                    "Certificates installed in your browser ({}), ID cards and tokens, and .p12 files you choose. pdfr never stores a PIN or password.",
+                    d.display()
+                ),
+                None => "ID cards and tokens, and .p12 files you choose. No browser certificate store was found. pdfr never stores a PIN or password.".into(),
+            };
+            setting_row(ui, c, "Where certificates come from", &where_, |_| {});
+            if !st.cert_files.is_empty() {
+                row_divider(ui, c);
+                let mut forget = false;
+                setting_row(
+                    ui,
+                    c,
+                    "Certificate files used before",
+                    &format!("{} listed in the signing dialog.", st.cert_files.len()),
+                    |ui| forget = secondary_button(ui, c, "Forget").clicked(),
+                );
+                if forget {
+                    st.cert_files.clear();
+                    st.last_cert.clear();
+                    changed = true;
+                }
+            }
+        });
         changed
     }
 

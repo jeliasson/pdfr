@@ -65,6 +65,25 @@ pub struct Settings {
     /// Recently opened files, newest first.
     #[serde(default)]
     pub recent: Vec<RecentFile>,
+    /// Digital signatures get a trusted timestamp (only a hash is sent to
+    /// the timestamp server).
+    #[serde(default = "yes")]
+    pub sign_timestamp: bool,
+    /// The timestamp server; empty means pdfr's default.
+    #[serde(default)]
+    pub tsa_url: String,
+    /// Reason and place written into new digital signatures.
+    #[serde(default)]
+    pub sign_reason: String,
+    #[serde(default)]
+    pub sign_location: String,
+    /// The certificate last signed with (SHA-256 fingerprint), offered
+    /// first next time. Never a PIN or password.
+    #[serde(default)]
+    pub last_cert: String,
+    /// .p12 / .pfx files signed with before (paths only).
+    #[serde(default)]
+    pub cert_files: Vec<String>,
 }
 
 /// A recently opened file and where it was left.
@@ -118,6 +137,12 @@ impl Default for Settings {
             show_fields: true,
             remember_recent: true,
             recent: vec![],
+            sign_timestamp: true,
+            tsa_url: String::new(),
+            sign_reason: String::new(),
+            sign_location: String::new(),
+            last_cert: String::new(),
+            cert_files: vec![],
         }
     }
 }

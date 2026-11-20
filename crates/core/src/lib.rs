@@ -3,6 +3,7 @@
 
 pub mod demo;
 pub mod detect;
+pub mod digital;
 pub mod edit;
 pub mod field;
 pub mod flatten;

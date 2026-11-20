@@ -447,11 +447,85 @@ fn cells_are_even(rect: &Rect, cells: &[(f32, f32)]) -> bool {
 }
 
 /// Saves `fields` into a copy of the document and returns the new file bytes.
+///
+/// A digitally signed file gets the changes appended after its signatures
+/// (an incremental update), so they stay valid; other files are rewritten.
 pub fn save(fd: &FormDoc, fields: &[Field]) -> Result<Vec<u8>, SaveError> {
+    let d = build(fd, fields)?;
+    write_doc(fd, &d)
+}
+
+/// The new file bytes for `d`, a changed copy of `fd`'s document.
+pub(crate) fn write_doc(fd: &FormDoc, d: &Document) -> Result<Vec<u8>, SaveError> {
+    let Some(orig) = &fd.doc else {
+        return Err(SaveError::ReadOnly);
+    };
+    if fd.is_digitally_signed() {
+        return append_update(&fd.bytes, orig, d);
+    }
+    let mut out = Vec::new();
+    d.clone()
+        .save_to(&mut out)
+        .map_err(|e| SaveError::Write(e.to_string()))?;
+    Ok(out)
+}
+
+/// `prev_bytes` (the file `prev` was read from) followed by an incremental
+/// update holding the objects of `cur` that are new or changed. Nothing
+/// before the update changes, so signatures over it stay valid.
+pub(crate) fn append_update(
+    prev_bytes: &[u8],
+    prev: &Document,
+    cur: &Document,
+) -> Result<Vec<u8>, SaveError> {
+    if prev.xref_start == 0 {
+        // A file whose cross-reference table had to be rebuilt: an update
+        // could not point back at it.
+        return Err(SaveError::Write(
+            "the file's structure is damaged, so changes cannot be added after its signatures"
+                .into(),
+        ));
+    }
+    let mut inc = lopdf::IncrementalDocument::create_from(prev_bytes.to_vec(), prev.clone());
+    for (id, o) in &cur.objects {
+        if prev.objects.get(id) != Some(o) {
+            inc.new_document.objects.insert(*id, o.clone());
+        }
+    }
+    inc.new_document.max_id = cur.max_id.max(prev.max_id);
+    let t = &mut inc.new_document.trailer;
+    // The previous trailer may be a cross-reference stream's dictionary;
+    // only the document keys carry over.
+    for k in [
+        &b"Type"[..],
+        b"W",
+        b"Index",
+        b"Filter",
+        b"DecodeParms",
+        b"Length",
+        b"XRefStm",
+    ] {
+        t.remove(k);
+    }
+    for k in [&b"Root"[..], b"Info"] {
+        if let Ok(v) = cur.trailer.get(k) {
+            t.set(k, v.clone());
+        }
+    }
+    let mut out = Vec::new();
+    inc.save_to(&mut out)
+        .map_err(|e| SaveError::Write(e.to_string()))?;
+    Ok(out)
+}
+
+/// `fd`'s document with `fields` written into it.
+pub(crate) fn build(fd: &FormDoc, fields: &[Field]) -> Result<Document, SaveError> {
     let Some(orig) = &fd.doc else {
         return Err(SaveError::ReadOnly);
     };
     let mut d = orig.clone();
+    // Page content of a digitally signed file stays as it was signed.
+    let signed = fd.is_digitally_signed();
     // pdfr's earlier signature annotations are written afresh from `fields`
     // (they may have been moved, resized or removed).
     crate::signature::remove_all(&mut d, &fd.page_ids);
@@ -540,7 +614,7 @@ pub fn save(fd: &FormDoc, fields: &[Field]) -> Result<Vec<u8>, SaveError> {
                     continue;
                 };
                 if f.kind.is_signature() {
-                    crate::signature::write(&mut d, page_id, f, &geom);
+                    crate::signature::write(&mut d, page_id, f, &geom, !signed);
                     continue;
                 }
                 new_count += 1;
@@ -663,10 +737,7 @@ pub fn save(fd: &FormDoc, fields: &[Field]) -> Result<Vec<u8>, SaveError> {
     if new_count > 0 {
         ensure_helv(&mut d, form);
     }
-    let mut out = Vec::new();
-    d.save_to(&mut out)
-        .map_err(|e| SaveError::Write(e.to_string()))?;
-    Ok(out)
+    Ok(d)
 }
 
 /// Top-level field names (`/T`) in `/AcroForm /Fields`.

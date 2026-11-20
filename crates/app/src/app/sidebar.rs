@@ -15,6 +15,8 @@ pub(super) enum SideTab {
     #[default]
     Pages,
     Outline,
+    /// The document's digital signatures and their checks.
+    Signatures,
 }
 
 impl App {
@@ -46,12 +48,25 @@ impl App {
             .doc
             .as_ref()
             .is_some_and(|d| !d.form.outline.is_empty());
-        if !has_outline {
+        let signed = self
+            .doc
+            .as_ref()
+            .is_some_and(|d| d.form.is_digitally_signed());
+        if (!has_outline && self.side_tab == SideTab::Outline)
+            || (!signed && self.side_tab == SideTab::Signatures)
+        {
             self.side_tab = SideTab::Pages;
         }
-        if has_outline {
+        if has_outline || signed {
+            let mut tabs = vec![(SideTab::Pages, "Pages")];
+            if has_outline {
+                tabs.push((SideTab::Outline, "Outline"));
+            }
+            if signed {
+                tabs.push((SideTab::Signatures, "Signatures"));
+            }
             ui.horizontal(|ui| {
-                for (t, label) in [(SideTab::Pages, "Pages"), (SideTab::Outline, "Outline")] {
+                for (t, label) in tabs {
                     if ui.selectable_label(self.side_tab == t, label).clicked() {
                         self.side_tab = t;
                     }
@@ -62,6 +77,7 @@ impl App {
         match self.side_tab {
             SideTab::Pages => self.thumbnails(ui, &c),
             SideTab::Outline => self.outline(ui, &c),
+            SideTab::Signatures => self.signatures_panel(ui, &c),
         }
     }
 

@@ -24,6 +24,16 @@ const HANDLE: f32 = 9.0;
 pub(super) enum SignTab {
     Draw,
     Type,
+    /// A photo or scan of a signature.
+    Image,
+}
+
+/// A picture chosen on the Image tab: the original (scaled down once),
+/// how light counts as paper, and the cleaned-up result.
+pub(super) struct Picture {
+    original: pdfr_core::signature::SigImage,
+    threshold: u8,
+    ink: Option<Arc<Ink>>,
 }
 
 pub(super) struct SignDialog {
@@ -38,6 +48,8 @@ pub(super) struct SignDialog {
     /// Where the signature goes once made, if already known.
     target: Option<Target>,
     typed: Option<(String, Arc<Ink>)>,
+    picture: Option<Picture>,
+    picture_error: Option<String>,
 }
 
 /// A spot to sign: a "sign here" field of the PDF (filled as a box) or a
@@ -95,7 +107,7 @@ fn initials_of(name: &str) -> String {
 
 impl Target {
     /// Where `ink` goes on this spot.
-    fn rect_for(&self, ink: &Ink) -> PRect {
+    pub(super) fn rect_for(&self, ink: &Ink) -> PRect {
         let t = self.rect;
         if !self.on_line {
             return ink.fit(&t.inset(1.0));
@@ -137,6 +149,8 @@ impl App {
             save,
             target,
             typed: None,
+            picture: None,
+            picture_error: None,
         });
     }
 
@@ -228,6 +242,9 @@ impl App {
 
     /// Puts a signature on the page, as one undo step, and selects it.
     pub(super) fn place_signature(&mut self, page: usize, rect: PRect, ink: Arc<Ink>) {
+        if self.place_digital(page, rect) {
+            return;
+        }
         let lock = self.assist.a.store.settings.lock_signatures;
         self.snapshot();
         let Some(doc) = self.doc.as_mut() else { return };
@@ -465,6 +482,7 @@ impl App {
         let mut use_saved: Option<(u64, Arc<Ink>)> = None;
         let mut done: Option<Arc<Ink>> = None;
         let mut cancel = ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape));
+        let mut pick_image = false;
         let title = if dlg.initials { "Initials" } else { "Sign" };
         egui::Modal::new(Id::unique("pdfr-sign"))
             .frame(panel_frame(ctx, &pal, &c, 20))
@@ -499,7 +517,11 @@ impl App {
                     row_divider(ui, &c);
                 }
                 ui.horizontal(|ui| {
-                    for (t, label) in [(SignTab::Draw, "Draw"), (SignTab::Type, "Type")] {
+                    for (t, label) in [
+                        (SignTab::Draw, "Draw"),
+                        (SignTab::Type, "Type"),
+                        (SignTab::Image, "Image"),
+                    ] {
                         if ui.selectable_label(dlg.tab == t, label).clicked() {
                             dlg.tab = t;
                         }
@@ -508,6 +530,7 @@ impl App {
                 match dlg.tab {
                     SignTab::Draw => draw_pad(ui, dlg, &c),
                     SignTab::Type => type_pad(ui, dlg, &c),
+                    SignTab::Image => pick_image |= image_pad(ui, dlg, &c),
                 }
                 if !people.is_empty() {
                     ui.horizontal(|ui| {
@@ -584,6 +607,10 @@ impl App {
             self.sign = None;
             return;
         }
+        if pick_image {
+            self.pick_signature_image();
+            return;
+        }
         let dlg = self.sign.as_ref().unwrap();
         let (initials, target, person) = (dlg.initials, dlg.target, dlg.person);
         let ink = if let Some((id, ink)) = use_saved {
@@ -635,7 +662,94 @@ fn current_ink(dlg: &mut SignDialog) -> Option<Arc<Ink>> {
             (!ink.is_empty()).then(|| Arc::new(ink))
         }
         SignTab::Type => typed_ink(dlg),
+        SignTab::Image => dlg.picture.as_ref().and_then(|p| p.ink.clone()),
     }
+}
+
+impl App {
+    /// A picture was chosen for the Image tab.
+    pub(super) fn signature_image_picked(&mut self, path: PathBuf) {
+        let Some(dlg) = self.sign.as_mut() else {
+            return;
+        };
+        dlg.tab = SignTab::Image;
+        let loaded = std::fs::metadata(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|m| {
+                if m.len() > 40 * 1024 * 1024 {
+                    Err("the picture is too large".into())
+                } else {
+                    std::fs::read(&path).map_err(|e| e.to_string())
+                }
+            })
+            .and_then(|b| pdfr_core::signature::decode_any(&b));
+        match loaded {
+            Ok(img) => {
+                let original =
+                    pdfr_core::signature::shrink(&img, pdfr_core::signature::IMAGE_MAX * 2);
+                let mut p = Picture {
+                    original,
+                    threshold: 190,
+                    ink: None,
+                };
+                clean_picture(&mut p);
+                dlg.picture_error = p.ink.is_none().then(|| {
+                    "No signature found in the picture: try a darker photo on white paper.".into()
+                });
+                dlg.picture = Some(p);
+            }
+            Err(e) => {
+                dlg.picture = None;
+                dlg.picture_error = Some(format!("Could not use the picture: {e}."));
+            }
+        }
+    }
+}
+
+fn clean_picture(p: &mut Picture) {
+    p.ink = pdfr_core::signature::clean_image(&p.original, p.threshold)
+        .map(|img| Arc::new(Ink::from_image(img)));
+}
+
+/// The Image tab: choose a photo or scan, see it with the paper removed,
+/// adjust how light counts as paper. Returns whether to open the picker.
+fn image_pad(ui: &mut egui::Ui, dlg: &mut SignDialog, c: &Colors) -> bool {
+    let (r, resp) = ui.allocate_exact_size(vec2(PAD_W, 130.0), Sense::click());
+    let p = ui.painter_at(r);
+    p.rect_filled(r, 6.0, Color32::WHITE);
+    p.rect_stroke(r, 6.0, Stroke::new(1.0, c.border), egui::StrokeKind::Inside);
+    let mut pick = resp.on_hover_cursor(CursorIcon::PointingHand).clicked();
+    match dlg.picture.as_ref().and_then(|p| p.ink.as_ref()) {
+        Some(ink) => crate::ink::paint(&p, ink, r.shrink(12.0), Color32::WHITE, false),
+        None => {
+            p.text(
+                r.center(),
+                egui::Align2::CENTER_CENTER,
+                dlg.picture_error
+                    .as_deref()
+                    .unwrap_or("Click to choose a photo or scan of your signature (PNG or JPEG)"),
+                egui::FontId::proportional(13.0),
+                Color32::from_gray(150),
+            );
+        }
+    }
+    ui.horizontal(|ui| {
+        if secondary_button(ui, c, "Choose picture…").clicked() {
+            pick = true;
+        }
+        if let Some(pic) = dlg.picture.as_mut() {
+            ui.label(RichText::new("Paper").color(c.weak));
+            let mut t = pic.threshold as f32;
+            let s = ui
+                .add(egui::Slider::new(&mut t, 80.0..=250.0).show_value(false))
+                .on_hover_text("Move left if the paper still shows, right if the ink fades");
+            if s.changed() {
+                pic.threshold = t as u8;
+                clean_picture(pic);
+            }
+        }
+    });
+    pick
 }
 
 fn typed_ink(dlg: &mut SignDialog) -> Option<Arc<Ink>> {

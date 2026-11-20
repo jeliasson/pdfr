@@ -47,6 +47,12 @@ pub(super) enum DialogResult {
     /// prints from a sheet on the window instead.)
     #[cfg_attr(target_os = "macos", allow(dead_code))]
     Printed(Result<bool, String>),
+    /// Where the digitally signed copy goes, for the document `generation`.
+    SignedSave(Option<PathBuf>, u64),
+    /// A certificate file (.p12 / .pfx) to sign with.
+    PickCert(Option<PathBuf>),
+    /// A picture of a signature.
+    PickImage(Option<PathBuf>),
 }
 
 /// What to do once a save has succeeded.
@@ -320,6 +326,9 @@ impl App {
         let res = match purpose {
             builtin::Purpose::Open(new_window) => DialogResult::Open(picked, new_window),
             builtin::Purpose::Save(g, after) => DialogResult::Save(picked, g, after),
+            builtin::Purpose::SignedSave(g) => DialogResult::SignedSave(picked, g),
+            builtin::Purpose::PickCert => DialogResult::PickCert(picked),
+            builtin::Purpose::PickImage => DialogResult::PickImage(picked),
         };
         self.handle_dialog(res);
     }
@@ -433,7 +442,13 @@ impl App {
             DialogResult::Printed(Ok(true)) => self.status = "Sent to the printer.".into(),
             DialogResult::Printed(Ok(false)) => self.status = "Printing cancelled.".into(),
             DialogResult::Printed(Err(e)) => self.status = format!("Could not print: {e}"),
-            DialogResult::Open(None, _) | DialogResult::Save(None, ..) => {}
+            DialogResult::SignedSave(p, generation) => self.digital_save(p, generation),
+            DialogResult::PickCert(Some(p)) => self.digital_file_picked(p),
+            DialogResult::PickImage(Some(p)) => self.signature_image_picked(p),
+            DialogResult::Open(None, _)
+            | DialogResult::Save(None, ..)
+            | DialogResult::PickCert(None)
+            | DialogResult::PickImage(None) => {}
         }
     }
 
@@ -538,6 +553,46 @@ impl App {
         }
     }
 
+    /// Asks for a certificate file (.p12 / .pfx) for the signing dialog.
+    pub(super) fn pick_cert_file(&mut self) {
+        self.pick_other(
+            "Certificates",
+            &["p12", "pfx", "P12", "PFX"],
+            builtin::Purpose::PickCert,
+            DialogResult::PickCert,
+        );
+    }
+
+    /// Asks for a picture of a signature (PNG or JPEG).
+    pub(super) fn pick_signature_image(&mut self) {
+        self.pick_other(
+            "Pictures",
+            &["png", "jpg", "jpeg", "PNG", "JPG", "JPEG"],
+            builtin::Purpose::PickImage,
+            DialogResult::PickImage,
+        );
+    }
+
+    fn pick_other(
+        &mut self,
+        kind: &str,
+        exts: &[&'static str],
+        purpose: builtin::Purpose,
+        answer: fn(Option<PathBuf>) -> DialogResult,
+    ) {
+        if self.dialog_open() {
+            return;
+        }
+        if !native_dialogs() {
+            let mut d = builtin::picker(kind, exts);
+            d.pick_file();
+            self.builtin_dialog = Some((d, purpose));
+            return;
+        }
+        let task = self.file_dialog().add_filter(kind, exts).pick_file();
+        self.wait_for_dialog(async move { answer(task.await.map(|h| h.path().to_path_buf())) });
+    }
+
     pub(super) fn file_dialog(&self) -> rfd::AsyncFileDialog {
         let d = rfd::AsyncFileDialog::new();
         match &self.parent {
@@ -550,7 +605,7 @@ impl App {
 /// Whether the system's file dialogs can be used. On Linux they come from
 /// the desktop portal, which minimal desktops may lack; then pdfr shows its
 /// own (rfd would otherwise silently show nothing, or start another program).
-fn native_dialogs() -> bool {
+pub(super) fn native_dialogs() -> bool {
     #[cfg(target_os = "linux")]
     {
         crate::system::portal::has("FileChooser")
@@ -569,6 +624,19 @@ pub(super) mod builtin {
         /// Open a file (in a new window when `true`).
         Open(bool),
         Save(u64, AfterSave),
+        /// The digitally signed copy of document `generation`.
+        SignedSave(u64),
+        PickCert,
+        PickImage,
+    }
+
+    /// A dialog picking a file of another kind (certificates, pictures).
+    pub fn picker(kind: &str, exts: &[&'static str]) -> egui_file_dialog::FileDialog {
+        egui_file_dialog::FileDialog::new()
+            .add_file_filter_extensions(kind, exts.to_vec())
+            .default_file_filter(kind)
+            .default_size([760.0, 500.0])
+            .anchor(eframe::egui::Align2::CENTER_CENTER, [0.0, 0.0])
     }
 
     pub fn dialog(dir: Option<&Path>, name: Option<&str>) -> egui_file_dialog::FileDialog {

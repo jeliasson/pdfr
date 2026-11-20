@@ -41,6 +41,9 @@ pub struct FormDoc {
     pub was_protected: bool,
     /// Empty signature fields (`/FT /Sig`) the file asks to be signed.
     pub sign_here: Vec<(usize, crate::geom::Rect)>,
+    /// Digital signatures the file holds (none read for protected files,
+    /// whose readable bytes are not the ones that were signed).
+    pub digital: Vec<crate::digital::DigitalSig>,
     /// The file's link annotations.
     pub links: Vec<crate::links::Link>,
     /// The outline (bookmarks), flattened in reading order.
@@ -117,6 +120,7 @@ impl FormDoc {
             read_only_reason: None,
             was_protected: false,
             sign_here: vec![],
+            digital: vec![],
             links: vec![],
             outline: vec![],
         };
@@ -147,6 +151,9 @@ impl FormDoc {
                     fd.fields
                         .extend(crate::signature::read(&doc, &ids, &fd.pages));
                     fd.sign_here = crate::signature::sign_here_spots(&doc, &ids, &fd.pages);
+                    if !fd.was_protected {
+                        fd.digital = crate::digital::read(&doc, &ids, &fd.pages);
+                    }
                     fd.links = crate::links::read(&doc, &ids, &fd.pages);
                     fd.outline = crate::outline::read(&doc, &ids, &fd.pages);
                     fd.page_ids = ids;
@@ -180,8 +187,8 @@ impl FormDoc {
                 page.set("Rotate", rot);
             }
         }
-        let mut out = Vec::new();
-        d.save_to(&mut out).map_err(|e| e.to_string())?;
+        // Appended after any digital signatures, which stay valid.
+        let out = crate::save::write_doc(self, &d).map_err(|e| e.to_string())?;
         FormDoc::open(out).map_err(|e| e.to_string())
     }
 
@@ -362,7 +369,7 @@ fn get_name(d: &Document, dict: &Dictionary, key: &[u8]) -> Option<String> {
     }
 }
 
-fn get_text(d: &Document, dict: &Dictionary, key: &[u8]) -> Option<String> {
+pub(crate) fn get_text(d: &Document, dict: &Dictionary, key: &[u8]) -> Option<String> {
     let o = deref(d, dict.get(key).ok()?)?;
     match o {
         Object::String(..) => decode_text_string(o).ok(),
@@ -376,7 +383,7 @@ fn get_text(d: &Document, dict: &Dictionary, key: &[u8]) -> Option<String> {
 }
 
 /// The chain widget -> parent -> ... (ids and dicts), widget first.
-fn chain(d: &Document, widget: ObjId) -> Vec<(ObjId, &Dictionary)> {
+pub(crate) fn chain(d: &Document, widget: ObjId) -> Vec<(ObjId, &Dictionary)> {
     let mut out = Vec::new();
     let mut cur = Some(widget);
     while let Some(id) = cur {
@@ -393,7 +400,7 @@ fn chain(d: &Document, widget: ObjId) -> Vec<(ObjId, &Dictionary)> {
 }
 
 /// First value of an inheritable key along the chain.
-fn inherited<'a>(chain: &[(ObjId, &'a Dictionary)], key: &[u8]) -> Option<&'a Object> {
+pub(crate) fn inherited<'a>(chain: &[(ObjId, &'a Dictionary)], key: &[u8]) -> Option<&'a Object> {
     chain.iter().find_map(|(_, d)| d.get(key).ok())
 }
 

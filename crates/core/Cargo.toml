@@ -10,6 +10,10 @@ rust-version.workspace = true
 hayro = "0.9"
 lopdf = "0.47"
 ttf-parser = "0.25"
+# Signature pictures: PNG and JPEG import, PNG in the stored encoding.
+png = "0.18"
+zune-jpeg = "0.5"
+base64 = "0.23"
 
 [dev-dependencies]
 hayro = "0.9"
