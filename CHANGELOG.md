@@ -5,6 +5,12 @@ version's section into its GitHub release notes.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-20
+
+Real signatures: sign with the certificate already on your computer (the
+FNMT certificate in your browser, an ID card, or a .p12 file), check the
+signatures of PDFs you receive, and sign with a picture of your signature.
+
 ### Changed
 
 - The "save changes?" question when closing or opening another file looks
