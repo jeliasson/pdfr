@@ -343,6 +343,7 @@ fn space_toggles_checkbox_and_keeps_focus() {
 
 #[test]
 fn opening_another_file_asks_when_there_are_unsaved_changes() {
+    use egui_kittest::kittest::Queryable;
     let mut h = harness("flat_form.pdf", data_dir("dirty-open", None));
     click_doc(&mut h, 300.0, 178.0);
     type_text(&mut h, "Anna");
@@ -359,6 +360,12 @@ fn opening_another_file_asks_when_there_are_unsaved_changes() {
         std::thread::sleep(Duration::from_millis(10));
     }
     assert_eq!(entry_at(&h, 150.0, 168.0).f.value, "Anna");
+    // The question in the current dialog style: "Don't save" opens the
+    // other file without saving.
+    h.get_by_label("Save changes to flat_form.pdf?");
+    h.get_by_label("Don't save").click();
+    h.run_steps(2);
+    assert!(h.state().confirm.is_none());
 }
 
 #[test]

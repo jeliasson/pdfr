@@ -590,6 +590,13 @@ impl eframe::App for App {
             self.last_title = Some(title);
         }
 
+        // Cmd+W minimises on macOS (the window stays open, as with other
+        // single-window Mac apps); quitting is Cmd+Q.
+        #[cfg(target_os = "macos")]
+        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::W)) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+        }
+
         // Unsaved changes on close.
         if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close {
             if self.doc.as_ref().is_some_and(|d| d.dirty) {
@@ -691,38 +698,71 @@ impl eframe::App for App {
             if cancel {
                 self.confirm = None;
             }
-            egui::Modal::new(Id::unique("pdfr-confirm")).show(&ctx, |ui| {
-                ui.label(match &what {
-                    Confirm::Close => "You have unsaved changes.".to_string(),
-                    Confirm::Open(p) => format!(
-                        "You have unsaved changes. Open {} anyway?",
-                        p.file_name()
-                            .map(|n| n.to_string_lossy())
-                            .unwrap_or_default()
-                    ),
+            let pal = self.palette.clone();
+            let c = crate::assist_ui::widgets::Colors::new(&pal);
+            let mut save = false;
+            let mut discard = false;
+            let mut dismiss = false;
+            egui::Modal::new(Id::unique("pdfr-confirm"))
+                .frame(crate::assist_ui::widgets::panel_frame(&ctx, &pal, &c, 20))
+                .show(&ctx, |ui| {
+                    use crate::assist_ui::widgets::{
+                        danger_button, primary_button, secondary_button,
+                    };
+                    use egui::{Align, Layout, RichText};
+                    ui.set_width(420.0);
+                    ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
+                    let name = self
+                        .doc
+                        .as_ref()
+                        .map(|d| d.name.clone())
+                        .unwrap_or_default();
+                    ui.label(
+                        RichText::new(format!("Save changes to {name}?"))
+                            .size(20.0)
+                            .strong()
+                            .color(c.text),
+                    );
+                    ui.label(
+                        RichText::new(match &what {
+                            Confirm::Close => {
+                                "Your changes will be lost if you close without saving.".to_string()
+                            }
+                            Confirm::Open(p) => format!(
+                                "Your changes will be lost if you open {} without saving.",
+                                p.file_name()
+                                    .map(|n| n.to_string_lossy())
+                                    .unwrap_or_default()
+                            ),
+                        })
+                        .color(c.weak),
+                    );
+                    ui.add_space(4.0);
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        save = primary_button(ui, &c, "Save")
+                            .on_hover_text("Enter or Ctrl+S")
+                            .clicked();
+                        dismiss = secondary_button(ui, &c, "Cancel")
+                            .on_hover_text("Esc")
+                            .clicked();
+                        discard = danger_button(ui, "Don't save", false).clicked();
+                    });
                 });
-                ui.horizontal(|ui| {
-                    if (ui.button("Save").on_hover_text("Enter or Ctrl+S").clicked() || save_key)
-                        && !cancel
-                    {
-                        // Closing or opening follows once the save succeeds
-                        // (after the file dialog, if one is needed).
-                        let after = match &what {
-                            Confirm::Close => files::AfterSave::Close,
-                            Confirm::Open(p) => files::AfterSave::Open(p.clone()),
-                        };
-                        self.save_then(false, after);
-                        self.confirm = None;
-                    }
-                    if ui.button("Discard").clicked() {
-                        proceed = true;
-                        self.confirm = None;
-                    }
-                    if ui.button("Cancel").on_hover_text("Esc").clicked() {
-                        self.confirm = None;
-                    }
-                });
-            });
+            if (save || save_key) && !cancel {
+                // Closing or opening follows once the save succeeds
+                // (after the file dialog, if one is needed).
+                let after = match &what {
+                    Confirm::Close => files::AfterSave::Close,
+                    Confirm::Open(p) => files::AfterSave::Open(p.clone()),
+                };
+                self.save_then(false, after);
+                self.confirm = None;
+            } else if discard {
+                proceed = true;
+                self.confirm = None;
+            } else if dismiss {
+                self.confirm = None;
+            }
             if proceed {
                 match what {
                     // Closing waits for the "remember?" answer, if one is asked.

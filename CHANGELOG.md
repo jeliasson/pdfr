@@ -7,6 +7,9 @@ version's section into its GitHub release notes.
 
 ### Changed
 
+- The "save changes?" question when closing or opening another file looks
+  like pdfr's other dialogs, with Save, Cancel and Don't save.
+- macOS: Cmd+W minimises the window (quit with Cmd+Q).
 - A new app icon: a form page with a folded corner and a field being filled
   in, centred on the coral tile with room around it, like other apps' icons.
 - A new toolbar: each group of buttons sits in a rounded capsule, and the
