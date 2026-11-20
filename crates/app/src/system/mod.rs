@@ -293,8 +293,12 @@ mod tests {
     #[test]
     fn window_icon_decodes() {
         let i = window_icon().expect("icon");
-        assert_eq!((i.width, i.height), (256, 256));
-        assert_eq!(i.rgba.len(), 256 * 256 * 4);
+        // macOS: the larger icon on Apple's grid (the Dock shows it).
+        let side = if cfg!(target_os = "macos") { 512 } else { 256 };
+        assert_eq!((i.width, i.height), (side, side));
+        assert_eq!(i.rgba.len(), (side * side * 4) as usize);
+        let a = app_icon().expect("app icon");
+        assert_eq!((a.width, a.height), (256, 256));
     }
 
     #[test]

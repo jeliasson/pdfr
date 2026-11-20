@@ -12,11 +12,20 @@ use std::time::{Duration, Instant};
 /// test's worker threads; the waits end as soon as the work is done.
 const BG_WAIT: Duration = Duration::from_secs(60);
 
-fn sample(name: &str) -> PathBuf {
+/// A sample's path, whether or not it exists (some are optional).
+fn sample_path(name: &str) -> PathBuf {
     PathBuf::from(format!(
         "{}/../../samples/{name}",
         env!("CARGO_MANIFEST_DIR")
     ))
+}
+
+/// A committed sample. Fails at once if it isn't there (some local test
+/// files are git-ignored and missing on CI).
+fn sample(name: &str) -> PathBuf {
+    let p = sample_path(name);
+    assert!(p.exists(), "sample missing: {}", p.display());
+    p
 }
 
 fn data_dir(tag: &str, store: Option<Store>) -> PathBuf {
@@ -261,7 +270,7 @@ fn scrolling_and_zoom_keep_pages() {
 /// Needs samples/big_300.pdf (tools/gen_samples.py --big); skipped otherwise.
 #[test]
 fn steady_scroll_through_300_pages() {
-    if !sample("big_300.pdf").exists() {
+    if !sample_path("big_300.pdf").exists() {
         eprintln!("skipped: samples/big_300.pdf not generated");
         return;
     }
@@ -502,10 +511,8 @@ fn ctrl_n_jumps_between_empty_boxes() {
 
 #[test]
 fn ctrl_keys_scroll_page_and_zoom() {
-    let mut h = harness(
-        "Anexo I. Formulario definitivo-APAE-9.pdf",
-        data_dir("ctrl-nav", None),
-    );
+    // Three A4 pages (committed; tools/gen_samples.py).
+    let mut h = harness("links.pdf", data_dir("ctrl-nav", None));
     assert!(h.state().doc.as_ref().unwrap().sizes.len() > 1);
     let y0 = h.state().scroll.y;
     ctrl(&mut h, Key::D);
