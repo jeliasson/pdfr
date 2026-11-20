@@ -7,6 +7,11 @@ use egui_kittest::Harness;
 use pdfr_assist::memory::Store;
 use std::time::{Duration, Instant};
 
+/// How long to wait for background work (opening, detection, text,
+/// thumbnails). Generous: CI runners have two slow cores shared by every
+/// test's worker threads; the waits end as soon as the work is done.
+const BG_WAIT: Duration = Duration::from_secs(60);
+
 fn sample(name: &str) -> PathBuf {
     PathBuf::from(format!(
         "{}/../../samples/{name}",
@@ -49,10 +54,7 @@ fn harness(file: &str, dir: PathBuf) -> Harness<'static, App> {
         {
             break;
         }
-        assert!(
-            start.elapsed() < Duration::from_secs(20),
-            "timed out waiting for detection"
-        );
+        assert!(start.elapsed() < BG_WAIT, "timed out waiting for detection");
         std::thread::sleep(Duration::from_millis(10));
     }
     h.run_steps(3);
@@ -277,7 +279,7 @@ fn steady_scroll_through_300_pages() {
     while h.state().doc.is_none() {
         h.run_steps(1);
         std::thread::sleep(Duration::from_millis(5));
-        assert!(start.elapsed() < Duration::from_secs(20));
+        assert!(start.elapsed() < BG_WAIT);
     }
     let mut blank = 0;
     let mut frames = 0;
@@ -895,7 +897,7 @@ fn sidebar_thumbnails_and_outline() {
     while h.state().doc.as_ref().unwrap().thumbs.len() < 3 {
         h.run_steps(1);
         std::thread::sleep(Duration::from_millis(10));
-        assert!(start.elapsed() < Duration::from_secs(10), "no thumbnails");
+        assert!(start.elapsed() < BG_WAIT, "no thumbnails");
     }
     // The outline goes to its sections.
     h.state_mut().side_tab = sidebar::SideTab::Outline;
@@ -926,10 +928,7 @@ fn open_and_wait(h: &mut Harness<'_, App>, file: &str) {
         {
             break;
         }
-        assert!(
-            start.elapsed() < Duration::from_secs(20),
-            "timed out opening {file}"
-        );
+        assert!(start.elapsed() < BG_WAIT, "timed out opening {file}");
         std::thread::sleep(Duration::from_millis(10));
     }
     h.run_steps(3);
@@ -953,7 +952,7 @@ fn recent_files_reopen_where_left() {
     while !h.state().doc.as_ref().unwrap().path.ends_with("links.pdf") {
         h.run_steps(1);
         std::thread::sleep(Duration::from_millis(10));
-        assert!(start.elapsed() < Duration::from_secs(20));
+        assert!(start.elapsed() < BG_WAIT);
     }
     h.run_steps(3);
     assert_eq!(h.state().current_page(), 2);
@@ -987,7 +986,7 @@ fn turn_a_page_undo_and_fit_page() {
     while !h.state().doc.as_ref().unwrap().detected[0] {
         h.run_steps(1);
         std::thread::sleep(Duration::from_millis(10));
-        assert!(start.elapsed() < Duration::from_secs(20));
+        assert!(start.elapsed() < BG_WAIT);
     }
     ctrl(&mut h, Key::Z);
     {
@@ -1026,7 +1025,7 @@ fn protected_file_asks_for_its_password() {
         while !done(h.state()) {
             h.run_steps(1);
             std::thread::sleep(Duration::from_millis(10));
-            assert!(start.elapsed() < Duration::from_secs(20), "timed out");
+            assert!(start.elapsed() < BG_WAIT, "timed out");
         }
     };
     wait(&mut h, &|s| s.password.is_some());
@@ -1100,10 +1099,7 @@ fn dark_pages_redraw_and_stay_on() {
     while !h.state().doc.as_ref().unwrap().tex.contains_key(&0) {
         h.run_steps(1);
         std::thread::sleep(Duration::from_millis(10));
-        assert!(
-            start.elapsed() < Duration::from_secs(10),
-            "page not redrawn"
-        );
+        assert!(start.elapsed() < BG_WAIT, "page not redrawn");
     }
     assert!(
         Store::load(&dir.join("memory.json")).settings.dark_pages,
@@ -1129,7 +1125,7 @@ fn new_window_opens_here_when_the_window_is_empty() {
     while h.state().doc.is_none() {
         h.run_steps(1);
         std::thread::sleep(Duration::from_millis(10));
-        assert!(start.elapsed() < Duration::from_secs(20));
+        assert!(start.elapsed() < BG_WAIT);
     }
     assert!(h.state().can(commands::Command::OpenNewWindow));
 }
@@ -1241,9 +1237,6 @@ fn start_screen_cards_open_recent_files() {
     while h.state().doc.is_none() {
         h.run_steps(1);
         std::thread::sleep(Duration::from_millis(10));
-        assert!(
-            start.elapsed() < Duration::from_secs(20),
-            "card did not open the file"
-        );
+        assert!(start.elapsed() < BG_WAIT, "card did not open the file");
     }
 }
