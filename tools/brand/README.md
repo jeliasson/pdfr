@@ -1,8 +1,10 @@
 # Brand sources
 
-The app icon is a text cursor (I-beam) standing on the line of a form
-field, white on the coral tile: click and type. No text, like other apps'
-icons. The finished, path-only SVGs live in `assets/icon/`; nothing here is
+The app icon is a white form page with a folded corner on the coral tile:
+a title, two form lines and one field being filled in (outlined in rose,
+with a caret). No text, like other apps' icons. The page is about 60% of
+the tile's height, centred (nudged up a little for its shadow), and its
+content keeps one inner margin. The finished, path-only SVGs live in `assets/icon/`; nothing here is
 needed to build pdfr.
 
 To change the icon:
@@ -15,9 +17,11 @@ To change the icon:
 `concepts.py` holds earlier concepts (see `docs/brand/concepts.png`); they
 need `InterDisplay-Bold.ttf` in `tools/brand/fonts/`.
 
-Sizes: `pdfr-tiny.svg` (boldest) is used for 16–24 px, `pdfr-small.svg` for
-32–48 px, `pdfr.svg` from 64 px up, and `pdfr-macos.svg` (Apple's icon grid,
+Sizes: `pdfr-tiny.svg` (the page and the field only, no shadow) is used
+for 16–24 px, `pdfr-small.svg` (a title and the field) for 32–48 px, `pdfr.svg` from 64 px up, and `pdfr-macos.svg` (Apple's icon grid,
 with a shadow) for the macOS .icns and for `png/pdfr-macos-512.png`, the
 icon macOS shows in the Dock while pdfr runs.
 
-Colours: coral gradient `#FF9259` → `#E5336D`, cursor white, shadow `#6B0E33`.
+Colours: coral gradient `#FF9259` → `#E5336D`, page white to `#FFF1EC`,
+field and caret `#E5336D`, lines `#F4C3B4` and `#EE9A86`, fold `#FFD3C2`,
+shadow `#6B0E33`.

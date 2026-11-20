@@ -7,6 +7,8 @@ version's section into its GitHub release notes.
 
 ### Changed
 
+- A new app icon: a form page with a folded corner and a field being filled
+  in, centred on the coral tile with room around it, like other apps' icons.
 - A new toolbar: each group of buttons sits in a rounded capsule, and the
   icons are thinner and rounder, in the style of macOS.
 - The empty window shows pdfr's icon and a large coral "Open a PDF…" button
