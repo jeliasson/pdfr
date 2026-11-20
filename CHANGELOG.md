@@ -14,8 +14,22 @@ version's section into its GitHub release notes.
 - The empty window shows pdfr's icon and a large coral "Open a PDF…" button
   on a drop zone that lights up while you drag a file over it.
 
+### Added
+
+- **Grey panels are fields.** Forms made in Word often mark each answer
+  with a light grey panel and a caption under it, without any outline.
+  pdfr now finds those panels and lets you type in them.
+- **Type over printed answers.** When another app filled in a form and
+  flattened the answers into the page, a panel's printed answer becomes
+  its field's starting value. Change it and the panel's colour hides the
+  old print, on screen and in the saved file; leave it and nothing
+  changes. Anywhere else, right-click printed text → **Edit this text**.
+
 ### Fixed
 
+- A row of separate small boxes, each with its own label ("Portal",
+  "Escalera"), is no longer taken for one box per letter of a single field.
+- The line above a page's footer is no longer a field.
 - Scanned forms: no more boxes on printed text. On blurred scans the tops
   of a row of letters looked like a line to write on, and a table cell
   holding a label could look like an empty box beside the label.

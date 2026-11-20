@@ -25,7 +25,9 @@ pub fn load(bytes: Vec<u8>) -> Result<Loaded, OpenError> {
         for (i, page) in pdf.pages().iter().enumerate() {
             let runs = crate::text::extract(page, &tcache);
             if form.editable() {
-                for d in crate::detect::detect_page(page, &cache, i) {
+                let mut found = crate::detect::detect_page(page, &cache, i);
+                crate::detect::prefill_printed(&mut found, &runs);
+                for d in found {
                     if !overlaps_any(&form.fields, i, &d.rect, 0.3) {
                         fields.push(d);
                     }

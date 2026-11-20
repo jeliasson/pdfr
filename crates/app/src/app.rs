@@ -201,6 +201,8 @@ pub struct App {
     text_sel: Option<select::TextSel>,
     /// The right-click menu of the page (not of a box) is open.
     page_menu_open: bool,
+    /// Where on which page it was opened (points).
+    page_menu_at: Option<(usize, (f32, f32))>,
     /// Where link jumps started, for Go back.
     back: Vec<Vec2>,
     side_tab: sidebar::SideTab,
@@ -312,6 +314,7 @@ impl App {
             search: None,
             text_sel: None,
             page_menu_open: false,
+            page_menu_at: None,
             back: vec![],
             side_tab: Default::default(),
             side_follow: None,
@@ -452,6 +455,9 @@ impl App {
                     text,
                 } if generation == doc.generation => {
                     doc.detected[page] = true;
+                    // Panels that already hold printed answers start with them.
+                    let mut fields = fields;
+                    pdfr_core::detect::prefill_printed(&mut fields, &text);
                     doc.text.insert(page, text);
                     Self::add_text_links(doc, page);
                     let existing: Vec<Field> = doc.entries.iter().map(|e| e.f.clone()).collect();

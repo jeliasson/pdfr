@@ -590,6 +590,7 @@ fn read_widget(doc: &Document, wid: ObjId, page: usize, geom: &PageGeom) -> Opti
         },
         label: None,
         tooltip,
+        backdrop: None,
     })
 }
 

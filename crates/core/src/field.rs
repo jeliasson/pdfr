@@ -139,6 +139,16 @@ pub enum Origin {
     Manual,
 }
 
+/// A detected field on a shaded panel: the panel's colour and the text
+/// another editor already printed there (flattened, so not a real field).
+/// The field starts with that text; once its value differs, the panel's
+/// colour covers the old print (on screen and in the saved file).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Backdrop {
+    pub color: [u8; 3],
+    pub printed: String,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Field {
     pub page: usize,
@@ -158,6 +168,8 @@ pub struct Field {
     pub label: Option<String>,
     /// The `/TU` tooltip of a real field.
     pub tooltip: Option<String>,
+    /// A shaded panel under the field (detected ones only).
+    pub backdrop: Option<Backdrop>,
 }
 
 impl Field {
@@ -178,6 +190,7 @@ impl Field {
             origin,
             label: None,
             tooltip: None,
+            backdrop: None,
         }
     }
 
@@ -219,6 +232,21 @@ impl Field {
             return display;
         }
         &self.value
+    }
+
+    /// Whether the panel's colour must hide what is printed under the
+    /// field: its value is no longer the printed text.
+    pub fn covers_print(&self) -> bool {
+        self.backdrop
+            .as_ref()
+            .is_some_and(|b| !b.printed.is_empty() && self.value != b.printed)
+    }
+
+    /// Whether the value is just the text already printed on the page.
+    pub fn is_printed(&self) -> bool {
+        self.backdrop
+            .as_ref()
+            .is_some_and(|b| !b.printed.is_empty() && self.value == b.printed)
     }
 
     pub fn is_empty(&self) -> bool {

@@ -22,6 +22,21 @@ impl App {
         }
     }
 
+    /// A colour printed on the page, as the page is shown (dark pages
+    /// invert its lightness like the rendered page).
+    pub(super) fn page_colour(&self, rgb: [u8; 3]) -> Color32 {
+        if !self.dark_pages() {
+            return Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+        }
+        let mut img = pdfr_core::render::Image {
+            width: 1,
+            height: 1,
+            rgba: vec![rgb[0], rgb[1], rgb[2], 255],
+        };
+        img.invert_lightness();
+        Color32::from_rgb(img.rgba[0], img.rgba[1], img.rgba[2])
+    }
+
     pub(super) fn dark_pages(&self) -> bool {
         self.assist.a.store.settings.dark_pages
     }

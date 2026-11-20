@@ -1247,3 +1247,52 @@ fn start_screen_cards_open_recent_files() {
         assert!(start.elapsed() < BG_WAIT, "card did not open the file");
     }
 }
+
+/// Right-click printed text → "Edit this text": a field over it, holding
+/// the text, ready to type; the paper's colour covers the old print once
+/// the value changes.
+#[test]
+fn edit_printed_text() {
+    use egui_kittest::kittest::Queryable;
+    let mut h = harness("panels.pdf", data_dir("edit-printed", None));
+    // The label "Portal" above the row of boxes (tools/gen_samples.py).
+    let p = screen(&h, 46.0, 203.0);
+    h.event(Event::PointerMoved(p));
+    for pressed in [true, false] {
+        h.event(Event::PointerButton {
+            pos: p,
+            button: PointerButton::Secondary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label("Edit this text").click();
+    h.run_steps(3);
+    let id = focused_id(&h).expect("the new field has the keyboard");
+    let f = &h
+        .state()
+        .doc
+        .as_ref()
+        .unwrap()
+        .entries
+        .iter()
+        .find(|e| e.id == id)
+        .unwrap()
+        .f;
+    assert_eq!(f.value, "Portal");
+    assert!(f.is_printed());
+    type_text(&mut h, "s");
+    let f = &h
+        .state()
+        .doc
+        .as_ref()
+        .unwrap()
+        .entries
+        .iter()
+        .find(|e| e.id == id)
+        .unwrap()
+        .f;
+    assert_eq!(f.value, "Portals");
+    assert!(f.covers_print());
+}

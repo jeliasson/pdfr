@@ -128,6 +128,14 @@ impl App {
                 self.draw_signature(&painter, &rects, f, r, focused, hovered);
                 continue;
             }
+            // A changed printed answer (or one being edited): the panel's
+            // colour hides the old print under the field.
+            let printed = f.backdrop.as_ref().filter(|b| !b.printed.is_empty());
+            if let Some(b) = printed
+                && (f.covers_print() || focused)
+            {
+                painter.rect_filled(r, 0.0, self.page_colour(b.color));
+            }
             if editable_doc && !f.read_only && (marks || focused) {
                 // Every fillable spot keeps its tint, filled or not, so the
                 // fields stay visible. Screen only: never saved or printed.
@@ -173,7 +181,10 @@ impl App {
                         }
                     }
                     let pclip = painter.with_clip_rect(r.expand(2.0).intersect(full));
-                    draw::text(&pclip, &xf, &l, ink);
+                    // An unchanged printed answer is already on the page.
+                    if focused || !f.is_printed() {
+                        draw::text(&pclip, &xf, &l, ink);
+                    }
                     if focused {
                         let fo = self.focus.as_ref().unwrap();
                         // Browsing alternatives previews the highlighted one.
@@ -604,6 +615,7 @@ impl App {
         if resp.secondary_clicked() {
             self.ctx_field = self.field_at(rects, p).map(|h| h.0);
             self.page_menu_open = self.ctx_field.is_none();
+            self.page_menu_at = self.page_point(rects, p);
         }
         if clicked
             || double_clicked

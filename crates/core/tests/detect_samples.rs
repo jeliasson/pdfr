@@ -218,3 +218,57 @@ fn scanned_table_has_no_fields_on_text() {
         "{fields:#?}"
     );
 }
+
+/// A digital form of grey panels without outlines (tools/gen_samples.py):
+/// every panel's writing space is a field, an answer another editor printed
+/// into its panel starts as that field's value (shown as printed until
+/// changed), a row of wide labelled boxes stays separate fields (no comb),
+/// and the footer rule to the page edge is no line to write on.
+#[test]
+fn shaded_panels_and_printed_answers() {
+    let loaded = pdfr_core::pipeline::load(sample("panels.pdf")).unwrap();
+    let fields = loaded.fields;
+    let exp: Value = serde_json::from_slice(&sample("panels.json")).unwrap();
+    let r4 = |v: &Value| -> Vec<f32> {
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n.as_f64().unwrap() as f32)
+            .collect()
+    };
+    let near = |a: f32, b: f32| (a - b).abs() <= 3.0;
+    for want in exp["fields"].as_array().unwrap() {
+        let w = r4(want);
+        let f = fields
+            .iter()
+            .find(|f| near(f.rect.x0, w[0]) && near(f.rect.x1, w[2]) && near(f.rect.y0, w[1]))
+            .unwrap_or_else(|| panic!("no panel field at {w:?}: {fields:#?}"));
+        assert!(f.backdrop.is_some(), "panel field without backdrop");
+        assert!(near(f.rect.y1, w[3]), "writing space {:?} vs {w:?}", f.rect);
+    }
+    for p in exp["printed"].as_array().unwrap() {
+        let w = r4(&p["rect"]);
+        let text = p["text"].as_str().unwrap();
+        let f = fields
+            .iter()
+            .find(|f| near(f.rect.x0, w[0]) && near(f.rect.y0, w[1]))
+            .unwrap();
+        assert_eq!(f.value, text);
+        assert!(f.is_printed() && !f.covers_print());
+    }
+    for b in exp["boxes"].as_array().unwrap() {
+        let w = r4(b);
+        let f = fields
+            .iter()
+            .find(|f| near(f.rect.x0, w[0]) && near(f.rect.x1, w[2]))
+            .unwrap_or_else(|| panic!("no field for box {w:?}: {fields:#?}"));
+        assert_eq!(kind_of(f), "text", "box {w:?} became {}", kind_of(f));
+    }
+    let fy = exp["footer_y"].as_f64().unwrap() as f32;
+    assert!(
+        !fields
+            .iter()
+            .any(|f| f.rect.y1 > fy - 25.0 && f.rect.y0 < fy + 5.0),
+        "field at the footer: {fields:#?}"
+    );
+}

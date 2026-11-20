@@ -3,7 +3,7 @@
 //! right-click menu. Boxes still take clicks first.
 
 use super::*;
-use pdfr_core::text::{TextPos, line_at, pos_at, selected_text, selection, word_at};
+use pdfr_core::text::{TextPos, TextRun, line_at, pos_at, selected_text, selection, word_at};
 
 pub(super) struct TextSel {
     pub page: usize,
@@ -15,7 +15,7 @@ pub(super) struct TextSel {
 
 impl App {
     /// The page under a screen point and the point in page space.
-    fn page_point(&self, rects: &[Rect], p: Pos2) -> Option<(usize, (f32, f32))> {
+    pub(super) fn page_point(&self, rects: &[Rect], p: Pos2) -> Option<(usize, (f32, f32))> {
         let page = rects.iter().position(|r| r.contains(p))?;
         let xf = PageXf {
             origin: rects[page].min,
@@ -154,9 +154,22 @@ impl App {
             return;
         }
         let text = self.selection_text();
+        let printed = self.printed_at_menu();
         let mut copy = false;
         let mut find = false;
+        let mut edit = false;
         let shown = resp.context_menu(|ui| {
+            if printed.is_some() {
+                if ui
+                    .button("Edit this text")
+                    .on_hover_text("Type over what is printed here")
+                    .clicked()
+                {
+                    edit = true;
+                    ui.close();
+                }
+                ui.separator();
+            }
             if ui
                 .add_enabled(text.is_some(), egui::Button::new("Copy"))
                 .clicked()
@@ -178,13 +191,62 @@ impl App {
         if copy {
             self.copy_selection(ctx);
         }
+        if edit && let Some((page, run)) = printed {
+            self.edit_printed(page, run, ctx);
+        }
         if find && let Some(t) = text {
             let q = t.split_whitespace().collect::<Vec<_>>().join(" ");
             self.update_search(&q);
             self.open_palette(super::palette::Scope::Find);
         }
-        if shown.is_none() || copy || find {
+        if shown.is_none() || copy || find || edit {
             self.page_menu_open = false;
         }
+    }
+
+    /// The printed text under the page menu, if it can be typed over: a
+    /// run of the page's text there, not already under a field.
+    fn printed_at_menu(&self) -> Option<(usize, TextRun)> {
+        let (page, (x, y)) = self.page_menu_at?;
+        let doc = self.doc.as_ref()?;
+        if !doc.form.editable() {
+            return None;
+        }
+        let run = doc.text.get(&page)?.iter().find(|r| {
+            r.rect.x0 - 1.0 <= x
+                && x <= r.rect.x1 + 1.0
+                && r.rect.y0 - 2.0 <= y
+                && y <= r.rect.y1 + 2.0
+        })?;
+        if run.text.trim().is_empty()
+            || pdfr_core::forms::overlaps_any(
+                &doc.entries.iter().map(|e| e.f.clone()).collect::<Vec<_>>(),
+                page,
+                &run.rect,
+                0.3,
+            )
+        {
+            return None;
+        }
+        Some((page, run.clone()))
+    }
+
+    /// Turns printed text into a field holding it, to type over: the
+    /// paper's colour hides the old print once the value changes.
+    fn edit_printed(&mut self, page: usize, run: TextRun, ctx: &egui::Context) {
+        self.snapshot();
+        let Some(doc) = self.doc.as_mut() else { return };
+        let r = run.rect;
+        let rect = PRect::new(r.x0 - 1.5, r.y0 - 1.5, r.x1 + 1.5, r.y1 + 1.5);
+        let mut f = Field::new_text(page, rect, TextMode::Single, Origin::Manual);
+        let text = run.text.trim().to_string();
+        f.backdrop = Some(pdfr_core::field::Backdrop {
+            color: [255, 255, 255],
+            printed: text.clone(),
+        });
+        f.value = text;
+        let id = doc.add(f);
+        self.text_sel = None;
+        self.focus_field(id, true, ctx);
     }
 }

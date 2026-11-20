@@ -35,6 +35,8 @@ const MIN_DOTTED: f32 = 10.0;
 const SPECKS: f32 = 14.0;
 /// Write-on lines must be at least this long (pt).
 const MIN_WRITE_LINE: f32 = 30.0;
+/// Comb boxes are at most this many times as wide as tall.
+const COMB_MAX_ASPECT: f32 = 1.4;
 /// Share of solid ink just under a line above which it is the tops of a
 /// row of letters, not a line to write on.
 const TEXT_UNDER: f32 = 0.3;
@@ -982,6 +984,111 @@ fn drawn_boxes(m: &Masks, scale: f32) -> Vec<Rect> {
     out
 }
 
+/// Light grey shading that marks a fillable panel on digital forms (no
+/// outline, a caption inside): darker than paper, far lighter than ink.
+const PANEL_LO: u8 = 228;
+const PANEL_HI: u8 = 250;
+
+/// Shaded rectangles at least 40 pt wide and 12 pt tall: rows of panel
+/// grey (with text on it) whose left and right ends line up.
+fn panels(g: &Gray) -> Vec<Rect> {
+    let s = g.scale;
+    let (w, h) = (g.w, g.h);
+    let min_w = (40.0 * s) as usize;
+    struct Open {
+        x0: usize,
+        x1: usize,
+        y0: usize,
+        y1: usize,
+    }
+    let mut open: Vec<Open> = Vec::new();
+    let mut out = Vec::new();
+    let close = |o: &Open, out: &mut Vec<Rect>| {
+        if (o.y1 + 1 - o.y0) as f32 >= 12.0 * s {
+            out.push(Rect::new(
+                o.x0 as f32 / s,
+                o.y0 as f32 / s,
+                o.x1 as f32 / s,
+                (o.y1 + 1) as f32 / s,
+            ));
+        }
+    };
+    for y in 0..h {
+        let row = &g.px[y * w..(y + 1) * w];
+        let mut next: Vec<Open> = Vec::new();
+        let mut x = 0;
+        while x < w {
+            if row[x] > PANEL_HI {
+                x += 1;
+                continue;
+            }
+            // A run of non-white pixels, mostly panel grey (text on it is
+            // darker, but never lighter than the panel).
+            let x0 = x;
+            let mut shades = [0usize; (PANEL_HI - PANEL_LO + 1) as usize];
+            while x < w && row[x] <= PANEL_HI {
+                if row[x] >= PANEL_LO {
+                    shades[(row[x] - PANEL_LO) as usize] += 1;
+                }
+                x += 1;
+            }
+            let grey: usize = shades.iter().sum();
+            // A digital fill is one exact shade; scanned paper never is.
+            let even = (0..shades.len())
+                .map(|i| {
+                    shades[i.saturating_sub(1)..(i + 2).min(shades.len())]
+                        .iter()
+                        .sum::<usize>()
+                })
+                .max()
+                .unwrap_or(0);
+            if x - x0 < min_w || grey * 2 < x - x0 || even * 100 < grey * 85 {
+                continue;
+            }
+            match open
+                .iter()
+                .position(|o| o.x0.abs_diff(x0) <= 2 && o.x1.abs_diff(x) <= 2 && o.y1 + 1 == y)
+            {
+                Some(i) => {
+                    let mut o = open.swap_remove(i);
+                    o.y1 = y;
+                    next.push(o);
+                }
+                None => next.push(Open {
+                    x0,
+                    x1: x,
+                    y0: y,
+                    y1: y,
+                }),
+            }
+        }
+        for o in &open {
+            close(o, &mut out);
+        }
+        open = next;
+    }
+    for o in &open {
+        close(o, &mut out);
+    }
+    out
+}
+
+/// The panel's grey under `r`: the most common shade in the panel range.
+fn panel_grey(g: &Gray, r: &Rect) -> u8 {
+    let s = g.scale;
+    let mut hist = [0u32; 256];
+    let (x0, x1) = ((r.x0 * s) as usize, ((r.x1 * s) as usize).min(g.w));
+    let (y0, y1) = ((r.y0 * s) as usize, ((r.y1 * s) as usize).min(g.h));
+    for y in y0..y1 {
+        for &v in &g.px[y * g.w + x0..y * g.w + x1] {
+            hist[v as usize] += 1;
+        }
+    }
+    (PANEL_LO..=PANEL_HI)
+        .max_by_key(|&v| hist[v as usize])
+        .unwrap_or(242)
+}
+
 /// Detection output before classification into fields (exposed for tests).
 pub struct Analysis {
     pub hlines: Vec<Seg>,
@@ -1074,6 +1181,8 @@ pub fn detect(g: &Gray) -> Vec<Field> {
 pub fn detect_with_analysis(g: &Gray) -> (Vec<Field>, Analysis) {
     // Scans: even out the paper first, so one ink threshold fits the page.
     let flat = flatten_background(g);
+    // Shaded panels, on the page as rendered (before evening out a scan).
+    let panel_rects = panels(g);
     let flat_g;
     let g = match &flat {
         Some(px) => {
@@ -1223,7 +1332,11 @@ pub fn detect_with_analysis(g: &Gray) -> (Vec<Field>, Analysis) {
             continue;
         }
         let r = empties[i].r;
-        if small(&r) {
+        // One character per box: a comb's boxes are about square or taller.
+        // A row of wider boxes, each with its own label ("Portal",
+        // "Escalera"), are separate fields that happen to sit side by side.
+        let char_cell = |r: &Rect| r.width() <= COMB_MAX_ASPECT * r.height();
+        if small(&r) && char_cell(&r) {
             // Grow a row of similar boxes to the right.
             let mut row = vec![i];
             let mut last = r;
@@ -1233,6 +1346,7 @@ pub fn detect_with_analysis(g: &Gray) -> (Vec<Field>, Analysis) {
                     !used[k]
                         && !row.contains(&k)
                         && small(&o)
+                        && char_cell(&o)
                         && (o.y0 - last.y0).abs() <= 2.0
                         && (o.y1 - last.y1).abs() <= 2.0
                         && (o.width() - last.width()).abs() <= 0.3 * last.width().max(o.width())
@@ -1307,6 +1421,72 @@ pub fn detect_with_analysis(g: &Gray) -> (Vec<Field>, Analysis) {
         fields.push(Field::new_text(0, r, mode, Origin::Detected));
     }
 
+    let dotted_early = dotted_lines(&m, s);
+    // --- Shaded panels: the writing space beside their caption. A panel
+    // holding boxes or lines (a group of checkboxes) is no field itself.
+    for p in &panel_rects {
+        let inside = |r: &Rect| {
+            let (cx, cy) = r.center();
+            p.x0 <= cx && cx <= p.x1 && p.y0 - 1.0 <= cy && cy <= p.y1 + 1.0
+        };
+        let holds_line = hlines
+            .iter()
+            .chain(&dotted_early)
+            .any(|l| l.len() >= MIN_WRITE_LINE && inside(&Rect::new(l.a0, l.pos, l.a1, l.pos)));
+        // Checkbox-sized or larger: letters of printed text close into tiny boxes.
+        let holds_box = boxes
+            .iter()
+            .any(|b| b.width() >= 7.0 && b.height() >= 7.0 && inside(b));
+        if holds_box || fields.iter().any(|f| inside(&f.rect)) || holds_line {
+            continue;
+        }
+        let inner = Rect::new(p.x0 + 1.0, p.y0 + 1.0, p.x1 - 1.0, p.y1 - 1.0);
+        let (x0, x1) = (px(inner.x0), px(inner.x1));
+        // Bands of text rows (gaps up to 1.5 pt join a band).
+        let mut bands: Vec<(f32, f32)> = Vec::new();
+        let gap = (1.5 * s) as i64;
+        let mut cur: Option<(i64, i64)> = None;
+        for y in px(inner.y0)..px(inner.y1) {
+            if m.count(x0, y, x1, y + 1) > 0 {
+                cur = Some(match cur {
+                    Some((a, b)) if y - b <= gap => (a, y),
+                    Some((a, b)) => {
+                        bands.push((a as f32 / s, (b + 1) as f32 / s));
+                        (y, y)
+                    }
+                    None => (y, y),
+                });
+            }
+        }
+        if let Some((a, b)) = cur {
+            bands.push((a as f32 / s, (b + 1) as f32 / s));
+        }
+        // The caption is a short band against the top or bottom edge.
+        let write = match (bands.first(), bands.last()) {
+            (None, _) => Some((p.y0, p.y1)),
+            (_, Some(&(t, b))) if p.y1 - b <= 4.0 && b - t <= 10.0 => Some((p.y0, t - 1.0)),
+            (Some(&(t, b)), _) if t - p.y0 <= 4.0 && b - t <= 10.0 => Some((b + 1.0, p.y1)),
+            _ => None,
+        };
+        let Some((y0, y1)) = write else { continue };
+        if y1 - y0 < 9.0 {
+            continue;
+        }
+        let r = Rect::new(p.x0 + 1.0, y0, p.x1 - 1.0, y1);
+        let mode = if r.height() > 60.0 {
+            TextMode::Multi
+        } else {
+            TextMode::Single
+        };
+        let mut f = Field::new_text(0, r, mode, Origin::Detected);
+        let v = panel_grey(g, &r);
+        f.backdrop = Some(crate::field::Backdrop {
+            color: [v, v, v],
+            printed: String::new(),
+        });
+        fields.push(f);
+    }
+
     // --- Horizontal lines that are not box edges: tick rulers and write-on lines.
     let is_box_edge = |l: &Seg| {
         boxes.iter().any(|b| {
@@ -1336,6 +1516,12 @@ pub fn detect_with_analysis(g: &Gray) -> (Vec<Field>, Analysis) {
                 && (l.a1.min(r.x1) - l.a0.max(r.x0)) > 0.5 * r.width()
         });
         if under_drawn || (!is_dotted && (l.len() < 15.0 || is_box_edge(l))) {
+            continue;
+        }
+        // A rule running to the page's edge separates a header or footer;
+        // no line to write on reaches the edge of the paper.
+        let page_w = g.w as f32 / s;
+        if l.a0 < 3.0 || l.a1 > page_w - 3.0 {
             continue;
         }
         if hangs_down(l.a0, l.pos) && hangs_down(l.a1, l.pos) {
@@ -1515,6 +1701,74 @@ pub fn detect_page<'a>(
     let mut f = detect(&g);
     for x in &mut f {
         x.page = index;
+        // The panel's colour as printed (detection only sees grey).
+        if let Some(b) = &mut x.backdrop {
+            b.color = mean_colour(&img, &x.rect, b.color[0]);
+        }
     }
     f
+}
+
+/// The average colour of the pixels under `r` whose grey is about `grey`
+/// (the panel, not the text on it).
+fn mean_colour(img: &crate::render::Image, r: &Rect, grey: u8) -> [u8; 3] {
+    let s = DETECT_SCALE;
+    let (w, h) = (img.width as usize, img.height as usize);
+    let (x0, x1) = ((r.x0 * s) as usize, ((r.x1 * s) as usize).min(w));
+    let (y0, y1) = ((r.y0 * s) as usize, ((r.y1 * s) as usize).min(h));
+    let (mut sum, mut n) = ([0u64; 3], 0u64);
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let p = &img.rgba[(y * w + x) * 4..(y * w + x) * 4 + 3];
+            let luma = (p[0] as u32 * 299 + p[1] as u32 * 587 + p[2] as u32 * 114) / 1000;
+            if luma.abs_diff(grey as u32) <= 2 {
+                for k in 0..3 {
+                    sum[k] += p[k] as u64;
+                }
+                n += 1;
+            }
+        }
+    }
+    if n == 0 {
+        return [grey; 3];
+    }
+    [(sum[0] / n) as u8, (sum[1] / n) as u8, (sum[2] / n) as u8]
+}
+
+/// Gives each panel field the text already printed in it (by another
+/// editor that flattened its answers into the page): the field starts with
+/// that text, and covers it only once its value changes.
+pub fn prefill_printed(fields: &mut [Field], runs: &[crate::text::TextRun]) {
+    for f in fields.iter_mut() {
+        let Some(b) = &mut f.backdrop else { continue };
+        let r = f.rect;
+        let mut inside: Vec<&crate::text::TextRun> = runs
+            .iter()
+            .filter(|t| {
+                let (cx, cy) = t.rect.center();
+                r.x0 <= cx && cx <= r.x1 && r.y0 <= cy && cy <= r.y1
+            })
+            .collect();
+        if inside.is_empty() {
+            continue;
+        }
+        // Lines top to bottom, runs left to right.
+        inside.sort_by(|a, b| {
+            let same_line =
+                (a.rect.center().1 - b.rect.center().1).abs() < a.size.max(b.size) * 0.5;
+            if same_line {
+                a.rect.x0.total_cmp(&b.rect.x0)
+            } else {
+                a.rect.y0.total_cmp(&b.rect.y0)
+            }
+        });
+        let text = inside
+            .iter()
+            .map(|t| t.text.trim())
+            .filter(|t| !t.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        b.printed = text.clone();
+        f.value = text;
+    }
 }

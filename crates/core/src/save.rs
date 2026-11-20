@@ -529,8 +529,12 @@ pub fn save(fd: &FormDoc, fields: &[Field]) -> Result<Vec<u8>, SaveError> {
                 }
             }
             Origin::Detected | Origin::Manual => {
-                if f.is_empty() {
-                    continue; // detected fields are saved only if filled
+                // Detected fields are saved only if filled, and not when
+                // they still hold just what was printed there. A changed
+                // printed answer is saved even when cleared: the panel's
+                // colour hides the old print.
+                if (f.is_empty() && !f.covers_print()) || f.is_printed() {
+                    continue;
                 }
                 let Some(&page_id) = fd.page_ids.get(f.page) else {
                     continue;
@@ -560,6 +564,15 @@ pub fn save(fd: &FormDoc, fields: &[Field]) -> Result<Vec<u8>, SaveError> {
                 let mut mk = Dictionary::new();
                 if geom.rotate != 0 {
                     mk.set("R", geom.rotate as i64);
+                }
+                let cover = if f.covers_print() {
+                    f.backdrop.as_ref()
+                } else {
+                    None
+                };
+                if let Some(b) = cover {
+                    let c = b.color.map(|v| Object::Real(v as f32 / 255.0));
+                    mk.set("BG", c.to_vec());
                 }
                 w.set("MK", Object::Dictionary(mk));
                 w.set("BS", dictionary! { "W" => 0 });
@@ -603,7 +616,14 @@ pub fn save(fd: &FormDoc, fields: &[Field]) -> Result<Vec<u8>, SaveError> {
                         );
                         w.set("V", text_string(&f.value));
                         let wid = d.add_object(w);
-                        let ap = write_text_appearance(&mut d, f, &geom, &mut font_cache, None);
+                        // With a cover, the appearance paints /MK /BG first.
+                        let ap = write_text_appearance(
+                            &mut d,
+                            f,
+                            &geom,
+                            &mut font_cache,
+                            cover.map(|_| wid),
+                        );
                         if let Ok(wd) = d.get_dictionary_mut(wid) {
                             wd.set("AP", dictionary! { "N" => Object::Reference(ap) });
                         }

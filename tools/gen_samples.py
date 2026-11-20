@@ -13,6 +13,11 @@ Writes (default outdir: samples/):
                       paragraphs, a table of labelled rows with an empty amount
                       column (some row lines slanted), a write-on line
   scanned_table.json  where its text is and where its fields must be
+  panels.pdf          a digital form of grey panels without outlines, the
+                      caption under the writing space, one answer already
+                      printed in its panel (flattened by another editor), a
+                      row of wide labelled boxes and a full-width footer rule
+  panels.json         the panels' writing spaces and the printed answer
   perf_text.pdf       one dense text page (embedded TrueType font)
   perf_image.pdf      one page dominated by large photographic images
   encrypted_user.pdf  real_form.pdf protected with AES-256, user password "pdfr"
@@ -373,6 +378,55 @@ def scanned_table(path, json_path):
         json.dump({"text": text, "fields": fields}, fh, indent=1)
 
 
+def panels(path, json_path):
+    """Grey panels (#F2F2F2, no outline) with the caption at the bottom; one
+    already holds a printed answer. Plus a row of wide boxes with their own
+    labels (separate fields, not a comb) and a footer rule to the page edge."""
+    out = {"fields": [], "printed": [], "boxes": [], "footer_y": None}
+    c = canvas.Canvas(path, pagesize=(W, H))
+    Y = lambda y: H - y
+    grey = Color(242 / 255, 242 / 255, 242 / 255)
+    rows = [
+        [(40, 556, "Full name", "ANNA EXAMPLE")],
+        [(40, 290, "Date of birth", None), (296, 556, "Nationality", None)],
+        [(40, 556, "Street and number, postcode, city", None)],
+    ]
+    y = 80.0
+    for row in rows:
+        for x0, x1, cap, val in row:
+            c.setFillColor(grey)
+            c.rect(x0, Y(y + 30), x1 - x0, 30, stroke=0, fill=1)
+            c.setFillColor(black)
+            c.setFont("Helvetica", 7)
+            c.drawString(x0 + 5, Y(y + 26), cap)
+            if val:
+                c.setFont("Helvetica", 9)
+                c.drawString(x0 + 12, Y(y + 13), val)
+                out["printed"].append({"rect": [x0, y, x1, y + 20], "text": val})
+            out["fields"].append([x0, y, x1, y + 20])
+        y += 36
+    # A row of wide boxes, each labelled above: separate fields.
+    y += 20
+    c.setLineWidth(0.7)
+    x = 40.0
+    for label in ["Portal", "Escalera", "Planta", "Puerta"]:
+        c.setFont("Helvetica", 6.5)
+        c.drawString(x, Y(y - 3), label)
+        c.rect(x, Y(y + 11), 26, 11, stroke=1, fill=0)
+        out["boxes"].append([x, y, x + 26, y + 11])
+        x += 30
+    # Footer: a rule across the whole page, a line of text under it.
+    fy = H - 50
+    c.line(36, Y(fy), W, Y(fy))
+    c.setFont("Helvetica", 7)
+    c.drawString(40, Y(fy + 10), "EXAMPLE ADVISORS, S.L.")
+    out["footer_y"] = fy
+    c.showPage()
+    c.save()
+    with open(json_path, "w") as fh:
+        json.dump(out, fh, indent=1)
+
+
 def perf_text(path):
     font = "/usr/share/fonts/liberation/LiberationSerif-Regular.ttf"
     pdfmetrics.registerFont(TTFont("LibSerif", font))
@@ -486,6 +540,7 @@ def main():
     flat_form(p("flat_rotated.pdf"), rotated=True)
     scanned_form(p("flat_form.pdf"), p("scanned_form.pdf"))
     scanned_table(p("scanned_table.pdf"), p("scanned_table.json"))
+    panels(p("panels.pdf"), p("panels.json"))
     perf_text(p("perf_text.pdf"))
     perf_image(p("perf_image.pdf"))
     links(p("links.pdf"))
