@@ -107,30 +107,39 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             line(&[(3.0, 10.0), (21.0, 10.0)]);
         }
         Icon::Save => {
-            // An arrow down into a tray.
-            line(&[(12.0, 3.5), (12.0, 14.0)]);
-            line(&[(8.0, 10.0), (12.0, 14.0), (16.0, 10.0)]);
-            let mut tray = vec![(5.0, 13.5)];
-            tray.extend(arc(7.0, 18.0, 2.0, PI, PI / 2.0));
-            tray.extend(arc(17.0, 18.0, 2.0, PI / 2.0, 0.0));
-            tray.push((19.0, 13.5));
-            line(&tray);
+            // A floppy disk with rounded corners: the shutter on top, the
+            // label below.
+            closed(&smooth_corners(&[
+                (4.0, 4.0),
+                (16.5, 4.0),
+                (20.0, 7.5),
+                (20.0, 20.0),
+                (4.0, 20.0),
+            ]));
+            line(&[(8.0, 4.0), (8.0, 8.5), (15.0, 8.5), (15.0, 4.0)]);
+            rrect(7.5, 13.0, 9.0, 7.0, 1.2);
         }
         Icon::SaveAs => {
-            // A page with a pencil writing on it.
-            let mut page = vec![(13.0, 4.0)];
-            page.extend(arc(6.0, 6.0, 2.0, -PI / 2.0, -PI));
-            page.extend(arc(6.0, 18.0, 2.0, PI, PI / 2.0));
-            page.extend(arc(18.0, 18.0, 2.0, PI / 2.0, 0.0));
-            page.push((20.0, 11.0));
-            line(&page);
+            // The floppy disk, its corner cut away for a pencil.
+            line(&smooth_corners_open(&[
+                (12.0, 20.0),
+                (4.0, 20.0),
+                (4.0, 4.0),
+                (16.5, 4.0),
+                (20.0, 7.5),
+                (20.0, 11.0),
+            ]));
+            line(&[(8.0, 4.0), (8.0, 8.5), (15.0, 8.5), (15.0, 4.0)]);
+            line(&[(7.5, 20.0), (7.5, 14.2), (8.7, 13.0), (14.0, 13.0)]);
+            // The pencil, writing towards the bottom left.
             closed(&[
-                (10.0, 14.0),
-                (10.6, 11.4),
-                (18.6, 3.4),
-                (20.6, 5.4),
-                (12.6, 13.4),
+                (13.0, 22.0),
+                (13.6, 19.0),
+                (20.4, 12.2),
+                (22.8, 14.6),
+                (16.0, 21.4),
             ]);
+            line(&[(19.0, 13.6), (21.4, 16.0)]);
         }
         Icon::Print => {
             // A printer: paper in, a rounded body, paper out.
@@ -464,5 +473,17 @@ fn smooth_corners(pts: &[(f32, f32)]) -> Vec<(f32, f32)> {
             ));
         }
     }
+    out
+}
+
+/// Like `smooth_corners`, for an open line: the ends stay sharp.
+fn smooth_corners_open(pts: &[(f32, f32)]) -> Vec<(f32, f32)> {
+    let mut out = vec![pts[0]];
+    for w in pts.windows(3) {
+        let r = smooth_corners(&[w[0], w[1], w[2]]);
+        // The middle corner's curve is points 5..10 of the closed result.
+        out.extend_from_slice(&r[5..10]);
+    }
+    out.push(*pts.last().unwrap());
     out
 }
