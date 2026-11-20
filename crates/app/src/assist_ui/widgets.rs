@@ -248,6 +248,81 @@ pub(crate) fn primary_button(ui: &mut Ui, c: &Colors, label: &str) -> egui::Resp
     )
 }
 
+/// pdfr's coral (the icon's gradient), whatever the desktop's accent colour.
+pub(crate) const CORAL: Color32 = Color32::from_rgb(0xFF, 0x92, 0x59);
+pub(crate) const ROSE: Color32 = Color32::from_rgb(0xE5, 0x33, 0x6D);
+
+/// The one big action of a screen (Open on the start screen): a coral pill
+/// with the icon's gradient, `height` points tall.
+pub(crate) fn brand_button(ui: &mut Ui, label: &str, height: f32) -> egui::Response {
+    let font = egui::FontId::proportional((height * 0.36).round());
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_string(), font, Color32::WHITE);
+    let pad = (height * 0.62).round();
+    let size = vec2(galley.size().x + 2.0 * pad, height);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    if ui.is_rect_visible(rect) {
+        let lift = if resp.is_pointer_button_down_on() {
+            0.0
+        } else if resp.hovered() {
+            1.0
+        } else {
+            0.0
+        };
+        let r = rect.translate(vec2(0.0, -lift));
+        let radius = (height / 2.0) as u8;
+        let p = ui.painter();
+        // Soft coloured shadow under the pill.
+        p.add(
+            egui::epaint::Shadow {
+                offset: [0, 4 + lift as i8 * 2],
+                blur: 14,
+                spread: 0,
+                color: ROSE.gamma_multiply(if resp.hovered() { 0.40 } else { 0.28 }),
+            }
+            .as_shape(r, radius),
+        );
+        // The pill, tessellated in white (with anti-aliased edges), then
+        // tinted left to right from coral to rose.
+        let mut mesh = egui::Mesh::default();
+        let mut tess = egui::epaint::Tessellator::new(
+            ui.ctx().pixels_per_point(),
+            ui.ctx().tessellation_options(|o| *o),
+            [1, 1],
+            vec![],
+        );
+        tess.tessellate_rect(
+            &egui::epaint::RectShape::filled(r, radius, Color32::WHITE),
+            &mut mesh,
+        );
+        let (a, b) = if resp.hovered() {
+            (
+                mix(CORAL, Color32::WHITE, 0.08),
+                mix(ROSE, Color32::WHITE, 0.08),
+            )
+        } else {
+            (CORAL, ROSE)
+        };
+        for v in &mut mesh.vertices {
+            let t = ((v.pos.x - r.left()) / r.width()).clamp(0.0, 1.0);
+            let alpha = v.color.a() as f32 / 255.0;
+            v.color = mix(a, b, t).gamma_multiply(alpha);
+        }
+        p.add(mesh);
+        if resp.has_focus() {
+            p.rect_stroke(
+                r.expand(3.0),
+                radius + 3,
+                Stroke::new(2.0, ROSE.gamma_multiply(0.5)),
+                egui::StrokeKind::Outside,
+            );
+        }
+        p.galley(r.center() - galley.size() / 2.0, galley, Color32::WHITE);
+    }
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
 /// A secondary action: outlined.
 pub(crate) fn secondary_button(ui: &mut Ui, c: &Colors, label: &str) -> egui::Response {
     framed_button(

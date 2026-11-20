@@ -3,7 +3,7 @@
 //! the background; files that can't be read get a plain page.
 
 use super::*;
-use crate::assist_ui::widgets::{Colors, primary_button};
+use crate::assist_ui::widgets::{Colors, ROSE, brand_button};
 use egui::RichText;
 use pdfr_assist::memory::RecentFile;
 use std::sync::mpsc::{Receiver, Sender};
@@ -45,7 +45,12 @@ impl Default for Pictures {
 impl Pictures {
     /// The picture of `path` once made (`Some(None)`: it could not be
     /// drawn); `None` while it is being made. Asks for it the first time.
-    fn get(&mut self, ctx: &egui::Context, path: &str, dark: bool) -> Option<Option<TextureHandle>> {
+    fn get(
+        &mut self,
+        ctx: &egui::Context,
+        path: &str,
+        dark: bool,
+    ) -> Option<Option<TextureHandle>> {
         while let Ok((p, t)) = self.rx.try_recv() {
             self.asked.remove(&p);
             self.tex.insert(p, t);
@@ -90,7 +95,11 @@ fn first_page(ctx: &egui::Context, path: &str, dark: bool) -> Option<TextureHand
         [img.width as usize, img.height as usize],
         &img.rgba,
     );
-    Some(ctx.load_texture(format!("first-page-{path}"), image, egui::TextureOptions::LINEAR))
+    Some(ctx.load_texture(
+        format!("first-page-{path}"),
+        image,
+        egui::TextureOptions::LINEAR,
+    ))
 }
 
 impl App {
@@ -108,7 +117,9 @@ impl App {
             return;
         }
         // As many columns as fit (at most five), no more than there are files.
-        let fit = ((area.width() - 2.0 * PAD + GAP) / (CARD_W + GAP)).floor().max(1.0) as usize;
+        let fit = ((area.width() - 2.0 * PAD + GAP) / (CARD_W + GAP))
+            .floor()
+            .max(1.0) as usize;
         let cols = fit.min(5).min(files.len());
         let grid_w = cols as f32 * CARD_W + (cols - 1) as f32 * GAP;
         let rows = files.len().div_ceil(cols);
@@ -126,9 +137,14 @@ impl App {
                 .show(ui, |ui| {
                     ui.set_width(grid_w);
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("Recent files").size(18.0).strong().color(c.text));
+                        ui.label(
+                            RichText::new("Recent files")
+                                .size(18.0)
+                                .strong()
+                                .color(c.text),
+                        );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            open_dialog = primary_button(ui, &c, "Open\u{2026}")
+                            open_dialog = brand_button(ui, "Open\u{2026}", 34.0)
                                 .on_hover_text("Ctrl+O")
                                 .clicked();
                         });
@@ -187,7 +203,10 @@ impl App {
             egui::StrokeKind::Inside,
         );
         // The page, as tall as the picture area allows, centred.
-        let area = Rect::from_min_size(rect.min + vec2(12.0, 12.0), vec2(CARD_W - 24.0, THUMB_H - 12.0));
+        let area = Rect::from_min_size(
+            rect.min + vec2(12.0, 12.0),
+            vec2(CARD_W - 24.0, THUMB_H - 12.0),
+        );
         let dark = self.dark_pages();
         let pic = self.start_pictures.get(ui.ctx(), &r.path, dark);
         let aspect = match &pic {
@@ -201,7 +220,11 @@ impl App {
         };
         let page = Rect::from_center_size(area.center(), vec2(w, h));
         let p = ui.painter();
-        p.rect_filled(page.translate(vec2(1.0, 2.0)), 2.0, Color32::from_black_alpha(50));
+        p.rect_filled(
+            page.translate(vec2(1.0, 2.0)),
+            2.0,
+            Color32::from_black_alpha(50),
+        );
         p.rect_filled(page, 2.0, self.page_fill());
         match &pic {
             Some(Some(t)) => {
@@ -214,7 +237,12 @@ impl App {
             }
             // Not readable here (protected, damaged): a plain page.
             Some(None) => {
-                crate::icons::paint(p, page.shrink(page.width() * 0.3), crate::icons::Icon::Open, c.weak);
+                crate::icons::paint(
+                    p,
+                    page.shrink(page.width() * 0.3),
+                    crate::icons::Icon::Open,
+                    c.weak,
+                );
             }
             _ => {}
         }
@@ -244,9 +272,12 @@ impl App {
             .unwrap_or_default();
         tui.add(
             egui::Label::new(
-                RichText::new(format!("{} \u{b7} {folder}", super::recent::when(r.opened_at)))
-                    .size(12.0)
-                    .color(c.weak),
+                RichText::new(format!(
+                    "{} \u{b7} {folder}",
+                    super::recent::when(r.opened_at)
+                ))
+                .size(12.0)
+                .color(c.weak),
             )
             .truncate()
             .selectable(false),
@@ -275,28 +306,106 @@ impl App {
         open
     }
 
-    /// No recent files: a welcome with one clear way to start.
+    /// No recent files: the icon, one line, and one big way to start, on a
+    /// drop zone that lights up while a file is dragged over the window.
     fn start_empty(&mut self, ui: &mut egui::Ui, area: Rect, c: &Colors) {
-        let w = 360.0f32.min(area.width() - 2.0 * PAD);
-        let rect = Rect::from_center_size(area.center(), vec2(w, 150.0));
+        let dragging = ui.ctx().input(|i| !i.raw.hovered_files.is_empty());
+        let w = 460.0f32.min(area.width() - 2.0 * PAD);
+        let zone = Rect::from_center_size(
+            area.center(),
+            vec2(w, 340.0f32.min(area.height() - 2.0 * PAD)),
+        );
+        // The drop zone: a dashed rounded outline, coral while dragging.
+        let p = ui.painter();
+        let (line, fill) = if dragging {
+            (ROSE, ROSE.gamma_multiply(0.06))
+        } else {
+            (c.border, Color32::TRANSPARENT)
+        };
+        p.rect_filled(zone, 20.0, fill);
+        dashed_round_rect(p, zone, 20.0, Stroke::new(1.5, line));
+
         let mut open = false;
-        ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+        let inner = zone.shrink2(vec2(24.0, 0.0));
+        ui.scope_builder(egui::UiBuilder::new().max_rect(inner), |ui| {
             ui.vertical_centered(|ui| {
-                let (r, _) = ui.allocate_exact_size(vec2(40.0, 40.0), Sense::hover());
-                crate::icons::paint(ui.painter(), r, crate::icons::Icon::Open, c.weak);
-                ui.add_space(6.0);
-                ui.label(RichText::new("Open a PDF to fill in").size(18.0).strong().color(c.text));
+                let content_h = 76.0 + 18.0 + 30.0 + 22.0 + 26.0 + 46.0 + 18.0 + 18.0;
+                ui.add_space(((inner.height() - content_h) / 2.0).max(0.0));
+                let (r, _) = ui.allocate_exact_size(vec2(76.0, 76.0), Sense::hover());
+                if let Some(t) = self.app_icon_texture(ui.ctx()) {
+                    ui.painter().image(
+                        t.id(),
+                        r,
+                        Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+                        Color32::WHITE,
+                    );
+                }
+                ui.add_space(18.0);
+                let title = if dragging {
+                    "Drop it to open"
+                } else {
+                    "Open a PDF to fill in"
+                };
+                ui.label(RichText::new(title).size(24.0).strong().color(c.text));
+                ui.add_space(4.0);
                 ui.label(
-                    RichText::new("Or drop one here. F1 shows every shortcut.")
-                        .size(12.5)
+                    RichText::new("Drag a file here, or pick one from your computer.")
+                        .size(14.0)
                         .color(c.weak),
                 );
-                ui.add_space(8.0);
-                open = primary_button(ui, c, "Open\u{2026}").on_hover_text("Ctrl+O").clicked();
+                ui.add_space(26.0);
+                open = brand_button(ui, "Open a PDF\u{2026}", 46.0).clicked();
+                ui.add_space(18.0);
+                let open_keys = super::commands::key_text(
+                    ui.ctx(),
+                    &egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::O),
+                );
+                ui.label(
+                    RichText::new(format!(
+                        "{open_keys} opens a file \u{b7} F1 shows every shortcut"
+                    ))
+                    .size(12.0)
+                    .color(c.weak),
+                );
             });
         });
         if open {
             self.run(super::commands::Command::Open);
         }
     }
+
+    /// pdfr's icon as a texture, made once.
+    fn app_icon_texture(&mut self, ctx: &egui::Context) -> Option<TextureHandle> {
+        let id = egui::Id::unique("pdfr-app-icon");
+        if let Some(t) = ctx.data(|d| d.get_temp::<TextureHandle>(id)) {
+            return Some(t);
+        }
+        let icon = crate::system::app_icon()?;
+        let image = egui::ColorImage::from_rgba_unmultiplied(
+            [icon.width as usize, icon.height as usize],
+            &icon.rgba,
+        );
+        let t = ctx.load_texture("pdfr-app-icon", image, egui::TextureOptions::LINEAR);
+        ctx.data_mut(|d| d.insert_temp(id, t.clone()));
+        Some(t)
+    }
+}
+
+/// A rounded rectangle outline drawn in dashes.
+fn dashed_round_rect(p: &egui::Painter, r: Rect, radius: f32, stroke: Stroke) {
+    let mut pts = Vec::new();
+    let corners = [
+        (pos2(r.right() - radius, r.top() + radius), -90.0f32),
+        (pos2(r.right() - radius, r.bottom() - radius), 0.0),
+        (pos2(r.left() + radius, r.bottom() - radius), 90.0),
+        (pos2(r.left() + radius, r.top() + radius), 180.0),
+    ];
+    for (c, start) in corners {
+        for i in 0..=8 {
+            let a = (start + i as f32 * 90.0 / 8.0).to_radians();
+            pts.push(c + vec2(a.cos(), a.sin()) * radius);
+        }
+    }
+    pts.push(pts[0]);
+    p.extend(egui::Shape::dashed_line(&pts, stroke, 7.0, 6.0));
 }

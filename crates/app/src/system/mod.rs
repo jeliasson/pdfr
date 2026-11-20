@@ -82,6 +82,15 @@ pub fn window_icon() -> Option<eframe::egui::IconData> {
     let png: &[u8] = include_bytes!("../../../../assets/icon/png/pdfr-macos-512.png");
     #[cfg(not(target_os = "macos"))]
     let png = ICONS.iter().find(|(s, _)| *s == 256)?.1;
+    decode_icon(png)
+}
+
+/// The 256 px icon, edge to edge (no Apple margins), for drawing in the app.
+pub fn app_icon() -> Option<eframe::egui::IconData> {
+    decode_icon(ICONS.iter().find(|(s, _)| *s == 256)?.1)
+}
+
+fn decode_icon(png: &[u8]) -> Option<eframe::egui::IconData> {
     let mut dec = png::Decoder::new(std::io::Cursor::new(png));
     dec.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     let mut reader = dec.read_info().ok()?;
