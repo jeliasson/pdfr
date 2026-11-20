@@ -3014,7 +3014,7 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "pdfr"
-version = "0.2.0"
+version = "0.3.0-rc1"
 dependencies = [
  "eframe",
  "egui-file-dialog",
@@ -3048,7 +3048,7 @@ dependencies = [
 
 [[package]]
 name = "pdfr-assist"
-version = "0.2.0"
+version = "0.3.0-rc1"
 dependencies = [
  "dirs",
  "libc",
@@ -3059,7 +3059,7 @@ dependencies = [
 
 [[package]]
 name = "pdfr-core"
-version = "0.2.0"
+version = "0.3.0-rc1"
 dependencies = [
  "hayro",
  "lopdf",
@@ -3070,7 +3070,7 @@ dependencies = [
 
 [[package]]
 name = "pdfr-license"
-version = "0.2.0"
+version = "0.3.0-rc1"
 dependencies = [
  "base64",
  "dirs",
