@@ -5,6 +5,13 @@ version's section into its GitHub release notes.
 
 ## [Unreleased]
 
+### Changed
+
+- A new toolbar: each group of buttons sits in a rounded capsule, and the
+  icons are thinner and rounder, in the style of macOS.
+- The empty window shows pdfr's icon and a large coral "Open a PDF…" button
+  on a drop zone that lights up while you drag a file over it.
+
 ## [0.3.0] - 2026-11-20
 
 Sign, search and read: pdfr now does what people expect from any PDF
