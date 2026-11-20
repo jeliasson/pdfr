@@ -5,6 +5,8 @@ version's section into its GitHub release notes.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-20
+
 Sign, search and read: pdfr now does what people expect from any PDF
 reader, so a form can be filled in, signed and sent without a printer.
 
