@@ -7,7 +7,10 @@ use pdfr_assist::memory::{RECENT_MAX, RecentFile, now};
 
 impl App {
     pub(super) fn automated(&self) -> bool {
-        self.cli.demo || self.cli.save.is_some() || self.cli.screenshot.is_some() || self.cli.record.is_some()
+        self.cli.demo
+            || self.cli.save.is_some()
+            || self.cli.screenshot.is_some()
+            || self.cli.record.is_some()
     }
 
     /// The page at the top of the window and how far down it (0..1).
@@ -57,7 +60,10 @@ impl App {
         }
         let p = key(path);
         let list = &mut self.assist.a.store.settings.recent;
-        let before = list.iter().position(|r| r.path == p).map(|i| list.remove(i));
+        let before = list
+            .iter()
+            .position(|r| r.path == p)
+            .map(|i| list.remove(i));
         if let Some(r) = &before
             && r.page + (r.offset > 0.02) as usize > 0
         {

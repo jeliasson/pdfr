@@ -95,7 +95,13 @@ impl FieldKind {
     }
     /// A drop-down whose value must be one of its options (no free text).
     pub fn is_fixed_choice(&self) -> bool {
-        matches!(self, FieldKind::Choice { editable: false, .. })
+        matches!(
+            self,
+            FieldKind::Choice {
+                editable: false,
+                ..
+            }
+        )
     }
     /// Short tag for fingerprints and debugging.
     pub fn tag(&self) -> &'static str {

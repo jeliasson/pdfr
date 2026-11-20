@@ -86,7 +86,9 @@ impl App {
         let vp = self.viewport;
         let accent = self.palette.accent;
         for (i, h) in s.hits.iter().enumerate() {
-            let Some(pr) = rects.get(h.page) else { continue };
+            let Some(pr) = rects.get(h.page) else {
+                continue;
+            };
             if !pr.intersects(vp) {
                 continue;
             }

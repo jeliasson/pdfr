@@ -552,7 +552,10 @@ fn ctrl_j_browses_an_open_suggestion_list() {
     assert_ne!(first, second, "Ctrl+J moves the highlight");
     assert_eq!(h.state().scroll.y, y, "and does not scroll");
     ctrl(&mut h, Key::K);
-    assert_eq!(h.state().assist.list_choice(full).map(str::to_string), first);
+    assert_eq!(
+        h.state().assist.list_choice(full).map(str::to_string),
+        first
+    );
     key(&mut h, Key::Enter);
     assert_eq!(Some(value_of(&h, full)), first);
 }
@@ -637,7 +640,11 @@ fn palette_runs_commands_and_never_types_into_boxes() {
     assert!(h.state().overlay.is_some());
     type_text(&mut h, "fit width");
     h.run_steps(1);
-    assert_eq!(value_of(&h, full), "", "palette typing stays in the palette");
+    assert_eq!(
+        value_of(&h, full),
+        "",
+        "palette typing stays in the palette"
+    );
     key(&mut h, Key::Enter);
     h.run_steps(1);
     assert!(h.state().overlay.is_none());
@@ -653,7 +660,10 @@ fn palette_runs_commands_and_never_types_into_boxes() {
     assert_eq!(value_of(&h, full), "Anna", "typing goes to the box again");
     // F1 shows the cheatsheet; Esc closes it.
     key(&mut h, Key::F1);
-    assert!(matches!(h.state().overlay, Some(palette::Overlay::Cheatsheet)));
+    assert!(matches!(
+        h.state().overlay,
+        Some(palette::Overlay::Cheatsheet)
+    ));
     key(&mut h, Key::Escape);
     assert!(h.state().overlay.is_none());
 }
@@ -868,7 +878,10 @@ fn links_jump_and_go_back() {
     let p = screen(&h, 300.0, 118.0);
     let rects = h.state().page_rects();
     let l = h.state().link_at(&rects, p).expect("printed address");
-    assert_eq!(l.target, Target::Uri("https://example.org/form-help".into()));
+    assert_eq!(
+        l.target,
+        Target::Uri("https://example.org/form-help".into())
+    );
 }
 
 #[test]
@@ -906,12 +919,17 @@ fn open_and_wait(h: &mut Harness<'_, App>, file: &str) {
     loop {
         h.run_steps(1);
         let s = h.state();
-        if s.doc.as_ref().is_some_and(|d| d.path.ends_with(file) && d.detected.iter().all(|x| *x))
+        if s.doc
+            .as_ref()
+            .is_some_and(|d| d.path.ends_with(file) && d.detected.iter().all(|x| *x))
             && s.assist.idle()
         {
             break;
         }
-        assert!(start.elapsed() < Duration::from_secs(20), "timed out opening {file}");
+        assert!(
+            start.elapsed() < Duration::from_secs(20),
+            "timed out opening {file}"
+        );
         std::thread::sleep(Duration::from_millis(10));
     }
     h.run_steps(3);
@@ -979,7 +997,11 @@ fn turn_a_page_undo_and_fit_page() {
         assert!((e.f.rect.x0 - before.x0).abs() < 0.01 && (e.f.rect.y0 - before.y0).abs() < 0.01);
     }
     ctrl_shift(&mut h, Key::Z);
-    assert_eq!(h.state().doc.as_ref().unwrap().form.pages[0].rotate, 90, "redo");
+    assert_eq!(
+        h.state().doc.as_ref().unwrap().form.pages[0].rotate,
+        90,
+        "redo"
+    );
     // Fit page: the whole page is in the window.
     ctrl(&mut h, Key::Num3);
     let s = h.state();
@@ -1012,7 +1034,10 @@ fn protected_file_asks_for_its_password() {
     type_text(&mut h, "guess");
     key(&mut h, Key::Enter);
     wait(&mut h, &|s| s.password.as_ref().is_some_and(|p| p.wrong));
-    assert!(h.state().password.as_ref().unwrap().input.is_empty(), "never kept");
+    assert!(
+        h.state().password.as_ref().unwrap().input.is_empty(),
+        "never kept"
+    );
     h.run_steps(2);
     type_text(&mut h, "pdfr");
     key(&mut h, Key::Enter);
@@ -1066,15 +1091,24 @@ fn dark_pages_redraw_and_stay_on() {
     let mut h = harness("flat_form.pdf", dir.clone());
     ctrl(&mut h, Key::M);
     assert!(h.state().dark_pages() && h.state().dark_applied);
-    assert_eq!(h.state().page_fill(), Color32::from_gray(pdfr_core::render::DARK_PAPER));
+    assert_eq!(
+        h.state().page_fill(),
+        Color32::from_gray(pdfr_core::render::DARK_PAPER)
+    );
     // The page is drawn again (dark).
     let start = Instant::now();
     while !h.state().doc.as_ref().unwrap().tex.contains_key(&0) {
         h.run_steps(1);
         std::thread::sleep(Duration::from_millis(10));
-        assert!(start.elapsed() < Duration::from_secs(10), "page not redrawn");
+        assert!(
+            start.elapsed() < Duration::from_secs(10),
+            "page not redrawn"
+        );
     }
-    assert!(Store::load(&dir.join("memory.json")).settings.dark_pages, "remembered");
+    assert!(
+        Store::load(&dir.join("memory.json")).settings.dark_pages,
+        "remembered"
+    );
     ctrl(&mut h, Key::M);
     assert!(!h.state().dark_pages());
 }
@@ -1113,7 +1147,11 @@ fn two_pages_side_by_side_and_presenting() {
         assert!(r[0].bottom() < r[1].top(), "page 1 alone, like a cover");
     }
     ctrl_shift(&mut h, Key::J);
-    assert_eq!(h.state().current_page(), 1, "next page goes to the next pair");
+    assert_eq!(
+        h.state().current_page(),
+        1,
+        "next page goes to the next pair"
+    );
     h.state_mut().run(commands::Command::TwoPages);
     h.run_steps(1);
 
@@ -1176,7 +1214,10 @@ fn start_screen_cards_open_recent_files() {
     use egui_kittest::kittest::Queryable;
     let mut store = Store::default();
     store.settings.recent.push(pdfr_assist::memory::RecentFile {
-        path: std::fs::canonicalize(sample("links.pdf")).unwrap().to_string_lossy().into(),
+        path: std::fs::canonicalize(sample("links.pdf"))
+            .unwrap()
+            .to_string_lossy()
+            .into(),
         page: 0,
         offset: 0.0,
         zoom: 1.0,
@@ -1200,6 +1241,9 @@ fn start_screen_cards_open_recent_files() {
     while h.state().doc.is_none() {
         h.run_steps(1);
         std::thread::sleep(Duration::from_millis(10));
-        assert!(start.elapsed() < Duration::from_secs(20), "card did not open the file");
+        assert!(
+            start.elapsed() < Duration::from_secs(20),
+            "card did not open the file"
+        );
     }
 }

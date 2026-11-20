@@ -35,8 +35,8 @@ fn page_text(runs: &[TextRun]) -> PageText {
         let r = &runs[ri];
         if !t.chars.is_empty() {
             // A word broken with a hyphen at the end of a line joins up.
-            let prev_line_end = t.chars.last() == Some(&'-')
-                && t.from.last().copied().flatten().is_some();
+            let prev_line_end =
+                t.chars.last() == Some(&'-') && t.from.last().copied().flatten().is_some();
             if prev_line_end {
                 t.chars.pop();
                 t.from.pop();
@@ -205,7 +205,9 @@ mod tests {
     use super::*;
 
     fn run(text: &str, x: f32, y: f32) -> TextRun {
-        let xs: Vec<f32> = (0..text.chars().count()).map(|i| x + i as f32 * 5.0).collect();
+        let xs: Vec<f32> = (0..text.chars().count())
+            .map(|i| x + i as f32 * 5.0)
+            .collect();
         let ws = vec![5.0; xs.len()];
         TextRun {
             rect: Rect::new(x, y - 8.0, x + xs.len() as f32 * 5.0, y + 2.0),
@@ -227,7 +229,10 @@ mod tests {
         let h = &search_page(0, &runs, "of")[0];
         assert_eq!(h.rects.len(), 1);
         let r = h.rects[0];
-        assert!((r.x0 - 45.0).abs() < 1e-3 && (r.x1 - 55.0).abs() < 1e-3, "{r:?}");
+        assert!(
+            (r.x0 - 45.0).abs() < 1e-3 && (r.x1 - 55.0).abs() < 1e-3,
+            "{r:?}"
+        );
     }
 
     #[test]

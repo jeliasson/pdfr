@@ -166,7 +166,10 @@ impl App {
             }
             if let Some(t) = text.as_ref().filter(|t| t.chars().count() <= 60) {
                 let short: String = t.split_whitespace().collect::<Vec<_>>().join(" ");
-                if ui.button(format!("Search for \u{201c}{short}\u{201d}")).clicked() {
+                if ui
+                    .button(format!("Search for \u{201c}{short}\u{201d}"))
+                    .clicked()
+                {
                     find = true;
                     ui.close();
                 }

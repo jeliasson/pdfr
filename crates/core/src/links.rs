@@ -61,7 +61,12 @@ fn num(d: &Document, o: &Object) -> Option<f32> {
 }
 
 /// Looks `key` up in a name tree (`/Names` and `/Kids`), depth-limited.
-fn name_tree<'a>(d: &'a Document, node: &'a Dictionary, key: &[u8], depth: u8) -> Option<&'a Object> {
+fn name_tree<'a>(
+    d: &'a Document,
+    node: &'a Dictionary,
+    key: &[u8],
+    depth: u8,
+) -> Option<&'a Object> {
     if depth > 24 {
         return None;
     }
@@ -317,7 +322,12 @@ mod tests {
 
     #[test]
     fn addresses_in_text() {
-        let l = text_links(2, &[run("See (https://skatteverket.se/form). Mail info@example.se, or www.pdfr.app")]);
+        let l = text_links(
+            2,
+            &[run(
+                "See (https://skatteverket.se/form). Mail info@example.se, or www.pdfr.app",
+            )],
+        );
         let uris: Vec<&Target> = l.iter().map(|l| &l.target).collect();
         assert_eq!(
             uris,

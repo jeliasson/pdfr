@@ -82,7 +82,10 @@ fn link_annotations_and_their_targets() {
     assert!((l[0].rect.y0 - 180.0).abs() < 0.01 && (l[0].rect.y1 - 200.0).abs() < 0.01);
     // Page 2 is turned 90°: user point (0, 400) is display y 0, x 400.
     match &l[1].target {
-        Target::Dest { page: 1, y: Some(y) } => assert!(y.abs() < 0.01, "{y}"),
+        Target::Dest {
+            page: 1,
+            y: Some(y),
+        } => assert!(y.abs() < 0.01, "{y}"),
         t => panic!("{t:?}"),
     }
     match &l[2].target {
@@ -99,15 +102,26 @@ fn printed_address_becomes_a_link() {
     let runs = pdfr_core::text::extract(&pdf.pages()[0], &cache);
     let links = pdfr_core::links::text_links(0, &runs);
     assert_eq!(links.len(), 1, "{runs:?}");
-    assert_eq!(links[0].target, Target::Uri("https://example.org/form".into()));
+    assert_eq!(
+        links[0].target,
+        Target::Uri("https://example.org/form".into())
+    );
     assert!(links[0].rect.x0 > 100.0, "the box starts at the address");
 }
 
 #[test]
 fn outline_of_the_links_sample() {
-    let bytes = std::fs::read(format!("{}/../../samples/links.pdf", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let bytes = std::fs::read(format!(
+        "{}/../../samples/links.pdf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
     let fd = FormDoc::open(bytes).unwrap();
-    let titles: Vec<(&str, usize)> = fd.outline.iter().map(|o| (o.title.as_str(), o.depth)).collect();
+    let titles: Vec<(&str, usize)> = fd
+        .outline
+        .iter()
+        .map(|o| (o.title.as_str(), o.depth))
+        .collect();
     assert_eq!(
         titles,
         vec![
@@ -118,7 +132,10 @@ fn outline_of_the_links_sample() {
         ]
     );
     match &fd.outline[3].target {
-        Some(Target::Dest { page: 2, y: Some(y) }) => assert!((*y - 60.0).abs() < 1.0, "{y}"),
+        Some(Target::Dest {
+            page: 2,
+            y: Some(y),
+        }) => assert!((*y - 60.0).abs() < 1.0, "{y}"),
         t => panic!("{t:?}"),
     }
     assert!(fd.outline[1].has_children);

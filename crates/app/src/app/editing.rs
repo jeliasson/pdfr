@@ -539,7 +539,11 @@ impl App {
         if n == 0 {
             return;
         }
-        let start = match self.focus.as_ref().and_then(|f| ids.iter().position(|&i| i == f.id)) {
+        let start = match self
+            .focus
+            .as_ref()
+            .and_then(|f| ids.iter().position(|&i| i == f.id))
+        {
             Some(c) => c,
             None => {
                 // Just before the first box on the page in view.

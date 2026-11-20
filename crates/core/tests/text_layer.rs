@@ -60,6 +60,9 @@ fn character_boxes_and_search_on_a_real_page() {
         let w = h.rects[0].width();
         assert!(w > 1.5 * full.size && w < 3.5 * full.size, "{name}: {w}");
         assert!((h.rects[0].x1 - full.rect.x1).abs() < 0.5, "{name}");
-        assert_eq!(pdfr_core::search::search_page(0, &r, "membership application").len(), 1);
+        assert_eq!(
+            pdfr_core::search::search_page(0, &r, "membership application").len(),
+            1
+        );
     }
 }

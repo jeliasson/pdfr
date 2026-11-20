@@ -32,7 +32,12 @@ impl App {
 
     /// Today's date as written on a spot of its own.
     fn today_text(&self) -> String {
-        let probe = Field::new_text(0, PRect::new(0.0, 0.0, 200.0, 20.0), TextMode::Single, Origin::Manual);
+        let probe = Field::new_text(
+            0,
+            PRect::new(0.0, 0.0, 200.0, 20.0),
+            TextMode::Single,
+            Origin::Manual,
+        );
         dates::format_for(dates::today(), None, &probe, "")
     }
 
@@ -41,7 +46,10 @@ impl App {
         let v = self.today_text();
         let w = pdfr_core::font::font().text_width(&v, DATE_SIZE) + 6.0;
         let h = DATE_SIZE * 1.5;
-        (PRect::new(x - 2.0, y - h / 2.0, x - 2.0 + w, y + h / 2.0), v)
+        (
+            PRect::new(x - 2.0, y - h / 2.0, x - 2.0 + w, y + h / 2.0),
+            v,
+        )
     }
 
     /// Places today's date at a page point, as one undo step.
@@ -80,12 +88,15 @@ impl App {
             let (nx, ny) = (cx * w / sw.max(1.0), cy * h / sh.max(1.0));
             let (hw, hh) = (src.rect.width() / 2.0, src.rect.height() / 2.0);
             let r = PRect::new(nx - hw, ny - hh, nx + hw, ny + hh);
-            let taken = doc
-                .entries
-                .iter()
-                .any(|e| e.f.kind.is_signature() && e.f.page == p && e.f.rect.overlap_ratio(&r) > 0.3);
+            let taken = doc.entries.iter().any(|e| {
+                e.f.kind.is_signature() && e.f.page == p && e.f.rect.overlap_ratio(&r) > 0.3
+            });
             if !taken {
-                add.push(Field { page: p, rect: r, ..src.clone() });
+                add.push(Field {
+                    page: p,
+                    rect: r,
+                    ..src.clone()
+                });
             }
         }
         if add.is_empty() {
@@ -101,6 +112,9 @@ impl App {
         doc.reorder();
         doc.dirty = true;
         self.assist.invalidate();
-        self.status = format!("Added to {n} more page{}. Ctrl+Z takes them off.", if n == 1 { "" } else { "s" });
+        self.status = format!(
+            "Added to {n} more page{}. Ctrl+Z takes them off.",
+            if n == 1 { "" } else { "s" }
+        );
     }
 }

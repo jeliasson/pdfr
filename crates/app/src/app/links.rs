@@ -48,7 +48,9 @@ impl App {
     /// What a link does, for its tooltip.
     pub(super) fn link_text(&self, l: &Link) -> String {
         match &l.target {
-            Target::Uri(u) => u.strip_prefix("mailto:").map_or(u.clone(), |m| format!("E-mail {m}")),
+            Target::Uri(u) => u
+                .strip_prefix("mailto:")
+                .map_or(u.clone(), |m| format!("E-mail {m}")),
             Target::Dest { page, .. } => format!("Go to page {}", page + 1),
             Target::Named(n) => match n.as_str() {
                 "NextPage" => "Next page".into(),
@@ -87,7 +89,10 @@ impl App {
                 }
             }
             Target::Named(n) => {
-                let last = self.doc.as_ref().map_or(0, |d| d.sizes.len().saturating_sub(1));
+                let last = self
+                    .doc
+                    .as_ref()
+                    .map_or(0, |d| d.sizes.len().saturating_sub(1));
                 let cur = self.current_page();
                 let to = match n.as_str() {
                     "NextPage" => Some((cur + 1).min(last)),

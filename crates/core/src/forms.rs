@@ -80,11 +80,17 @@ impl FormDoc {
     /// file is decrypted once here: `bytes` hold the readable document, so
     /// rendering and printing never need the password, and the saved copy
     /// is not protected (`was_protected` says so).
-    pub fn open_with_password(bytes: Vec<u8>, password: Option<&str>) -> Result<FormDoc, OpenError> {
+    pub fn open_with_password(
+        bytes: Vec<u8>,
+        password: Option<&str>,
+    ) -> Result<FormDoc, OpenError> {
         use hayro::hayro_syntax::{DecryptionError, LoadPdfError};
         let mut bytes = Arc::new(bytes);
         // Page geometry comes from hayro so it matches rendering exactly.
-        let pdf = match hayro::hayro_syntax::Pdf::new_with_password(bytes.clone(), password.unwrap_or("")) {
+        let pdf = match hayro::hayro_syntax::Pdf::new_with_password(
+            bytes.clone(),
+            password.unwrap_or(""),
+        ) {
             Ok(p) => p,
             Err(LoadPdfError::Decryption(DecryptionError::PasswordProtected)) => {
                 return Err(if password.is_some() {
@@ -115,7 +121,9 @@ impl FormDoc {
             outline: vec![],
         };
         let loaded = match password {
-            Some(p) => Document::load_mem_with_options(&bytes, lopdf::LoadOptions::with_password(p)),
+            Some(p) => {
+                Document::load_mem_with_options(&bytes, lopdf::LoadOptions::with_password(p))
+            }
             None => Document::load_mem(&bytes),
         };
         match loaded {

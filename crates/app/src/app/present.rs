@@ -38,7 +38,9 @@ impl App {
 
     /// Each frame while presenting: page keys, and the page fitted.
     pub(super) fn present_frame(&mut self, ctx: &egui::Context, clicked: bool) {
-        let Some((page, ..)) = self.present else { return };
+        let Some((page, ..)) = self.present else {
+            return;
+        };
         let n = self.doc.as_ref().map_or(0, |d| d.sizes.len());
         let (next, prev, first, last, stop) = ctx.input_mut(|i| {
             let mut k = |key| i.consume_key(Modifiers::NONE, key);

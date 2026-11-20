@@ -247,7 +247,13 @@ impl App {
                 zoom: self.zoom,
             }
             .rect(&pr);
-            crate::ink::paint(&painter, &ink, r, Color32::from_white_alpha(170), self.dark_pages());
+            crate::ink::paint(
+                &painter,
+                &ink,
+                r,
+                Color32::from_white_alpha(170),
+                self.dark_pages(),
+            );
             painter.rect_stroke(
                 r.expand(2.0),
                 2.0,

@@ -116,10 +116,7 @@ impl AssistState {
     /// Opens the panel at a section named like "ai" or "people".
     pub fn open_settings(&mut self, name: &str) {
         let name = name.to_lowercase();
-        if let Some(s) = Section::ALL
-            .into_iter()
-            .find(|s| s.matches(&name))
-        {
+        if let Some(s) = Section::ALL.into_iter().find(|s| s.matches(&name)) {
             self.settings_ui.section = s;
         }
         self.settings_open = true;

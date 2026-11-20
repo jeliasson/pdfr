@@ -273,9 +273,7 @@ impl App {
                     Row {
                         item: Item::Box(id),
                         title,
-                        detail: format!("{detail}   p. {}", e.f.page + 1)
-                            .trim()
-                            .to_string(),
+                        detail: format!("{detail}   p. {}", e.f.page + 1).trim().to_string(),
                         enabled: true,
                     },
                 ))
@@ -356,7 +354,12 @@ impl App {
                     "Type a word to find it in the document".to_string()
                 } else if read < n {
                     format!("Nothing yet \u{2014} still reading pages\u{2026} {read} of {n}")
-                } else if read > 0 && self.doc.as_ref().is_some_and(|d| d.text.values().all(|t| t.is_empty())) {
+                } else if read > 0
+                    && self
+                        .doc
+                        .as_ref()
+                        .is_some_and(|d| d.text.values().all(|t| t.is_empty()))
+                {
                     "This document has no text to search (a scan?)".to_string()
                 } else {
                     "Not found".to_string()
@@ -365,9 +368,15 @@ impl App {
             }
             Scope::Page => {
                 let n = self.doc.as_ref().map_or(0, |d| d.sizes.len());
-                let sections = self.doc.as_ref().is_some_and(|d| !d.form.outline.is_empty());
+                let sections = self
+                    .doc
+                    .as_ref()
+                    .is_some_and(|d| !d.form.outline.is_empty());
                 if sections {
-                    ("Page number or section\u{2026}", format!("Type a page number from 1 to {n}, or a section"))
+                    (
+                        "Page number or section\u{2026}",
+                        format!("Type a page number from 1 to {n}, or a section"),
+                    )
                 } else {
                     ("Page number…", format!("Type a page number from 1 to {n}"))
                 }

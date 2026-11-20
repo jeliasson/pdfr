@@ -42,7 +42,10 @@ impl App {
 
     pub(super) fn sidebar(&mut self, ui: &mut egui::Ui) {
         let c = Colors::new(&self.palette);
-        let has_outline = self.doc.as_ref().is_some_and(|d| !d.form.outline.is_empty());
+        let has_outline = self
+            .doc
+            .as_ref()
+            .is_some_and(|d| !d.form.outline.is_empty());
         if !has_outline {
             self.side_tab = SideTab::Pages;
         }
@@ -81,10 +84,8 @@ impl App {
         area.show_rows(ui, row_h, n, |ui, range| {
             for i in range {
                 visible.push(i);
-                let (row, resp) = ui.allocate_exact_size(
-                    vec2(ui.available_width(), row_h),
-                    Sense::click(),
-                );
+                let (row, resp) =
+                    ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::click());
                 let Some(doc) = &self.doc else { return };
                 let (w, h) = doc.sizes[i];
                 let tw = THUMB_W.min(row.width() - 16.0);
@@ -110,11 +111,16 @@ impl App {
                 }
                 // Where boxes are filled in.
                 let s = tw / w.max(1.0);
-                for e in doc.entries.iter().filter(|e| e.f.page == i && !e.f.is_empty()) {
+                for e in doc
+                    .entries
+                    .iter()
+                    .filter(|e| e.f.page == i && !e.f.is_empty())
+                {
                     let r = e.f.rect;
                     let mark = Rect::from_min_max(
                         page.min + vec2(r.x0 * s, r.y0 * s),
-                        page.min + vec2(r.x1 * s, (r.y0 * s + (r.y1 - r.y0) * s).max(r.y0 * s + 1.5)),
+                        page.min
+                            + vec2(r.x1 * s, (r.y0 * s + (r.y1 - r.y0) * s).max(r.y0 * s + 1.5)),
                     );
                     p.rect_filled(mark, 0.0, c.accent.gamma_multiply(0.6));
                 }
@@ -186,14 +192,27 @@ impl App {
                         ui.add_space(o.depth as f32 * 14.0);
                         if o.has_children {
                             // A small triangle: pointing down when open.
-                            let (r, resp) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::click());
+                            let (r, resp) =
+                                ui.allocate_exact_size(vec2(12.0, 12.0), Sense::click());
                             let m = r.center();
                             let pts = if open {
-                                vec![m + vec2(-4.0, -2.0), m + vec2(4.0, -2.0), m + vec2(0.0, 3.0)]
+                                vec![
+                                    m + vec2(-4.0, -2.0),
+                                    m + vec2(4.0, -2.0),
+                                    m + vec2(0.0, 3.0),
+                                ]
                             } else {
-                                vec![m + vec2(-2.0, -4.0), m + vec2(3.0, 0.0), m + vec2(-2.0, 4.0)]
+                                vec![
+                                    m + vec2(-2.0, -4.0),
+                                    m + vec2(3.0, 0.0),
+                                    m + vec2(-2.0, 4.0),
+                                ]
                             };
-                            ui.painter().add(egui::Shape::convex_polygon(pts, c.weak, Stroke::NONE));
+                            ui.painter().add(egui::Shape::convex_polygon(
+                                pts,
+                                c.weak,
+                                Stroke::NONE,
+                            ));
                             if resp.on_hover_cursor(CursorIcon::PointingHand).clicked() {
                                 flip = Some((i, !open));
                             }

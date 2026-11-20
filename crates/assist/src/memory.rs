@@ -258,7 +258,9 @@ impl Store {
             let b = base.values.get(k);
             let o = self.values.entry(k.clone()).or_default();
             for e in list {
-                let known = |l: Option<&Vec<ValueEntry>>| l.is_some_and(|l| l.iter().any(|x| x.value == e.value));
+                let known = |l: Option<&Vec<ValueEntry>>| {
+                    l.is_some_and(|l| l.iter().any(|x| x.value == e.value))
+                };
                 if !known(b) && !o.iter().any(|x| x.value == e.value) {
                     o.push(e.clone());
                 }
@@ -266,7 +268,10 @@ impl Store {
         }
         for (k, list) in &base.values {
             for e in list {
-                let on_disk = disk.values.get(k).is_some_and(|l| l.iter().any(|x| x.value == e.value));
+                let on_disk = disk
+                    .values
+                    .get(k)
+                    .is_some_and(|l| l.iter().any(|x| x.value == e.value));
                 if !on_disk && let Some(o) = self.values.get_mut(k) {
                     o.retain(|x| x.value != e.value);
                 }
@@ -275,10 +280,16 @@ impl Store {
         self.values.retain(|_, l| !l.is_empty());
         merge_map(&mut self.forms, &base.forms, &disk.forms);
         merge_map(&mut self.label_cache, &base.label_cache, &disk.label_cache);
-        merge_map(&mut self.people_cache, &base.people_cache, &disk.people_cache);
+        merge_map(
+            &mut self.people_cache,
+            &base.people_cache,
+            &disk.people_cache,
+        );
         // People by id.
         for p in &disk.profiles {
-            if !base.profiles.iter().any(|b| b.id == p.id) && !self.profiles.iter().any(|o| o.id == p.id) {
+            if !base.profiles.iter().any(|b| b.id == p.id)
+                && !self.profiles.iter().any(|o| o.id == p.id)
+            {
                 self.profiles.push(p.clone());
             }
         }
@@ -561,9 +572,16 @@ mod merge_tests {
         b.save_merged(&path, &mut b_base).unwrap();
 
         let disk = Store::load(&path);
-        assert!(disk.get("email").contains(&"anna@example.se".to_string()), "A's value kept");
+        assert!(
+            disk.get("email").contains(&"anna@example.se".to_string()),
+            "A's value kept"
+        );
         assert!(disk.get("email").contains(&"old@example.se".to_string()));
-        assert_eq!(disk.get("phone"), vec!["0701234567".to_string()], "B's value");
+        assert_eq!(
+            disk.get("phone"),
+            vec!["0701234567".to_string()],
+            "B's value"
+        );
         assert!(disk.signatures.is_empty(), "A's delete is not undone by B");
         assert!(disk.settings.dark_pages);
         let _ = std::fs::remove_dir_all(&dir);

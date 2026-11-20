@@ -400,7 +400,9 @@ mod tests {
     use super::*;
 
     fn run(text: &str, x: f32, y: f32) -> TextRun {
-        let mut xs: Vec<f32> = (0..text.chars().count()).map(|i| x + i as f32 * 5.0).collect();
+        let mut xs: Vec<f32> = (0..text.chars().count())
+            .map(|i| x + i as f32 * 5.0)
+            .collect();
         let ws = widths(text, &mut xs, 10.0);
         TextRun {
             rect: Rect::new(x, y - 8.0, x + xs.len() as f32 * 5.0, y + 2.0),
@@ -424,11 +426,17 @@ mod tests {
         assert_eq!(a, TextPos { run: 1, ch: 1 });
         let b = pos_at(&runs, 500.0, 121.0).unwrap();
         let sel = selection(&runs, b, a);
-        assert_eq!(selected_text(&runs, &sel), "ef: AB-1234\nAddress: Storgatan 12");
+        assert_eq!(
+            selected_text(&runs, &sel),
+            "ef: AB-1234\nAddress: Storgatan 12"
+        );
         let (w0, w1) = word_at(&runs, 1, 7);
         assert_eq!(selected_text(&runs, &selection(&runs, w0, w1)), "AB-1234");
         let (l0, l1) = line_at(&runs, 2);
-        assert_eq!(selected_text(&runs, &selection(&runs, l0, l1)), "Address: Storgatan 12");
+        assert_eq!(
+            selected_text(&runs, &selection(&runs, l0, l1)),
+            "Address: Storgatan 12"
+        );
         assert!(pos_at(&[], 0.0, 0.0).is_none());
     }
 }

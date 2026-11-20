@@ -107,7 +107,11 @@ impl AssistState {
             self.sys.msg = None;
             return;
         }
-        if self.sys.last_default_look.is_none_or(|t| t.elapsed() >= LOOK_AGAIN) {
+        if self
+            .sys
+            .last_default_look
+            .is_none_or(|t| t.elapsed() >= LOOK_AGAIN)
+        {
             self.sys.default_app = None;
             self.sys.last_default_look = Some(Instant::now());
         }
@@ -135,7 +139,11 @@ impl AssistState {
                 // Ticked while pdfr opens PDFs; click to switch either way.
                 let on = default == DefaultApp::Pdfr;
                 if on || system::can_make_default() {
-                    let tip = if on { "Stop opening PDF files in pdfr" } else { "Open PDF files in pdfr" };
+                    let tip = if on {
+                        "Stop opening PDF files in pdfr"
+                    } else {
+                        "Open PDF files in pdfr"
+                    };
                     clicked = checkbox(ui, c, on).on_hover_text(tip).clicked();
                 }
             });
@@ -165,7 +173,11 @@ impl AssistState {
                     },
                 );
                 if flip {
-                    let res = if added { system::unregister() } else { system::register() };
+                    let res = if added {
+                        system::unregister()
+                    } else {
+                        system::register()
+                    };
                     self.sys.msg = Some(match res {
                         Ok(m) => (true, m),
                         Err(e) => (false, e),
@@ -181,23 +193,38 @@ impl AssistState {
                 "Terminal command",
                 "Open a file from the terminal with  pdfr form.pdf",
                 |ui| {
-                    ui.label(RichText::new(if on_path { "Installed" } else { "Not installed" }).color(
-                        if on_path { c.text } else { c.weak },
-                    ));
+                    ui.label(
+                        RichText::new(if on_path {
+                            "Installed"
+                        } else {
+                            "Not installed"
+                        })
+                        .color(if on_path { c.text } else { c.weak }),
+                    );
                 },
             );
             if let Some((ok, m)) = &self.sys.msg {
                 row_divider(ui, c);
-                ui.label(RichText::new(m).size(12.0).color(if *ok { c.text } else { DANGER }));
+                ui.label(
+                    RichText::new(m)
+                        .size(12.0)
+                        .color(if *ok { c.text } else { DANGER }),
+                );
             }
         });
 
         card(ui, c, Some("Updates"), |ui| {
             if !install.checks_for_updates() {
                 let (title, sub) = if install == InstallKind::Dev {
-                    ("Development build", "Run from a Cargo build folder, so pdfr doesn\u{2019}t check for new versions.")
+                    (
+                        "Development build",
+                        "Run from a Cargo build folder, so pdfr doesn\u{2019}t check for new versions.",
+                    )
                 } else {
-                    ("Updates", "Your software centre installs new versions of pdfr, or run  flatpak update")
+                    (
+                        "Updates",
+                        "Your software centre installs new versions of pdfr, or run  flatpak update",
+                    )
                 };
                 setting_row(ui, c, title, sub, |_| {});
                 return;
@@ -359,7 +386,10 @@ impl AssistState {
 
     fn open_releases(&mut self) {
         if let Err(e) = system::open_url(system::RELEASES_URL) {
-            self.sys.msg = Some((false, format!("{e}. The downloads are at {}", system::RELEASES_URL)));
+            self.sys.msg = Some((
+                false,
+                format!("{e}. The downloads are at {}", system::RELEASES_URL),
+            ));
         }
     }
 
@@ -445,7 +475,8 @@ impl AssistState {
             ),
             Notice::UpdateOptIn => (
                 "Tell you about new versions?".to_string(),
-                "Once a day pdfr asks GitHub for the newest version number. Nothing else is sent.".to_string(),
+                "Once a day pdfr asks GitHub for the newest version number. Nothing else is sent."
+                    .to_string(),
                 "Yes",
                 "No thanks",
             ),
@@ -507,7 +538,8 @@ impl AssistState {
                     match self.sys.install.update_hint() {
                         Some(cmd) => {
                             ctx.copy_text(cmd.to_string());
-                            self.sys.msg = Some((true, "Copied. Paste it into a terminal to update.".into()));
+                            self.sys.msg =
+                                Some((true, "Copied. Paste it into a terminal to update.".into()));
                         }
                         None if !self.sys.install.managed() => self.open_releases(),
                         None => {}
@@ -564,11 +596,20 @@ mod tests {
         waiting(&mut a, Instant::now());
         a.sys.default_app = Some(DefaultApp::Other("Preview".into()));
         a.follow_default_dialog(&egui::Context::default());
-        assert!(a.sys.default_app.is_none(), "forgotten, so it is looked up again");
+        assert!(
+            a.sys.default_app.is_none(),
+            "forgotten, so it is looked up again"
+        );
 
-        waiting(&mut a, Instant::now() - AWAIT_DEFAULT - Duration::from_secs(1));
+        waiting(
+            &mut a,
+            Instant::now() - AWAIT_DEFAULT - Duration::from_secs(1),
+        );
         a.sys.default_app = Some(DefaultApp::Other("Preview".into()));
         a.follow_default_dialog(&egui::Context::default());
-        assert!(a.sys.msg.is_none(), "an unanswered dialog doesn't leave the message forever");
+        assert!(
+            a.sys.msg.is_none(),
+            "an unanswered dialog doesn't leave the message forever"
+        );
     }
 }

@@ -42,7 +42,11 @@ pub(crate) fn read(d: &Document, ids: &[ObjId], geoms: &[PageGeom]) -> Vec<Outli
 }
 
 fn first_child(d: &Document, node: &Dictionary) -> Option<ObjId> {
-    node.get(b"First").ok()?.as_reference().ok().filter(|id| d.get_dictionary(*id).is_ok())
+    node.get(b"First")
+        .ok()?
+        .as_reference()
+        .ok()
+        .filter(|id| d.get_dictionary(*id).is_ok())
 }
 
 fn walk(
@@ -61,7 +65,9 @@ fn walk(
         if out.len() >= MAX_ITEMS || !seen.insert(id) {
             return;
         }
-        let Ok(node) = d.get_dictionary(id) else { return };
+        let Ok(node) = d.get_dictionary(id) else {
+            return;
+        };
         let title = node
             .get(b"Title")
             .ok()

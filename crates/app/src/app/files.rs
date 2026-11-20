@@ -61,7 +61,9 @@ pub(super) enum AfterSave {
 #[derive(Debug)]
 pub enum OpenFail {
     /// It needs a password (`wrong`: the one given did not work).
-    Password { wrong: bool },
+    Password {
+        wrong: bool,
+    },
     Other(String),
 }
 
@@ -132,7 +134,9 @@ impl App {
     /// The question for a protected file's password, while open.
     pub(super) fn password_window(&mut self, ctx: &egui::Context) {
         use crate::assist_ui::widgets::{Colors, panel_frame, primary_button, secondary_button};
-        let Some(ask) = self.password.as_mut() else { return };
+        let Some(ask) = self.password.as_mut() else {
+            return;
+        };
         let pal = self.palette.clone();
         let c = Colors::new(&pal);
         let (mut open, mut cancel) = ctx.input_mut(|i| {
@@ -151,11 +155,18 @@ impl App {
             .show(ctx, |ui| {
                 ui.set_width(380.0);
                 ui.spacing_mut().item_spacing = vec2(8.0, 10.0);
-                ui.label(egui::RichText::new("Password needed").size(18.0).strong().color(c.text));
+                ui.label(
+                    egui::RichText::new("Password needed")
+                        .size(18.0)
+                        .strong()
+                        .color(c.text),
+                );
                 ui.add(
                     egui::Label::new(
-                        egui::RichText::new(format!("\u{201c}{name}\u{201d} is protected. Enter its password to open it."))
-                            .color(c.weak),
+                        egui::RichText::new(format!(
+                            "\u{201c}{name}\u{201d} is protected. Enter its password to open it."
+                        ))
+                        .color(c.weak),
                     )
                     .wrap(),
                 );
@@ -178,7 +189,9 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         open |= primary_button(ui, &c, "Open").clicked();
-                        cancel |= secondary_button(ui, &c, "Cancel").on_hover_text("Esc").clicked();
+                        cancel |= secondary_button(ui, &c, "Cancel")
+                            .on_hover_text("Esc")
+                            .clicked();
                     });
                 });
             });
@@ -348,7 +361,10 @@ impl App {
         // pdfr itself, never another program; the file is the last argument.
         match cmd.arg(&path).spawn() {
             Ok(_) => {
-                let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
                 self.status = format!("Opened {name} in a new window.");
             }
             Err(e) => self.status = format!("Could not open {}: {e}", path.display()),

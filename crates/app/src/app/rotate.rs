@@ -8,7 +8,11 @@ impl App {
     /// The zoom at which the current page fits the window entirely.
     pub(super) fn fit_page_zoom(&self) -> f32 {
         let Some(doc) = &self.doc else { return 1.0 };
-        let (w, h) = doc.sizes.get(self.current_page()).copied().unwrap_or((612.0, 792.0));
+        let (w, h) = doc
+            .sizes
+            .get(self.current_page())
+            .copied()
+            .unwrap_or((612.0, 792.0));
         let vp = if self.viewport.is_positive() {
             self.viewport
         } else {
@@ -104,7 +108,11 @@ impl App {
         }
         doc.reorder();
         self.thumbs_asked.clear();
-        if self.text_sel.as_ref().is_some_and(|s| changed.contains(&s.page)) {
+        if self
+            .text_sel
+            .as_ref()
+            .is_some_and(|s| changed.contains(&s.page))
+        {
             self.text_sel = None;
         }
         if let Some(s) = &mut self.search {

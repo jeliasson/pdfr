@@ -275,8 +275,7 @@ impl App {
         crate::system::set_wake(&ctx);
         let omarchy = theme::load_omarchy();
         let omarchy_active = omarchy.is_some();
-        let palette = omarchy
-            .unwrap_or_else(|| Palette::builtin(system_dark(&ctx)));
+        let palette = omarchy.unwrap_or_else(|| Palette::builtin(system_dark(&ctx)));
         ctx.set_visuals(palette.visuals());
         let (open_tx, open_rx) = channel();
         let auto_remember = cli.save.is_some() || cli.demo || cli.screenshot.is_some();
@@ -286,7 +285,8 @@ impl App {
             cli.data_dir.clone(),
             auto_remember,
         );
-        let quiet = cli.demo || cli.save.is_some() || cli.screenshot.is_some() || cli.record.is_some();
+        let quiet =
+            cli.demo || cli.save.is_some() || cli.screenshot.is_some() || cli.record.is_some();
         let license = crate::license_ui::LicenseUi::new(cli.data_dir.as_deref(), quiet);
         let mut app = App {
             parent: None,
@@ -389,8 +389,7 @@ impl App {
         }
         while let Ok(p) = self.theme_rx.try_recv() {
             self.omarchy_active = p.is_some();
-            self.palette = p
-                .unwrap_or_else(|| Palette::builtin(system_dark(ctx)));
+            self.palette = p.unwrap_or_else(|| Palette::builtin(system_dark(ctx)));
             ctx.set_visuals(self.palette.visuals());
         }
         if !self.omarchy_active {
@@ -601,20 +600,20 @@ impl eframe::App for App {
 
         let presenting = self.presenting();
         if !presenting {
-        egui::Panel::top("toolbar")
-            .frame(
-                egui::Frame::new()
-                    .fill(self.palette.toolbar)
-                    .inner_margin(egui::Margin::symmetric(8, 5)),
-            )
-            .show(ui, |ui| self.toolbar(ui));
-        egui::Panel::bottom("status")
-            .frame(
-                egui::Frame::new()
-                    .fill(self.palette.toolbar)
-                    .inner_margin(egui::Margin::symmetric(8, 3)),
-            )
-            .show(ui, |ui| self.status_bar(ui));
+            egui::Panel::top("toolbar")
+                .frame(
+                    egui::Frame::new()
+                        .fill(self.palette.toolbar)
+                        .inner_margin(egui::Margin::symmetric(8, 5)),
+                )
+                .show(ui, |ui| self.toolbar(ui));
+            egui::Panel::bottom("status")
+                .frame(
+                    egui::Frame::new()
+                        .fill(self.palette.toolbar)
+                        .inner_margin(egui::Margin::symmetric(8, 3)),
+                )
+                .show(ui, |ui| self.status_bar(ui));
         }
         if self.sidebar_open() && !presenting {
             egui::Panel::left("sidebar")
@@ -639,7 +638,8 @@ impl eframe::App for App {
         self.builtin_dialog_ui(&ctx);
         #[cfg(target_os = "linux")]
         self.cups_dialog_ui(&ctx);
-        self.assist.settings_window(&ctx, &self.palette, &mut self.license);
+        self.assist
+            .settings_window(&ctx, &self.palette, &mut self.license);
         self.assist.consent_window(&ctx);
         self.assist.remember_window(&ctx, &self.palette);
         let automated = self.cli.demo
@@ -746,8 +746,8 @@ mod search;
 mod select;
 mod sidebar;
 mod signature;
-mod start;
 mod stamps;
+mod start;
 mod toolbar;
 mod view;
 

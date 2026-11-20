@@ -323,7 +323,12 @@ impl Command {
             HalfPageUp => ("Half a page up", "", Icon::List, HALF_UP),
             NextPage => ("Next page", "", Icon::List, NEXT_PAGE),
             PrevPage => ("Previous page", "", Icon::List, PREV_PAGE),
-            GoToPage => ("Go to page…", "Type a page number", Icon::Search, GO_TO_PAGE),
+            GoToPage => (
+                "Go to page…",
+                "Type a page number",
+                Icon::Search,
+                GO_TO_PAGE,
+            ),
             GoBack => (
                 "Go back",
                 "Back to where you were before following a link",
@@ -336,12 +341,7 @@ impl Command {
                 Icon::TextField,
                 NEXT_EMPTY,
             ),
-            PrevEmpty => (
-                "Previous empty box",
-                "",
-                Icon::TextField,
-                PREV_EMPTY,
-            ),
+            PrevEmpty => ("Previous empty box", "", Icon::TextField, PREV_EMPTY),
             JumpHints => (
                 "Jump to a box",
                 "Letters appear on every box you can see: type one to go there",
@@ -444,8 +444,8 @@ impl App {
             DarkPages => true,
             TwoPages | Present | FieldMarks => doc.is_some(),
             RotatePage | RotatePageBack | RotateAll => editable,
-            ScrollDown | ScrollUp | HalfPageDown | HalfPageUp | NextPage | PrevPage
-            | GoToPage | Find | FindBox | JumpHints => doc.is_some(),
+            ScrollDown | ScrollUp | HalfPageDown | HalfPageUp | NextPage | PrevPage | GoToPage
+            | Find | FindBox | JumpHints => doc.is_some(),
             Copy => self.focus.is_none() && self.text_sel.is_some(),
             NextMatch | PrevMatch => self.search.as_ref().is_some_and(|s| !s.hits.is_empty()),
             GoBack => doc.is_some() && !self.back.is_empty(),
@@ -537,7 +537,8 @@ impl App {
                 self.status = if on {
                     "Fields are tinted.".into()
                 } else {
-                    "Fields untinted: the form as other PDF apps show it. Ctrl+H tints them again.".into()
+                    "Fields untinted: the form as other PDF apps show it. Ctrl+H tints them again."
+                        .into()
                 };
             }
             Present => {
@@ -692,7 +693,12 @@ pub fn tooltip(ctx: &eframe::egui::Context, c: Command) -> String {
 /// A shortcut as people read it: "Ctrl+−" rather than egui's "Ctrl+Minus".
 pub fn key_text(ctx: &eframe::egui::Context, k: &KeyboardShortcut) -> String {
     let t = ctx.format_shortcut(k);
-    for (name, sym) in [("Minus", "−"), ("Plus", "+"), ("Equals", "="), ("Comma", ",")] {
+    for (name, sym) in [
+        ("Minus", "−"),
+        ("Plus", "+"),
+        ("Equals", "="),
+        ("Comma", ","),
+    ] {
         if let Some(head) = t.strip_suffix(name) {
             return format!("{head}{sym}");
         }

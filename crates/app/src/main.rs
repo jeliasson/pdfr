@@ -123,7 +123,12 @@ fn parse_args() -> Result<CliOptions, String> {
         }
     }
     // Automated runs never call the AI.
-    if o.demo || o.values.is_some() || o.save.is_some() || o.screenshot.is_some() || o.record.is_some() {
+    if o.demo
+        || o.values.is_some()
+        || o.save.is_some()
+        || o.screenshot.is_some()
+        || o.record.is_some()
+    {
         o.no_ai = true;
     }
     Ok(o)
@@ -140,9 +145,9 @@ fn main() -> eframe::Result<()> {
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("pdfr")
         .with_app_id(system::APP_ID)
-            .with_inner_size([1100.0, 900.0])
-            .with_min_inner_size([480.0, 360.0])
-            .with_drag_and_drop(true);
+        .with_inner_size([1100.0, 900.0])
+        .with_min_inner_size([480.0, 360.0])
+        .with_drag_and_drop(true);
     if let Some(icon) = system::window_icon() {
         viewport = viewport.with_icon(icon);
     }
