@@ -172,3 +172,49 @@ fn hand_drawn_boxes() {
         fields.iter().map(|f| f.rect).collect::<Vec<_>>()
     );
 }
+
+/// A tax-return-like scan (200 dpi, blurred, JPEG; tools/gen_samples.py):
+/// letter tops in the paragraphs are no lines to write on, and table cells
+/// holding a label are no boxes, even where a slanted row line stops the
+/// ruled-box finder. The empty amount column and the signature line stay.
+#[test]
+fn scanned_table_has_no_fields_on_text() {
+    let fields = detect("scanned_table.pdf");
+    let exp: Value = serde_json::from_slice(&sample("scanned_table.json")).unwrap();
+    let rect = |v: &Value| -> pdfr_core::geom::Rect {
+        let a: Vec<f32> = v
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n.as_f64().unwrap() as f32)
+            .collect();
+        pdfr_core::geom::Rect::new(a[0], a[1], a[2], a[3])
+    };
+    for t in exp["text"].as_array().unwrap() {
+        let t = rect(t);
+        for f in &fields {
+            let r = f.rect;
+            let overlap = r.x0 < t.x1 && t.x0 < r.x1 && r.y0 < t.y1 && t.y0 < r.y1;
+            // A field may end just above the text; it must not cover it,
+            // nor sit in the label's cell beside it.
+            let beside = r.y0 < t.y1 && t.y0 < r.y1 && r.x0 < 430.0;
+            assert!(!overlap && !beside, "field {:?} on text {:?}", r, t);
+        }
+    }
+    for want in exp["fields"].as_array().unwrap() {
+        let w = rect(want);
+        let (cx, cy) = ((w.x0 + w.x1) / 2.0, (w.y0 + w.y1) / 2.0);
+        assert!(
+            fields.iter().any(|f| f.rect.x0 - 2.0 <= cx
+                && cx <= f.rect.x1 + 2.0
+                && f.rect.y0 - 4.0 <= cy
+                && cy <= f.rect.y1 + 4.0),
+            "no field at {w:?}"
+        );
+    }
+    assert_eq!(
+        fields.len(),
+        exp["fields"].as_array().unwrap().len(),
+        "{fields:#?}"
+    );
+}

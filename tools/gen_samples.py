@@ -9,6 +9,10 @@ Writes (default outdir: samples/):
   flat_form.json      expected fields on the flat form, in display space (points, y down)
   flat_rotated.pdf    flat_form drawn on a landscape page with /Rotate 90 (displays upright)
   scanned_form.pdf    flat_form rasterised at 150 dpi, blurred, noisy, skewed 0.25 deg
+  scanned_table.pdf   a tax-return-like page scanned at 200 dpi: instruction
+                      paragraphs, a table of labelled rows with an empty amount
+                      column (some row lines slanted), a write-on line
+  scanned_table.json  where its text is and where its fields must be
   perf_text.pdf       one dense text page (embedded TrueType font)
   perf_image.pdf      one page dominated by large photographic images
   encrypted_user.pdf  real_form.pdf protected with AES-256, user password "pdfr"
@@ -267,14 +271,14 @@ def real_form(path):
     c.save()
 
 
-def scanned_form(flat_pdf, path):
+def scanned_form(flat_pdf, path, dpi=150, blur=0.7, quality=85):
     with tempfile.TemporaryDirectory() as td:
-        subprocess.run(["pdftoppm", "-r", "150", "-gray", "-png", flat_pdf,
+        subprocess.run(["pdftoppm", "-r", str(dpi), "-gray", "-png", flat_pdf,
                         os.path.join(td, "p")], check=True)
         png = [f for f in os.listdir(td) if f.endswith(".png")][0]
         img = Image.open(os.path.join(td, png)).convert("L")
     img = img.rotate(-0.25, resample=Image.BICUBIC, fillcolor=255, expand=False)
-    img = img.filter(ImageFilter.GaussianBlur(0.7))
+    img = img.filter(ImageFilter.GaussianBlur(blur))
     a = np.asarray(img).astype(np.float32)
     a += np.random.normal(0, 9, a.shape)
     # Scanner dust: a few isolated dark specks.
@@ -284,13 +288,89 @@ def scanned_form(flat_pdf, path):
     a = np.clip(a * 0.97 + 6, 0, 255).astype(np.uint8)
     img = Image.fromarray(a, "L")
     buf = io.BytesIO()
-    img.save(buf, "JPEG", quality=85)
+    img.save(buf, "JPEG", quality=quality)
     buf.seek(0)
     from reportlab.lib.utils import ImageReader
     c = canvas.Canvas(path, pagesize=(W, H))
     c.drawImage(ImageReader(buf), 0, 0, W, H)
     c.showPage()
     c.save()
+
+
+TABLE_ROWS = [
+    "Intangible assets", "Accumulated amortisation of intangible assets", "Goodwill",
+    "Accumulated amortisation of goodwill", "Formation expenses",
+    "Royalties, trademarks, patents, rights, etc.", "Research and development (capitalised)",
+    "Land and Buildings", "Land improvements", "Industrial Buildings and structures",
+    "Wasting assets", "Plant and machinery", "Motor vehicles", "Tools and dies",
+]
+
+PARAGRAPHS = [
+    "All income of a resident company, body corporate, trading or commercial undertaking or a "
+    "Trust, accruing in or derived from Malta or elsewhere, and whether received in Malta or "
+    "not, during the accounting period stated in Part 1 below, must be stated.",
+    "Except as provided in Article 68 of the Act, all income of a non-resident company, body "
+    "corporate or trading or commercial undertaking, accruing in or derived from Malta, whether "
+    "received in Malta or not, during the accounting period stated in Part 1 below, must be included.",
+    "A copy of the financial statements audited by a Certified Public Accountant and Auditor "
+    "must be attached to this return. No section of this return is to be left blank.",
+]
+
+
+def scanned_table(path, json_path):
+    """A tax-return-like page (y down in the JSON): text must stay field-free,
+    the amount column and the signature line must be found."""
+    text, fields = [], []
+    with tempfile.TemporaryDirectory() as td:
+        flat = os.path.join(td, "flat.pdf")
+        c = canvas.Canvas(flat, pagesize=(W, H))
+        Y = lambda y: H - y
+        # Instruction paragraphs, 8 pt, wrapped.
+        y = 70.0
+        for para in PARAGRAPHS:
+            words, line = para.split(), ""
+            for w in words + [None]:
+                cand = (line + " " + w).strip() if w else line
+                if w is None or pdfmetrics.stringWidth(cand, "Helvetica", 8) > 480:
+                    c.setFont("Helvetica", 8)
+                    c.drawString(56, Y(y), line)
+                    text.append([56, y - 6.5, 56 + pdfmetrics.stringWidth(line, "Helvetica", 8), y + 2])
+                    y += 10.5
+                    line = w or ""
+                else:
+                    line = cand
+            y += 9
+        # The table: description | code | amount.
+        x0, xc, xa, x1, top, rh = 50.0, 390.0, 430.0, 550.0, y + 20, 12.0
+        c.setLineWidth(0.7)
+        n = len(TABLE_ROWS)
+        for i in range(n + 1):
+            yy = top + i * rh
+            # Some row lines across the description column are slightly
+            # slanted, so the ruled-box finder cannot close those cells.
+            drift = 1.6 if i in (3, 7, 11) else 0.0
+            c.line(x0, Y(yy), xc, Y(yy + drift))
+            c.line(xc, Y(yy + drift), x1, Y(yy + drift) if drift else Y(yy))
+        for x in (x0, xc, xa, x1):
+            c.line(x, Y(top), x, Y(top + n * rh + 1.6))
+        for i, label in enumerate(TABLE_ROWS):
+            yy = top + i * rh
+            c.setFont("Helvetica", 7.5)
+            c.drawString(x0 + 2, Y(yy + 9), label)
+            c.drawString(xc + 8, Y(yy + 9), str(1000 + i))
+            text.append([x0 + 2, yy + 3, x0 + 2 + pdfmetrics.stringWidth(label, "Helvetica", 7.5), yy + 10])
+            fields.append([xa + 2, yy + 3, x1 - 2, yy + rh - 3])
+        # A real write-on line with its label below.
+        ly = top + n * rh + 60
+        c.line(300, Y(ly), 520, Y(ly))
+        c.setFont("Helvetica", 7)
+        c.drawString(300, Y(ly + 9), "Signature")
+        fields.append([310, ly - 6, 510, ly - 1])
+        c.showPage()
+        c.save()
+        scanned_form(flat, path, dpi=200, blur=0.9, quality=75)
+    with open(json_path, "w") as fh:
+        json.dump({"text": text, "fields": fields}, fh, indent=1)
 
 
 def perf_text(path):
@@ -405,6 +485,7 @@ def main():
         json.dump({"page_size": [W, H], "fields": expected}, fh, indent=1)
     flat_form(p("flat_rotated.pdf"), rotated=True)
     scanned_form(p("flat_form.pdf"), p("scanned_form.pdf"))
+    scanned_table(p("scanned_table.pdf"), p("scanned_table.json"))
     perf_text(p("perf_text.pdf"))
     perf_image(p("perf_image.pdf"))
     links(p("links.pdf"))

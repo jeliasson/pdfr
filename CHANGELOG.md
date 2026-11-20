@@ -12,6 +12,12 @@ version's section into its GitHub release notes.
 - The empty window shows pdfr's icon and a large coral "Open a PDF…" button
   on a drop zone that lights up while you drag a file over it.
 
+### Fixed
+
+- Scanned forms: no more boxes on printed text. On blurred scans the tops
+  of a row of letters looked like a line to write on, and a table cell
+  holding a label could look like an empty box beside the label.
+
 ## [0.3.0] - 2026-11-20
 
 Sign, search and read: pdfr now does what people expect from any PDF

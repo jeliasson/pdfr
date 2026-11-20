@@ -35,6 +35,9 @@ const MIN_DOTTED: f32 = 10.0;
 const SPECKS: f32 = 14.0;
 /// Write-on lines must be at least this long (pt).
 const MIN_WRITE_LINE: f32 = 30.0;
+/// Share of solid ink just under a line above which it is the tops of a
+/// row of letters, not a line to write on.
+const TEXT_UNDER: f32 = 0.3;
 
 pub struct Gray<'a> {
     pub w: usize,
@@ -889,6 +892,50 @@ fn drawn_boxes(m: &Masks, scale: f32) -> Vec<Rect> {
                 }
             }
         }
+        // Ink the region surrounds is a label: a table cell whose grid line
+        // the scan broke, so the ruled-box finder could not close it, with
+        // its text inside. The outline, however wobbly, reaches the edge of
+        // the bounding box; letters inside the paper do not.
+        let mut reach = vec![false; bw * bh];
+        let mut stack: Vec<usize> = Vec::new();
+        for y in 0..bh {
+            for x in 0..bw {
+                let i = y * bw + x;
+                if (y == 0 || y == bh - 1 || x == 0 || x == bw - 1) && !free[i] {
+                    reach[i] = true;
+                    stack.push(i);
+                }
+            }
+        }
+        while let Some(i) = stack.pop() {
+            let (x, y) = ((i % bw) as i64, (i / bw) as i64);
+            for (dx, dy) in [
+                (-1, -1),
+                (0, -1),
+                (1, -1),
+                (-1, 0),
+                (1, 0),
+                (-1, 1),
+                (0, 1),
+                (1, 1),
+            ] {
+                let (nx, ny) = (x + dx, y + dy);
+                if nx < 0 || ny < 0 || nx >= bw as i64 || ny >= bh as i64 {
+                    continue;
+                }
+                let j = ny as usize * bw + nx as usize;
+                if !free[j] && !reach[j] {
+                    reach[j] = true;
+                    stack.push(j);
+                }
+            }
+        }
+        let enclosed = (0..bw * bh)
+            .filter(|&i| !free[i] && !reach[i] && m.solid[(c.y0 + i / bw) * w + c.x0 + i % bw])
+            .count();
+        if enclosed as f32 > SPECKS {
+            continue;
+        }
         // The largest free rectangle (histogram method): wobbly, slanted
         // edges eat into the bounding box from every side.
         let mut heights = vec![0usize; bw];
@@ -1295,6 +1342,18 @@ pub fn detect_with_analysis(g: &Gray) -> (Vec<Field>, Analysis) {
             continue; // the top of a table
         }
         let y = l.pos - l.thick / 2.0;
+        // On blurred scans the tops of a run of lowercase letters merge into
+        // one thin stroke. Real lines have paper under them (a label sits a
+        // little lower); letter tops have the letters' bodies hanging from
+        // them. Dotted lines are never text.
+        if !is_dotted {
+            let yb = l.pos + l.thick / 2.0;
+            let under = Rect::new(l.a0, yb + 0.3, l.a1, yb + 2.0);
+            let area = (under.width() * under.height() * s * s).max(1.0);
+            if solid_in(&under) as f32 > TEXT_UNDER * area {
+                continue;
+            }
+        }
         // Tick marks: short ink columns rising from the line.
         let band_top = px(y - 3.0);
         let band_bot = px(y - 0.9);
@@ -1323,7 +1382,13 @@ pub fn detect_with_analysis(g: &Gray) -> (Vec<Field>, Analysis) {
             let tall = ticks
                 .iter()
                 .any(|&t| m.count(px(t) - 1, px(y - 14.0), px(t) + 2, px(y - 11.0)) > 0);
-            if even && !tall {
+            // Between the ticks is room to write: letters standing on a
+            // baseline (their stems look like ticks) fill it.
+            let blank_cells = ticks.windows(2).all(|w| {
+                let cell = Rect::new(w[0] + 1.5, y - 10.0, w[1] - 1.5, y - 1.0);
+                cell.width() <= 0.0 || solid_in(&cell) as f32 <= SPECKS
+            });
+            if even && !tall && blank_cells {
                 let cells: Vec<(f32, f32)> = ticks.windows(2).map(|w| (w[0], w[1])).collect();
                 let rect = Rect::new(ticks[0], y - 12.0, *ticks.last().unwrap(), y);
                 fields.push(Field::new_text(
