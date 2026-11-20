@@ -56,7 +56,8 @@ jobs:
           mkdir dist
           (cd dist && ../tools/package_linux.sh ../target/${{ matrix.target }}/release/pdfr "$v" ${{ matrix.arch }})
           cargo deb -p pdfr --no-build --target ${{ matrix.target }} -o dist/
-          cargo generate-rpm -p crates/app --target ${{ matrix.target }} -o dist/
+          # RPM versions can't hold "-": a pre-release is 0.3.0~rc1, which sorts before 0.3.0 (as in the .deb).
+          cargo generate-rpm -p crates/app --target ${{ matrix.target }} -o dist/ --set-metadata "version = \"${v//-/\~}\""
           ls -la dist
       - uses: actions/upload-artifact@v4
         with:
