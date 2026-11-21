@@ -14,6 +14,12 @@ version's section into its GitHub release notes.
   signature, with who signed and the verdict on top and the details below.
   The sidebar's tabs are a segmented control.
 
+### Fixed
+
+- **No blank pages while scrolling long files.** One background thread is
+  kept for drawing pages, so a page scrolled into view no longer waits
+  for box detection to finish on every thread.
+
 ## [0.4.0] - 2026-11-20
 
 Real signatures: sign with the certificate already on your computer (the

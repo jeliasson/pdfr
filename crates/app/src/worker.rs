@@ -96,9 +96,13 @@ impl Worker {
             .clamp(1, 6);
         for i in 0..threads {
             let (shared, tx, ctx) = (shared.clone(), tx.clone(), ctx.clone());
+            // With more than one thread, the first never detects: a page
+            // scrolled into view must not wait for a detection to finish
+            // on every thread.
+            let pictures_only = i == 0 && threads > 1;
             std::thread::Builder::new()
                 .name(format!("render-{i}"))
-                .spawn(move || run(shared, tx, ctx))
+                .spawn(move || run(shared, tx, ctx, pictures_only))
                 .expect("spawn render thread");
         }
         Worker { shared, rx }
@@ -207,7 +211,7 @@ impl Drop for Worker {
     }
 }
 
-fn run(shared: Arc<Shared>, tx: Sender<Msg>, ctx: egui::Context) {
+fn run(shared: Arc<Shared>, tx: Sender<Msg>, ctx: egui::Context, pictures_only: bool) {
     let mut generation = 0;
     loop {
         let bytes = {
@@ -221,7 +225,7 @@ fn run(shared: Arc<Shared>, tx: Sender<Msg>, ctx: egui::Context) {
             generation = s.generation;
             s.bytes.clone().unwrap()
         };
-        serve(&shared, &tx, &ctx, generation, &bytes);
+        serve(&shared, &tx, &ctx, generation, &bytes, pictures_only);
     }
 }
 
@@ -229,7 +233,9 @@ fn dark(shared: &Shared) -> bool {
     shared.state.lock().map(|s| s.dark).unwrap_or(false)
 }
 
-fn next_job(shared: &Shared, generation: u64) -> Option<Job> {
+/// The next job: renders first, then thumbnails, then detection and text
+/// (not for a `pictures_only` thread).
+fn next_job(shared: &Shared, generation: u64, pictures_only: bool) -> Option<Job> {
     let mut s = shared.state.lock().unwrap();
     loop {
         if s.quit || s.generation != generation {
@@ -243,11 +249,13 @@ fn next_job(shared: &Shared, generation: u64) -> Option<Job> {
         if let Some(p) = s.thumbs.pop_front() {
             return Some(Job::Thumb(p));
         }
-        if let Some(p) = s.detect.pop_front() {
-            return Some(Job::Detect(p));
-        }
-        if let Some(p) = s.text.pop_front() {
-            return Some(Job::Text(p));
+        if !pictures_only {
+            if let Some(p) = s.detect.pop_front() {
+                return Some(Job::Detect(p));
+            }
+            if let Some(p) = s.text.pop_front() {
+                return Some(Job::Text(p));
+            }
         }
         s = shared.cv.wait(s).unwrap();
     }
@@ -259,11 +267,12 @@ fn serve(
     ctx: &egui::Context,
     generation: u64,
     bytes: &Arc<Vec<u8>>,
+    pictures_only: bool,
 ) {
     let Ok(pdf) = hayro::hayro_syntax::Pdf::new(bytes.clone()) else {
         // Unparseable for rendering: answer every job (nothing to show, no
         // fields found) so nothing waits forever.
-        while let Some(job) = next_job(shared, generation) {
+        while let Some(job) = next_job(shared, generation, pictures_only) {
             let msg = match job {
                 Job::Render(page, _) => Msg::RenderFailed { generation, page },
                 Job::Detect(page) => Msg::Detected {
@@ -293,7 +302,7 @@ fn serve(
     let mut cache = RenderCache::new();
     let text_cache = hayro::hayro_interpret::InterpreterCache::new();
     let pages = pdf.pages();
-    while let Some(job) = next_job(shared, generation) {
+    while let Some(job) = next_job(shared, generation, pictures_only) {
         match job {
             Job::Render(page, requested) => {
                 let failed =

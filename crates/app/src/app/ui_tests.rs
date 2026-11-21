@@ -285,7 +285,13 @@ fn steady_scroll_through_300_pages() {
         .with_size(egui::vec2(1000.0, 900.0))
         .build_eframe(move |cc| App::new(cc, cli));
     let start = Instant::now();
-    while h.state().doc.is_none() {
+    // Steady scrolling starts once the first screen is drawn.
+    while !h
+        .state()
+        .doc
+        .as_ref()
+        .is_some_and(|d| d.tex.contains_key(&0) && d.tex.contains_key(&1))
+    {
         h.run_steps(1);
         std::thread::sleep(Duration::from_millis(5));
         assert!(start.elapsed() < BG_WAIT);
