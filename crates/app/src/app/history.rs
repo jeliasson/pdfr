@@ -7,6 +7,7 @@ use super::*;
 /// turned; the document is shared, so keeping it costs nothing).
 pub(super) struct Snap {
     pub entries: Vec<Entry>,
+    pub marks: Vec<markup::MarkEntry>,
     pub form: Arc<FormDoc>,
 }
 
@@ -15,6 +16,7 @@ impl App {
         if let Some(doc) = &self.doc {
             self.undo.push(Snap {
                 entries: doc.entries.clone(),
+                marks: doc.marks.clone(),
                 form: doc.form.clone(),
             });
             if self.undo.len() > 200 {
@@ -34,6 +36,7 @@ impl App {
         if let Some(prev) = from.pop() {
             to.push(Snap {
                 entries: std::mem::replace(&mut doc.entries, prev.entries),
+                marks: std::mem::replace(&mut doc.marks, prev.marks),
                 form: doc.form.clone(),
             });
             if !Arc::ptr_eq(&prev.form, &doc.form) {
@@ -61,6 +64,7 @@ impl App {
         }
         self.typing_run = None;
         self.choice_open = None;
+        self.marks_after_undo();
         self.assist.close_list();
         self.assist.invalidate();
         self.refresh_ghost();

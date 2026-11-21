@@ -22,7 +22,7 @@ impl App {
         // drawn into the pages, because many printers that read PDFs
         // themselves skip form fields. A read-only file prints as it is.
         let bytes = if doc.form.editable() {
-            match pdfr_core::save::save(&doc.form, &doc.fields()) {
+            match pdfr_core::save::save_with(&doc.form, &doc.fields(), &doc.mark_list()) {
                 Ok(b) => b,
                 Err(e) => {
                     self.status = format!("Could not print: {e}");

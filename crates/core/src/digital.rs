@@ -12,7 +12,7 @@ use crate::field::{Field, ObjId};
 use crate::forms::{FormDoc, chain, deref, get_text, inherited};
 use crate::geom::{PageGeom, Rect};
 use crate::pdf_font::{ensure_font, num};
-use crate::save::{FONT_RES, SaveError, append_update, build, rotation_matrix};
+use crate::save::{FONT_RES, SaveError, append_update, build_with, rotation_matrix};
 use crate::signature::Ink;
 use lopdf::{Dictionary, Document, Object, Stream, StringFormat, dictionary, text_string};
 use std::fmt::Write as _;
@@ -286,17 +286,28 @@ pub fn sign(
     req: &SignRequest,
     cms: impl FnOnce(&[u8]) -> Result<Vec<u8>, String>,
 ) -> Result<Vec<u8>, SignError> {
+    sign_with(fd, fields, &fd.markups, req, cms)
+}
+
+/// Like [`sign`], with the document's comments and markup now `marks`.
+pub fn sign_with(
+    fd: &FormDoc,
+    fields: &[Field],
+    marks: &[crate::markup::Markup],
+    req: &SignRequest,
+    cms: impl FnOnce(&[u8]) -> Result<Vec<u8>, String>,
+) -> Result<Vec<u8>, SignError> {
     // The revision to sign on top of: the edits appended after existing
     // signatures, or (unsigned file) the edits saved as a fresh file.
     let (prev_bytes, prev, mut cur) = if fd.is_digitally_signed() {
-        let cur = build(fd, fields)?;
+        let cur = build_with(fd, fields, marks)?;
         (
             fd.bytes.as_ref().clone(),
             fd.doc.clone().ok_or(SaveError::ReadOnly)?,
             cur,
         )
     } else {
-        let bytes = crate::save::save(fd, fields)?;
+        let bytes = crate::save::save_with(fd, fields, marks)?;
         let doc = Document::load_mem(&bytes).map_err(|e| SaveError::Write(e.to_string()))?;
         let cur = doc.clone();
         (bytes, doc, cur)

@@ -1303,3 +1303,124 @@ fn edit_printed_text() {
     assert_eq!(f.value, "Portals");
     assert!(f.covers_print());
 }
+
+// ------------------------------------------------------------ comments and markup
+
+fn marks(h: &Harness<'_, App>) -> Vec<pdfr_core::markup::Markup> {
+    h.state().doc.as_ref().unwrap().mark_list()
+}
+
+#[test]
+fn place_a_note_type_it_and_undo() {
+    use egui_kittest::kittest::Queryable;
+    use pdfr_core::markup::MarkKind;
+    let mut h = harness("flat_form.pdf", data_dir("note", None));
+    ctrl_shift(&mut h, Key::A);
+    assert!(
+        h.state().tool == Tool::Note,
+        "Ctrl+Shift+A picks the note tool"
+    );
+    click_doc(&mut h, 450.0, 90.0);
+    let m = marks(&h);
+    assert_eq!(m.len(), 1);
+    assert_eq!(m[0].kind, MarkKind::Note);
+    assert!(h.state().tool == Tool::None);
+    assert!(h.state().marks_ui.edit.is_some(), "the comment card opens");
+    h.run_steps(2);
+    type_text(&mut h, "Please check");
+    h.get_by_label("Done").click();
+    h.run_steps(2);
+    assert!(h.state().marks_ui.edit.is_none());
+    assert_eq!(marks(&h)[0].text, "Please check");
+    assert!(h.state().doc.as_ref().unwrap().dirty);
+    // Placing and typing are one step.
+    ctrl(&mut h, Key::Z);
+    assert!(marks(&h).is_empty());
+    ctrl_shift(&mut h, Key::Z);
+    assert_eq!(marks(&h)[0].text, "Please check");
+    // The Comments tab lists it; clicking there goes to it.
+    if !h.state().sidebar_open() {
+        ctrl(&mut h, Key::B);
+    }
+    h.state_mut().side_tab = sidebar::SideTab::Comments;
+    h.run_steps(2);
+    h.get_by_label("Please check").click();
+    h.run_steps(2);
+    assert!(h.state().marks_ui.sel.is_some());
+}
+
+#[test]
+fn highlight_selected_text_save_and_undo() {
+    use pdfr_core::markup::MarkKind;
+    let mut h = harness("flat_form.pdf", data_dir("highlight", None));
+    // Ctrl+Shift+H with nothing selected only says how.
+    ctrl_shift(&mut h, Key::H);
+    assert!(marks(&h).is_empty());
+    let a = screen(&h, 45.0, 180.0);
+    let b = screen(&h, 140.0, 180.0);
+    drag(&mut h, a, b);
+    assert_eq!(h.state().selection_text().as_deref(), Some("Full name"));
+    ctrl_shift(&mut h, Key::H);
+    let m = marks(&h);
+    assert_eq!(m.len(), 1);
+    assert_eq!(m[0].kind, MarkKind::Highlight);
+    assert_eq!(m[0].quads.len(), 1);
+    let g = h.state().doc.as_ref().unwrap().form.pages[0];
+    let r = m[0].display_rect(&g);
+    assert!(
+        r.x0 < 52.0 && r.x1 > 85.0 && r.y0 < 180.0 && r.y1 > 180.0,
+        "{r:?}"
+    );
+    assert!(h.state().text_sel.is_none());
+    // Saved as a highlight annotation.
+    let out = data_dir("highlight-out", None).join("out.pdf");
+    assert!(h.state_mut().save_to(out.clone()));
+    let fd = FormDoc::open(std::fs::read(&out).unwrap()).unwrap();
+    assert_eq!(fd.markups.len(), 1);
+    assert_eq!(fd.markups[0].kind, MarkKind::Highlight);
+    // Undo takes it off; redo puts it back.
+    ctrl(&mut h, Key::Z);
+    assert!(marks(&h).is_empty());
+    ctrl_shift(&mut h, Key::Z);
+    assert_eq!(marks(&h).len(), 1);
+}
+
+#[test]
+fn text_box_and_shapes_move_and_delete() {
+    use pdfr_core::markup::MarkKind;
+    let mut h = harness("flat_form.pdf", data_dir("textbox", None));
+    ctrl_shift(&mut h, Key::T);
+    assert!(h.state().tool == Tool::TextBox);
+    click_doc(&mut h, 300.0, 640.0);
+    h.run_steps(2);
+    type_text(&mut h, "Typed on the page");
+    // A click elsewhere puts the text in.
+    click_doc(&mut h, 40.0, 760.0);
+    let m = marks(&h);
+    assert_eq!(m.len(), 1);
+    assert_eq!(m[0].kind, MarkKind::FreeText);
+    assert_eq!(m[0].text, "Typed on the page");
+    assert!(h.state().marks_ui.edit.is_none());
+
+    // A rectangle from the markup commands, dragged onto the page.
+    h.state_mut().run(commands::Command::AddRectangle);
+    let a = screen(&h, 100.0, 700.0);
+    let b = screen(&h, 200.0, 760.0);
+    drag(&mut h, a, b);
+    let m = marks(&h);
+    assert_eq!(m.len(), 2);
+    assert_eq!(m[1].kind, MarkKind::Square);
+    let g = h.state().doc.as_ref().unwrap().form.pages[0];
+    let r0 = m[1].display_rect(&g);
+    // Drag it by its edge 30 points to the right.
+    let a = screen(&h, 100.5, 730.0);
+    let b = screen(&h, 130.5, 730.0);
+    drag(&mut h, a, b);
+    let r1 = marks(&h)[1].display_rect(&g);
+    assert!((r1.x0 - r0.x0 - 30.0).abs() < 1.5, "{r0:?} -> {r1:?}");
+    // Delete removes the selected one; undo brings it back.
+    key(&mut h, Key::Delete);
+    assert_eq!(marks(&h).len(), 1);
+    ctrl(&mut h, Key::Z);
+    assert_eq!(marks(&h).len(), 2);
+}

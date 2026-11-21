@@ -235,6 +235,7 @@ impl App {
             name,
             form: form.clone(),
             entries: vec![],
+            marks: vec![],
             next_id: 1,
             order: vec![],
             sizes,
@@ -254,6 +255,9 @@ impl App {
         for f in &form.fields {
             doc.add(f.clone());
         }
+        for m in &form.markups {
+            doc.add_mark(m.clone());
+        }
         doc.reorder();
         self.focus = None;
         self.undo.clear();
@@ -265,6 +269,7 @@ impl App {
         self.typing_run = None;
         self.drag_start = None;
         self.tool = Tool::None;
+        self.marks_ui = Default::default();
         self.assist.close_list();
         self.text_sel = None;
         self.page_menu_open = false;
@@ -519,7 +524,7 @@ impl App {
             return false;
         };
         let fields = doc.fields();
-        match pdfr_core::save::save(&doc.form, &fields) {
+        match pdfr_core::save::save_with(&doc.form, &fields, &doc.mark_list()) {
             Ok(bytes) => {
                 let tmp = target.with_extension("pdf.pdfr-tmp");
                 let res = std::fs::write(&tmp, &bytes).and_then(|_| std::fs::rename(&tmp, &target));

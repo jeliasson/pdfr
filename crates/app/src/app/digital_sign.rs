@@ -532,6 +532,7 @@ impl App {
         };
         let form = doc.form.clone();
         let fields = doc.fields();
+        let marks = doc.mark_list();
         let st = &self.assist.a.store.settings;
         let tsa = st.sign_timestamp.then(|| {
             if st.tsa_url.trim().is_empty() {
@@ -545,7 +546,7 @@ impl App {
         self.status = "Signing…".into();
         std::thread::spawn(move || {
             pending.req.time = pdfr_sign::now();
-            let res = sign_job(&form, &fields, &pending, tsa.as_deref(), &target);
+            let res = sign_job(&form, &fields, &marks, &pending, tsa.as_deref(), &target);
             let _ = tx.send(res.map(|note| (target, note)));
             ctx.request_repaint();
         });
@@ -714,6 +715,7 @@ impl App {
 fn sign_job(
     form: &FormDoc,
     fields: &[Field],
+    marks: &[pdfr_core::markup::Markup],
     p: &Pending,
     tsa: Option<&str>,
     target: &std::path::Path,
@@ -733,7 +735,7 @@ fn sign_job(
     };
     let ts = |d: &[u8]| pdfr_sign::tsa::timestamp(d, &post);
     let mut ts_error = None;
-    let bytes = pdfr_core::digital::sign(form, fields, &p.req, |content| {
+    let bytes = pdfr_core::digital::sign_with(form, fields, marks, &p.req, |content| {
         let s = pdfr_sign::cades::sign(
             content,
             p.signer.as_ref(),

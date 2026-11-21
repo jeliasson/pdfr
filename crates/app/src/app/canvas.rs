@@ -214,6 +214,9 @@ impl App {
             }
         }
 
+        // Comments and markup, over the fields.
+        self.draw_marks(&painter, &rects, pointer);
+
         // Drag preview for the add-text tool.
         if let (Tool::AddText, Some((page, start)), Some(p)) = (self.tool, self.drag_start, pointer)
             && let Some(pr) = rects.get(page)
@@ -292,6 +295,8 @@ impl App {
             ctx.set_cursor_icon(CursorIcon::Crosshair);
         } else if on_button {
             // The button sets its own pointer.
+        } else if pointer.is_some_and(|p| self.mark_cursor(&rects, p, &ctx)) {
+            // Over a mark or its grip.
         } else if self.sig_drag.is_some() {
             ctx.set_cursor_icon(CursorIcon::Grabbing);
         } else if let Some(p) = pointer
@@ -337,6 +342,7 @@ impl App {
         }
         self.context_menu(&resp);
         self.page_menu(&resp, &ctx);
+        self.mark_windows(&ctx, &resp, &rects);
         self.choice_popup(&ctx, &rects);
         self.assist_list_popup(&ctx, &rects);
 
@@ -371,12 +377,19 @@ impl App {
             if self.text_sel.is_some() && ctx.input(|i| i.events.contains(&Event::Copy)) {
                 self.copy_selection(&ctx);
             }
-            // Esc puts down an add-box tool, else drops the selection, else
-            // hides search highlights.
-            if ctx.input(|i| i.key_pressed(Key::Escape)) {
+            // Delete removes a selected mark. Esc closes the markup menu,
+            // else puts down a tool, else lets go of a mark, else drops the
+            // selection, else hides search highlights.
+            let menu = self.marks_ui.menu;
+            if ctx.input(|i| i.key_pressed(Key::Escape)) && menu {
+                self.marks_ui.menu = false;
+            } else if self.tool == Tool::None && self.mark_keys(&ctx) {
+                // Handled.
+            } else if ctx.input(|i| i.key_pressed(Key::Escape)) {
                 if self.tool != Tool::None {
                     self.tool = Tool::None;
                     self.placing = None;
+                    self.drag_start = None;
                 } else if self.text_sel.is_some() {
                     self.text_sel = None;
                 } else if let Some(s) = self.search.as_mut().filter(|s| s.shown) {
@@ -604,7 +617,14 @@ impl App {
                 }
                 return;
             }
+            Tool::Note | Tool::TextBox | Tool::Shape(_) if editable => {
+                self.mark_tool_mouse(resp, rects, p);
+                return;
+            }
             _ => {}
+        }
+        if self.mark_mouse(resp, rects, p) {
+            return;
         }
         if self.sig_mouse(resp, rects, p) {
             return;

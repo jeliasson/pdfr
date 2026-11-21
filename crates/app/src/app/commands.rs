@@ -12,6 +12,7 @@
 use super::{App, PAD, Tool};
 use crate::icons::Icon;
 use eframe::egui::{Key, KeyboardShortcut, Modifiers, pos2};
+use pdfr_core::markup::MarkKind;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Command {
@@ -42,6 +43,16 @@ pub enum Command {
     Initials,
     SignDigitally,
     TodaysDate,
+    Markup,
+    AddNote,
+    AddTextBox,
+    HighlightText,
+    UnderlineText,
+    StrikeText,
+    CommentText,
+    AddRectangle,
+    AddEllipse,
+    AddArrow,
     Settings,
     Register,
     ScrollDown,
@@ -121,6 +132,9 @@ const SIGN: &[KeyboardShortcut] = &[ctrl(Key::I)];
 const INITIALS: &[KeyboardShortcut] = &[ctrl_shift(Key::I)];
 const SIGN_DIGITALLY: &[KeyboardShortcut] = &[ctrl_shift(Key::C)];
 const TODAY: &[KeyboardShortcut] = &[ctrl_shift(Key::D)];
+const NOTE: &[KeyboardShortcut] = &[ctrl_shift(Key::A)];
+const TEXT_BOX: &[KeyboardShortcut] = &[ctrl_shift(Key::T)];
+const HIGHLIGHT: &[KeyboardShortcut] = &[ctrl_shift(Key::H)];
 const REMOVE_FIELD: &[KeyboardShortcut] = &[ctrl_shift(Key::Delete)];
 const PALETTE: &[KeyboardShortcut] = &[ctrl_shift(Key::P), ctrl(Key::Space)];
 const CHEATSHEET: &[KeyboardShortcut] = &[KeyboardShortcut::new(Modifiers::NONE, Key::F1)];
@@ -155,6 +169,16 @@ impl Command {
         Command::Initials,
         Command::SignDigitally,
         Command::TodaysDate,
+        Command::Markup,
+        Command::AddNote,
+        Command::AddTextBox,
+        Command::HighlightText,
+        Command::UnderlineText,
+        Command::StrikeText,
+        Command::CommentText,
+        Command::AddRectangle,
+        Command::AddEllipse,
+        Command::AddArrow,
         Command::Settings,
         Command::Register,
         Command::ScrollDown,
@@ -314,6 +338,61 @@ impl Command {
                 Icon::TextField,
                 TODAY,
             ),
+            Markup => (
+                "Comments and markup",
+                "Notes, highlights, text boxes and shapes that other PDF apps show too",
+                Icon::Markup,
+                NONE,
+            ),
+            AddNote => (
+                "Add a note",
+                "Click where the note goes, then type your comment",
+                Icon::Note,
+                NOTE,
+            ),
+            AddTextBox => (
+                "Add a text box",
+                "Click or drag anywhere on the page, then type",
+                Icon::TextBox,
+                TEXT_BOX,
+            ),
+            HighlightText => (
+                "Highlight text",
+                "Highlight the text you selected on the page",
+                Icon::Marker,
+                HIGHLIGHT,
+            ),
+            UnderlineText => (
+                "Underline text",
+                "Underline the text you selected",
+                Icon::Underline,
+                NONE,
+            ),
+            StrikeText => (
+                "Strike through text",
+                "Strike through the text you selected",
+                Icon::Strike,
+                NONE,
+            ),
+            CommentText => (
+                "Comment on text",
+                "Highlight the text you selected and add a comment",
+                Icon::Note,
+                NONE,
+            ),
+            AddRectangle => (
+                "Draw a rectangle",
+                "Drag on the page",
+                Icon::Rectangle,
+                NONE,
+            ),
+            AddEllipse => ("Draw an ellipse", "Drag on the page", Icon::Ellipse, NONE),
+            AddArrow => (
+                "Draw an arrow",
+                "Drag from where it starts to where it points",
+                Icon::Arrow,
+                NONE,
+            ),
             Settings => (
                 "Settings",
                 "Autocomplete, AI and remembered people",
@@ -430,6 +509,7 @@ impl Command {
             Command::Sign,
             Command::FieldMarks,
         ],
+        &[Command::Markup],
     ];
 }
 
@@ -447,6 +527,8 @@ impl App {
             Save | SaveAs => editable && !self.dialog_open(),
             Print => doc.is_some() && super::print::AVAILABLE && !self.dialog_open(),
             AddTextField | AddCheckbox | Sign | Initials | TodaysDate => editable,
+            Markup | AddNote | AddTextBox | AddRectangle | AddEllipse | AddArrow => editable,
+            HighlightText | UnderlineText | StrikeText | CommentText => editable,
             SignDigitally => editable && !self.digital.busy() && !self.dialog_open(),
             Undo => doc.is_some() && !self.undo.is_empty(),
             Redo => doc.is_some() && !self.redo.is_empty(),
@@ -486,6 +568,15 @@ impl App {
                     || self.sign.as_ref().is_some_and(|s| s.initials)
             }
             Command::TodaysDate => self.tool == Tool::PlaceDate,
+            Command::Markup => {
+                self.marks_ui.menu
+                    || matches!(self.tool, Tool::Note | Tool::TextBox | Tool::Shape(_))
+            }
+            Command::AddNote => self.tool == Tool::Note,
+            Command::AddTextBox => self.tool == Tool::TextBox,
+            Command::AddRectangle => self.tool == Tool::Shape(MarkKind::Square),
+            Command::AddEllipse => self.tool == Tool::Shape(MarkKind::Circle),
+            Command::AddArrow => self.tool == Tool::Shape(MarkKind::Arrow),
             Command::Settings => self.assist.settings_open,
             Command::Sidebar => self.sidebar_open(),
             Command::DarkPages => self.dark_pages(),
@@ -602,6 +693,16 @@ impl App {
                     self.stamp_date();
                 }
             }
+            Markup => self.marks_ui.menu = !self.marks_ui.menu,
+            AddNote => self.toggle_tool(Tool::Note),
+            AddTextBox => self.toggle_tool(Tool::TextBox),
+            AddRectangle => self.toggle_tool(Tool::Shape(MarkKind::Square)),
+            AddEllipse => self.toggle_tool(Tool::Shape(MarkKind::Circle)),
+            AddArrow => self.toggle_tool(Tool::Shape(MarkKind::Arrow)),
+            HighlightText => self.mark_selection(MarkKind::Highlight, false),
+            UnderlineText => self.mark_selection(MarkKind::Underline, false),
+            StrikeText => self.mark_selection(MarkKind::StrikeOut, false),
+            CommentText => self.mark_selection(MarkKind::Highlight, true),
             Settings => self.assist.settings_open = !self.assist.settings_open,
             Register => self.license.open_register(),
             // Inside an open list (suggestions, drop-down) J/K move the

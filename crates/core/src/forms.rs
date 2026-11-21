@@ -48,6 +48,8 @@ pub struct FormDoc {
     pub links: Vec<crate::links::Link>,
     /// The outline (bookmarks), flattened in reading order.
     pub outline: Vec<crate::outline::OutlineItem>,
+    /// Comments and markup pdfr can show and edit (others stay untouched).
+    pub markups: Vec<crate::markup::Markup>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -123,6 +125,7 @@ impl FormDoc {
             digital: vec![],
             links: vec![],
             outline: vec![],
+            markups: vec![],
         };
         let loaded = match password {
             Some(p) => {
@@ -156,6 +159,7 @@ impl FormDoc {
                     }
                     fd.links = crate::links::read(&doc, &ids, &fd.pages);
                     fd.outline = crate::outline::read(&doc, &ids, &fd.pages);
+                    fd.markups = crate::markup::read(&doc, &ids);
                     fd.page_ids = ids;
                     fd.doc = Some(doc);
                 }
@@ -200,12 +204,23 @@ impl FormDoc {
             return self.bytes.clone();
         };
         let signed = self.fields.iter().any(|f| f.kind.is_signature());
-        if !signed && self.fields.iter().all(|f| !f.is_real()) {
+        if !signed && self.markups.is_empty() && self.fields.iter().all(|f| !f.is_real()) {
             return self.bytes.clone();
         }
         let mut d = doc.clone();
-        // Signatures are drawn live on top (they can be moved).
+        // Signatures and markup are drawn live on top (they can be moved).
         crate::signature::remove_all(&mut d, &self.page_ids);
+        for (pi, &pid) in self.page_ids.iter().enumerate() {
+            let ids: std::collections::HashSet<ObjId> = self
+                .markups
+                .iter()
+                .filter(|m| m.page == pi)
+                .filter_map(|m| m.source)
+                .collect();
+            if !ids.is_empty() {
+                crate::markup::unlink(&mut d, pid, &ids);
+            }
+        }
         for f in &self.fields {
             let Origin::AcroForm { widget, .. } = f.origin else {
                 continue;
