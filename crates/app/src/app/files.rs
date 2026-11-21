@@ -122,6 +122,7 @@ impl App {
     /// Opens a file in the background, with its password if it has one.
     pub(super) fn open_with(&mut self, path: PathBuf, password: Option<String>) {
         self.status = format!("Opening {}…", path.display());
+        self.opens_in_flight += 1;
         let tx = self.open_tx.clone();
         let started = Instant::now();
         std::thread::spawn(move || {
@@ -642,6 +643,11 @@ impl App {
 /// the desktop portal, which minimal desktops may lack; then pdfr shows its
 /// own (rfd would otherwise silently show nothing, or start another program).
 pub(super) fn native_dialogs() -> bool {
+    // With an agent connected, pdfr's own dialog is used: it is inside the
+    // window, where the agent can see and use it. The system's is not.
+    if crate::agent::active() {
+        return false;
+    }
     #[cfg(target_os = "linux")]
     {
         crate::system::portal::has("FileChooser")

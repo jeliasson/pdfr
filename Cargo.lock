@@ -3571,6 +3571,7 @@ dependencies = [
 name = "pdfr"
 version = "0.5.0"
 dependencies = [
+ "base64 0.23.1",
  "eframe",
  "egui-file-dialog",
  "egui_kittest",

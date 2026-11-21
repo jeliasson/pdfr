@@ -627,6 +627,41 @@ impl App {
         self.typing_run = None;
     }
 
+    /// Writes `text` into a text field as an agent does: the whole value is
+    /// replaced, as one undo step, and what does not fit a row of boxes
+    /// carries on in the next rows (dates, IBANs). Returns what did not fit
+    /// anywhere.
+    pub fn agent_fill(&mut self, id: u64, text: &str) -> String {
+        self.snapshot();
+        self.typing_run = None;
+        let mut id = id;
+        let mut rest = text.to_string();
+        while let Some(doc) = &mut self.doc {
+            let Some(i) = doc.index_of(id) else { break };
+            let f = doc.entries[i].f.clone();
+            let mut v = String::new();
+            let out = Editor::default().insert(&f, &mut v, &rest);
+            doc.set_value_at(i, v);
+            doc.dirty = true;
+            rest = out.rest;
+            if rest.is_empty() || !f.kind.is_comb() {
+                break;
+            }
+            match self.adjacent_comb(id, true) {
+                Some(next) => id = next,
+                None => break,
+            }
+        }
+        // The caret of a focused field follows its new value.
+        if let (Some(doc), Some(fo)) = (&self.doc, &mut self.focus)
+            && let Some(i) = doc.index_of(fo.id)
+        {
+            fo.ed = Editor::at(doc.entries[i].f.value.chars().count());
+            fo.ghost = None;
+        }
+        rest
+    }
+
     pub fn set_value(&mut self, id: u64, value: &str) {
         let Some(doc) = &mut self.doc else { return };
         let Some(i) = doc.index_of(id) else { return };

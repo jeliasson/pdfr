@@ -55,6 +55,9 @@ pub struct AssistState {
     dont_ask_again: bool,
     /// Automated runs remember everything without asking.
     auto_remember: bool,
+    /// A save made by an agent: "ask what to remember" neither asks nor
+    /// remembers (the user is not the one saving).
+    pub quiet_save: bool,
     ai_done: bool,
     declined_this_session: bool,
     pub settings_open: bool,
@@ -96,6 +99,7 @@ impl AssistState {
             pending_learn: None,
             dont_ask_again: false,
             auto_remember,
+            quiet_save: false,
             ai_done: false,
             declined_this_session: false,
             settings_open: false,
@@ -355,6 +359,7 @@ impl AssistState {
             Remember::Never => {}
             Remember::Always => self.a.commit(&self.an, &fields, &plan),
             Remember::Ask if self.auto_remember => self.a.commit(&self.an, &fields, &plan),
+            Remember::Ask if self.quiet_save => {}
             Remember::Ask => {
                 self.dont_ask_again = false;
                 self.pending_learn = Some((plan, self.an.clone(), fields));
@@ -413,6 +418,15 @@ impl AssistState {
         let ans = !self.a.suggestions(&self.an, &doc.fields(), k).is_empty();
         self.hover_suggestions = Some((fid, Instant::now(), ans));
         ans
+    }
+
+    /// What is remembered for field `fid`, best first (for agents).
+    pub fn suggestions_for(&mut self, doc: &mut Doc, fid: u64) -> Vec<String> {
+        self.ensure(doc, false);
+        match self.index(doc, fid) {
+            Some(k) => self.a.suggestions(&self.an, &doc.fields(), k),
+            None => vec![],
+        }
     }
 
     /// The highlighted alternative of field `fid`'s open list (previewed in

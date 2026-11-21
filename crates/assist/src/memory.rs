@@ -96,6 +96,21 @@ pub struct Settings {
     /// .p12 / .pfx files signed with before (paths only).
     #[serde(default)]
     pub cert_files: Vec<String>,
+    /// AI agents (through `pdfr mcp`) may open and control pdfr windows.
+    #[serde(default = "yes")]
+    pub agents_enabled: bool,
+    /// An agent signing digitally: the user is asked in the window first.
+    #[serde(default = "yes")]
+    pub agent_ask_sign: bool,
+    /// An agent saving over a file that exists: the user is asked first.
+    #[serde(default = "yes")]
+    pub agent_ask_overwrite: bool,
+    /// An agent printing: the user is asked first.
+    #[serde(default)]
+    pub agent_ask_print: bool,
+    /// Agents may be told what pdfr remembers the user usually writes.
+    #[serde(default = "yes")]
+    pub agent_use_memory: bool,
 }
 
 /// A recently opened file and where it was left.
@@ -158,6 +173,11 @@ impl Default for Settings {
             sign_location: String::new(),
             last_cert: String::new(),
             cert_files: vec![],
+            agents_enabled: true,
+            agent_ask_sign: true,
+            agent_ask_overwrite: true,
+            agent_ask_print: false,
+            agent_use_memory: true,
         }
     }
 }

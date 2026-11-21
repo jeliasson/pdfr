@@ -5,6 +5,7 @@
     windows_subsystem = "windows"
 )]
 
+mod agent;
 mod app;
 mod assist_ui;
 mod draw;
@@ -30,6 +31,10 @@ Options:
   --register       Add pdfr to the app menu, \"Open with\" and the terminal
                    (for installs from an archive)
   --unregister     Undo --register
+
+Commands:
+  pdfr mcp         Let an AI agent control pdfr (a Model Context Protocol
+                   server on stdin/stdout): claude mcp add pdfr -- pdfr mcp
 ";
 
 fn parse_args() -> Result<CliOptions, String> {
@@ -92,6 +97,7 @@ fn parse_args() -> Result<CliOptions, String> {
                 )
             }
             "--ask-remember" => o.ask_remember = true,
+            "--agent" => o.agent = true,
             "--sign" => {
                 o.sign = Some(
                     args.next()
@@ -136,6 +142,11 @@ fn parse_args() -> Result<CliOptions, String> {
 }
 
 fn main() -> eframe::Result<()> {
+    // `pdfr mcp`: the agent server. It shows no window.
+    let mut args = std::env::args_os().skip(1);
+    if args.next().is_some_and(|a| a == "mcp") {
+        std::process::exit(agent::mcp::run(args.collect()));
+    }
     let cli = match parse_args() {
         Ok(c) => c,
         Err(e) => {

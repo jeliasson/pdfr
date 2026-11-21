@@ -1751,3 +1751,271 @@ fn text_box_and_shapes_move_and_delete() {
     ctrl(&mut h, Key::Z);
     assert_eq!(marks(&h).len(), 2);
 }
+
+/// One agent request, as `pdfr mcp` would send it: the whole answer
+/// (`ok`, `result` or `error`, `state`).
+fn agent(h: &mut Harness<'_, App>, op: &str, args: serde_json::Value) -> serde_json::Value {
+    let ctx = h.ctx.clone();
+    match h.state_mut().agent_request(op, &args, &ctx) {
+        Ok(v) => v,
+        Err(rx) => {
+            let start = Instant::now();
+            loop {
+                h.run_steps(1);
+                if let Ok(v) = rx.try_recv() {
+                    break v;
+                }
+                assert!(
+                    start.elapsed() < BG_WAIT,
+                    "agent request {op} never answered"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+    }
+}
+
+/// The `ref` an agent uses for the box at a display position.
+fn agent_ref(h: &Harness<'_, App>, x0: f32, y0: f32) -> String {
+    format!("f{}", entry_at(h, x0, y0).id)
+}
+
+#[test]
+fn agent_reads_and_fills_the_form() {
+    use serde_json::json;
+    let mut h = harness("flat_form.pdf", data_dir("agent-fill", None));
+    let a = agent(&mut h, "read_form", json!({}));
+    assert_eq!(a["ok"], true);
+    assert_eq!(a["state"]["unsaved_changes"], false);
+    let boxes = a["result"]["boxes"].as_array().unwrap().clone();
+    assert_eq!(boxes.len(), h.state().doc.as_ref().unwrap().entries.len());
+    // The full name: a labelled text box, visible, with a place in the screenshot.
+    let name_ref = agent_ref(&h, 150.0, 168.0);
+    let row = boxes.iter().find(|b| b["ref"] == name_ref).unwrap();
+    assert_eq!(row["kind"], "text");
+    assert_eq!(row["page"], 1);
+    assert_eq!(row["value"], "");
+    let at = row["at"].as_array().expect("a visible box has a position");
+    // The harness window is small enough not to be scaled: screenshot
+    // pixels are screen points.
+    let f = entry_at(&h, 150.0, 168.0).f.clone();
+    let c = screen(&h, f.rect.center().0, f.rect.center().1);
+    assert!((at[0].as_f64().unwrap() as f32 - c.x).abs() <= 1.0);
+    assert!((at[1].as_f64().unwrap() as f32 - c.y).abs() <= 1.0);
+
+    // Fill it: the value lands, the document is dirty, the caret is there.
+    let a = agent(
+        &mut h,
+        "fill",
+        json!({"ref": name_ref, "value": "Anna Lindqvist"}),
+    );
+    assert_eq!(a["ok"], true, "{a}");
+    assert_eq!(a["result"]["box"]["value"], "Anna Lindqvist");
+    assert_eq!(a["state"]["unsaved_changes"], true);
+    assert_eq!(a["state"]["focused"], name_ref);
+    assert_eq!(entry_at(&h, 150.0, 168.0).f.value, "Anna Lindqvist");
+
+    // A date typed into its first row of squares carries on into the next rows.
+    let day = agent_ref(&h, 190.0, 232.0);
+    let a = agent(&mut h, "fill", json!({"ref": day, "value": "12031985"}));
+    assert_eq!(a["ok"], true, "{a}");
+    assert_eq!(entry_at(&h, 190.0, 232.0).f.value, "12");
+    assert_eq!(entry_at(&h, 232.0, 232.0).f.value, "03");
+    assert_eq!(entry_at(&h, 274.0, 232.0).f.value, "1985");
+    // More than the squares take is reported, not lost silently.
+    let pn = agent_ref(&h, 150.0, 200.0);
+    let a = agent(&mut h, "fill", json!({"ref": pn, "value": "8501011234XYZ"}));
+    assert_eq!(entry_at(&h, 150.0, 200.0).f.value, "8501011234");
+    assert_eq!(a["result"]["did_not_fit"], "XYZ");
+
+    // Each fill is one undo step.
+    h.state_mut().run(commands::Command::Undo);
+    assert_eq!(entry_at(&h, 150.0, 200.0).f.value, "");
+    h.state_mut().run(commands::Command::Undo);
+    assert_eq!(entry_at(&h, 190.0, 232.0).f.value, "");
+    assert_eq!(entry_at(&h, 274.0, 232.0).f.value, "");
+    assert_eq!(entry_at(&h, 150.0, 168.0).f.value, "Anna Lindqvist");
+
+    // Checkboxes: set, not toggled.
+    let cb = agent_ref(&h, 240.0, 268.0);
+    for _ in 0..2 {
+        let a = agent(&mut h, "set_checked", json!({"ref": cb, "checked": true}));
+        assert_eq!(a["result"]["box"]["checked"], true);
+    }
+    assert!(entry_at(&h, 240.0, 268.0).f.checked);
+    let a = agent(&mut h, "fill", json!({"ref": cb, "value": "x"}));
+    assert_eq!(a["error"]["code"], "wrong_kind");
+
+    // Only what is still empty; and a ref that does not exist.
+    let a = agent(&mut h, "read_form", json!({"only_empty": true}));
+    let empty = a["result"]["boxes"].as_array().unwrap();
+    assert!(empty.len() < boxes.len());
+    assert!(empty.iter().all(|b| b["ref"] != name_ref && b["ref"] != cb));
+    let a = agent(&mut h, "fill", json!({"ref": "f99999", "value": "x"}));
+    assert_eq!(a["error"]["code"], "no_such_box");
+}
+
+#[test]
+fn agent_chooses_from_a_drop_down() {
+    use serde_json::json;
+    let mut h = harness("real_form.pdf", data_dir("agent-choice", None));
+    let (id, options) = {
+        let d = h.state().doc.as_ref().unwrap();
+        let e = d
+            .entries
+            .iter()
+            .find(|e| matches!(e.f.kind, FieldKind::Choice { .. }))
+            .expect("real_form has a drop-down");
+        let FieldKind::Choice { options, .. } = &e.f.kind else {
+            unreachable!()
+        };
+        (e.id, options.clone())
+    };
+    let (export, display) = options.last().unwrap().clone();
+    let a = agent(
+        &mut h,
+        "choose",
+        json!({"ref": format!("f{id}"), "option": display.to_uppercase()}),
+    );
+    assert_eq!(a["ok"], true, "{a}");
+    assert_eq!(value_of(&h, id), export);
+    assert_eq!(a["result"]["box"]["value"], display);
+    let a = agent(
+        &mut h,
+        "choose",
+        json!({"ref": format!("f{id}"), "option": "no such option"}),
+    );
+    assert_eq!(a["error"]["code"], "no_such_option");
+    assert_eq!(value_of(&h, id), export);
+}
+
+#[test]
+fn agent_opens_reads_and_saves() {
+    use serde_json::json;
+    let dir = data_dir("agent-save", None);
+    let mut h = harness("flat_form.pdf", dir.clone());
+    // Text and search.
+    let a = agent(&mut h, "read_text", json!({"page": 1}));
+    let text = a["result"]["text"].as_str().unwrap().to_string();
+    assert!(text.contains("Full name"), "{text}");
+    let a = agent(&mut h, "find", json!({"query": "full name"}));
+    assert!(a["result"]["matches"].as_u64().unwrap() >= 1);
+    assert_eq!(a["result"]["shown"][0]["page"], 1);
+    let a = agent(&mut h, "read_text", json!({"page": 99}));
+    assert_eq!(a["error"]["code"], "bad_request");
+
+    // A document never saved needs a path.
+    let name_ref = agent_ref(&h, 150.0, 168.0);
+    agent(&mut h, "fill", json!({"ref": name_ref, "value": "Anna"}));
+    let a = agent(&mut h, "save", json!({}));
+    assert_eq!(a["error"]["code"], "needs_path");
+    let out = dir.join("filled.pdf");
+    let a = agent(&mut h, "save_as", json!({"path": out}));
+    assert_eq!(a["ok"], true, "{a}");
+    assert_eq!(a["state"]["unsaved_changes"], false);
+    assert!(out.exists());
+    // Saving its own file again asks nothing.
+    agent(
+        &mut h,
+        "fill",
+        json!({"ref": name_ref, "value": "Anna Lindqvist"}),
+    );
+    let a = agent(&mut h, "save", json!({}));
+    assert_eq!(a["ok"], true, "{a}");
+    // An agent's save does not start the "remember?" question.
+    assert!(!h.state().assist.remember_pending());
+
+    // Another file that exists: refused without overwrite, and with it the
+    // user is asked (the default) and can say no.
+    let other = dir.join("other.pdf");
+    std::fs::write(&other, b"someone else's file").unwrap();
+    let a = agent(&mut h, "save_as", json!({"path": other}));
+    assert_eq!(a["error"]["code"], "exists");
+    let ctx = h.ctx.clone();
+    let rx = h
+        .state_mut()
+        .agent_request("save_as", &json!({"path": other, "overwrite": true}), &ctx)
+        .expect_err("waits for the user");
+    h.run_steps(2);
+    assert!(
+        rx.try_recv().is_err(),
+        "nothing happens until the user answers"
+    );
+    assert_eq!(h.state().agent_state()["dialog"], "asking_the_user");
+    h.state_mut().agent_answer_ask(false);
+    h.run_steps(2);
+    assert_eq!(rx.try_recv().unwrap()["error"]["code"], "declined");
+    assert_eq!(std::fs::read(&other).unwrap(), b"someone else's file");
+    // Allowed: it is replaced.
+    let rx = h
+        .state_mut()
+        .agent_request("save_as", &json!({"path": other, "overwrite": true}), &ctx)
+        .expect_err("waits for the user");
+    h.run_steps(2);
+    h.state_mut().agent_answer_ask(true);
+    h.run_steps(2);
+    assert_eq!(rx.try_recv().unwrap()["ok"], true);
+    assert!(std::fs::read(&other).unwrap().starts_with(b"%PDF"));
+    // With the question turned off in Settings, it is replaced at once.
+    std::fs::write(&other, b"again").unwrap();
+    h.state_mut().assist.a.store.settings.agent_ask_overwrite = false;
+    agent(&mut h, "fill", json!({"ref": name_ref, "value": "Erik"}));
+    let third = dir.join("third.pdf");
+    std::fs::write(&third, b"x").unwrap();
+    let a = agent(&mut h, "save_as", json!({"path": third, "overwrite": true}));
+    assert_eq!(a["ok"], true, "{a}");
+
+    // Opening another file: refused while there are unsaved changes.
+    agent(&mut h, "fill", json!({"ref": name_ref, "value": "Unsaved"}));
+    let a = agent(&mut h, "open", json!({"path": sample("real_form.pdf")}));
+    assert_eq!(a["error"]["code"], "needs_confirmation");
+    let a = agent(
+        &mut h,
+        "open",
+        json!({"path": sample("real_form.pdf"), "discard": true}),
+    );
+    assert_eq!(a["ok"], true, "{a}");
+    assert_eq!(a["result"]["opened"], "real_form.pdf");
+    assert_eq!(a["state"]["loading"], false);
+    assert!(a["result"]["boxes"].as_u64().unwrap() > 0);
+    // A protected file says what it needs instead of showing a dialog.
+    let a = agent(
+        &mut h,
+        "open",
+        json!({"path": sample("encrypted_user.pdf")}),
+    );
+    assert_eq!(a["error"]["code"], "password_required");
+    assert!(h.state().password.is_none());
+    let a = agent(&mut h, "open", json!({"path": "/no/such/file.pdf"}));
+    assert_eq!(a["error"]["code"], "not_found");
+}
+
+#[test]
+fn agent_runs_commands_and_moves_the_view() {
+    use serde_json::json;
+    let mut h = harness("big_300.pdf", data_dir("agent-view", None));
+    let a = agent(&mut h, "view", json!({"page": 7}));
+    assert_eq!(a["ok"], true, "{a}");
+    h.run_steps(2);
+    assert_eq!(agent(&mut h, "state", json!({}))["state"]["page"], 7);
+    let a = agent(&mut h, "view", json!({"page": 9999}));
+    assert_eq!(a["error"]["code"], "bad_request");
+    // Commands by name, as in the palette; only those that can run are listed.
+    let a = agent(&mut h, "run_command", json!({}));
+    let names: Vec<&str> = a["result"]["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["name"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"NextPage"));
+    assert!(!names.contains(&"Undo"), "nothing to undo yet");
+    let a = agent(&mut h, "run_command", json!({"name": "nextpage"}));
+    assert_eq!(a["ok"], true, "{a}");
+    h.run_steps(2);
+    assert_eq!(agent(&mut h, "state", json!({}))["state"]["page"], 8);
+    let a = agent(&mut h, "run_command", json!({"name": "Undo"}));
+    assert_eq!(a["error"]["code"], "not_now");
+    let a = agent(&mut h, "run_command", json!({"name": "Frobnicate"}));
+    assert_eq!(a["error"]["code"], "no_such_command");
+}

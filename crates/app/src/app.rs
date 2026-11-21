@@ -48,6 +48,8 @@ pub struct CliOptions {
     pub script: Option<String>,
     /// Hidden: values to type at page positions (screenshots).
     pub values: Option<PathBuf>,
+    /// Started by `pdfr mcp` for an AI agent.
+    pub agent: bool,
 }
 
 /// One field plus app-level state, with a stable id.
@@ -295,6 +297,10 @@ pub struct App {
     /// Reading scanned text: the setting as applied, the model download.
     ocr: ocr::OcrState,
     egui_ctx: egui::Context,
+    /// Files being read on a background thread.
+    opens_in_flight: u32,
+    /// AI agents controlling this window (`pdfr mcp`).
+    agent: agent::AgentState,
 }
 
 /// The desktop's light/dark preference: the portal's answer where there is
@@ -403,6 +409,8 @@ impl App {
             },
             ocr: Default::default(),
             egui_ctx: ctx.clone(),
+            opens_in_flight: 0,
+            agent: Default::default(),
         };
         if let Some(s) = &cli.settings {
             app.assist.open_settings(s);
@@ -423,6 +431,7 @@ impl App {
             self.open_from_system(p);
         }
         while let Ok((path, res, started)) = self.open_rx.try_recv() {
+            self.opens_in_flight = self.opens_in_flight.saturating_sub(1);
             match res {
                 Ok(form) => self.finish_open(path, form, started, ctx),
                 // Automated runs (screenshots, --save) cannot ask: they stop.
@@ -648,6 +657,14 @@ impl eframe::App for App {
         self.record_input(raw_input);
     }
 
+    /// Runs before every frame, and also while the window is hidden (when
+    /// nothing is drawn): background results and agents' requests are
+    /// handled here, so an agent is answered whether or not the window shows.
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.poll(ctx);
+        self.agent_tick(ctx);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
         if self.parent.is_none()
@@ -659,7 +676,6 @@ impl eframe::App for App {
             });
         }
         let ctx = ui.ctx().clone();
-        self.poll(&ctx);
         self.hints_keys(&ctx);
         self.shortcuts(&ctx);
         self.handle_keys(&ctx);
@@ -741,6 +757,7 @@ impl eframe::App for App {
         self.redact_windows(&ctx);
         self.password_window(&ctx);
         self.page_confirm_window(&ctx);
+        self.agent_windows(&ctx);
         // The reminder waits while anything else asks for attention.
         let busy = self.confirm.is_some()
             || self.assist.modal_open()
@@ -751,7 +768,10 @@ impl eframe::App for App {
             || self.check.is_some()
             || self.password.is_some()
             || self.page_confirm.is_some()
-            || self.dialog_open();
+            || self.dialog_open()
+            // An agent is at work: the reminder is for the person.
+            || self.cli.agent
+            || crate::agent::active();
         self.license.tick(&ctx, busy);
         self.license.windows(&ctx, &self.palette);
         if let Some(m) = self.assist.take_system_message() {
@@ -851,6 +871,7 @@ impl eframe::App for App {
     }
 }
 
+mod agent;
 mod automation;
 pub(crate) mod canvas;
 mod check;
