@@ -678,7 +678,15 @@ impl App {
         self.status = "Signing…".into();
         std::thread::spawn(move || {
             pending.req.time = pdfr_sign::now();
-            let res = sign_job(&form, &fields, &marks, &pending, tsa.as_deref(), ltv, &target);
+            let res = sign_job(
+                &form,
+                &fields,
+                &marks,
+                &pending,
+                tsa.as_deref(),
+                ltv,
+                &target,
+            );
             let _ = tx.send(res.map(|note| (target, note)));
             ctx.request_repaint();
         });
