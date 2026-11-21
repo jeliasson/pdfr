@@ -41,6 +41,8 @@ pub enum Command {
     DeletePage,
     ExtractPage,
     Sidebar,
+    SelectFields,
+    RemoveSelected,
     AddTextField,
     AddCheckbox,
     Sign,
@@ -145,6 +147,7 @@ const NOTE: &[KeyboardShortcut] = &[ctrl_shift(Key::A)];
 const TEXT_BOX: &[KeyboardShortcut] = &[ctrl_shift(Key::T)];
 const HIGHLIGHT: &[KeyboardShortcut] = &[ctrl_shift(Key::H)];
 const REMOVE_FIELD: &[KeyboardShortcut] = &[ctrl_shift(Key::Delete)];
+const SELECT: &[KeyboardShortcut] = &[ctrl_shift(Key::B)];
 const PALETTE: &[KeyboardShortcut] = &[ctrl_shift(Key::P), ctrl(Key::Space)];
 const CHEATSHEET: &[KeyboardShortcut] = &[KeyboardShortcut::new(Modifiers::NONE, Key::F1)];
 const NONE: &[KeyboardShortcut] = &[];
@@ -176,6 +179,8 @@ impl Command {
         Command::DeletePage,
         Command::ExtractPage,
         Command::Sidebar,
+        Command::SelectFields,
+        Command::RemoveSelected,
         Command::AddTextField,
         Command::AddCheckbox,
         Command::Sign,
@@ -340,6 +345,19 @@ impl Command {
                 "Thumbnails of every page, and the document's outline",
                 Icon::Sidebar,
                 SIDEBAR,
+            ),
+            SelectFields => (
+                "Select boxes",
+                "Click the boxes you or pdfr added, or drag a frame around several, \
+                 to remove (Delete) or move them. Ctrl+click works without the tool too",
+                Icon::Select,
+                SELECT,
+            ),
+            RemoveSelected => (
+                "Remove selected boxes",
+                "Remove every selected box (Delete)",
+                Icon::Trash,
+                NONE,
             ),
             AddTextField => (
                 "Add text field",
@@ -555,6 +573,7 @@ impl Command {
             Command::RotatePage,
         ],
         &[
+            Command::SelectFields,
             Command::AddTextField,
             Command::AddCheckbox,
             Command::Sign,
@@ -580,6 +599,8 @@ impl App {
             CheckForm => doc.is_some() && self.check.is_none(),
             Print => doc.is_some() && super::print::AVAILABLE && !self.dialog_open(),
             AddTextField | AddCheckbox | Sign | Initials | TodaysDate | Redact => editable,
+            SelectFields => editable,
+            RemoveSelected => editable && !self.picks.is_empty(),
             Markup | AddNote | AddTextBox | AddRectangle | AddEllipse | AddArrow => editable,
             HighlightText | UnderlineText | StrikeText | CommentText => editable,
             SignDigitally => editable && !self.digital.busy() && !self.dialog_open(),
@@ -607,6 +628,7 @@ impl App {
     /// Whether a toggle-like command is currently on (tools, open panels).
     pub(crate) fn is_on(&self, c: Command) -> bool {
         match c {
+            Command::SelectFields => self.tool == Tool::Select,
             Command::AddTextField => self.tool == Tool::AddText,
             Command::AddCheckbox => self.tool == Tool::AddCheckbox,
             Command::Sign => {
@@ -667,6 +689,8 @@ impl App {
                 let z = self.fit_width_zoom();
                 self.zoom_to(z, pos2(center.x, self.viewport.top()));
             }
+            SelectFields => self.toggle_select_tool(),
+            RemoveSelected => self.remove_picks(),
             AddTextField => {
                 self.tool = if self.tool == Tool::AddText {
                     Tool::None

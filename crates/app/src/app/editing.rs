@@ -12,6 +12,8 @@ pub(super) const BOX_KEYS: &[(&str, &str)] = &[
     ("Tick a checkbox", "Space"),
     ("Remove a selected signature", "Delete"),
     ("Remove a selected comment or mark", "Delete"),
+    ("Select added boxes (to remove or move)", "Ctrl+click"),
+    ("Remove / move the selected boxes", "Delete / arrows"),
     ("Open a drop-down", "Space, Enter or Alt+↓"),
     ("Pick in a drop-down", "↑ / ↓ or a letter, Enter"),
     ("Delete a word", "Ctrl+Backspace"),

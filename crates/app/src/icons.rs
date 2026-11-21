@@ -52,6 +52,8 @@ pub enum Icon {
     Arrow,
     /// AI agents: a pointer arrow, as the one an agent moves.
     Pointer,
+    /// Select boxes: a dashed frame with a pointer arrow.
+    Select,
 }
 
 /// Maps the 24×24 design grid into a rectangle.
@@ -499,6 +501,21 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 (17.6, 14.0),
                 (6.0, 3.5),
             ]);
+        }
+        Icon::Select => {
+            // A dashed frame, open at the bottom right where the arrow sits.
+            for seg in [
+                [(3.5, 3.5), (6.5, 3.5)],
+                [(9.0, 3.5), (12.0, 3.5)],
+                [(14.5, 3.5), (17.5, 3.5)],
+                [(3.5, 6.0), (3.5, 9.0)],
+                [(3.5, 11.5), (3.5, 14.5)],
+                [(3.5, 17.0), (6.5, 17.0)],
+                [(17.5, 6.0), (17.5, 9.0)],
+            ] {
+                line(&seg);
+            }
+            closed(&[(11.0, 11.0), (20.5, 14.6), (16.4, 16.4), (14.6, 20.5)]);
         }
         Icon::Key => {
             // A round bow and a shaft with two teeth.

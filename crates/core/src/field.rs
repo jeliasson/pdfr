@@ -216,6 +216,21 @@ impl Field {
         }
     }
 
+    /// Moves the field (and its comb cells) by `dx`, `dy` points.
+    pub fn shift(&mut self, dx: f32, dy: f32) {
+        let r = &mut self.rect;
+        (r.x0, r.x1, r.y0, r.y1) = (r.x0 + dx, r.x1 + dx, r.y0 + dy, r.y1 + dy);
+        if let FieldKind::Text {
+            mode: TextMode::Comb(cells),
+            ..
+        } = &mut self.kind
+        {
+            for c in cells {
+                *c = (c.0 + dx, c.1 + dx);
+            }
+        }
+    }
+
     pub fn is_real(&self) -> bool {
         matches!(self.origin, Origin::AcroForm { .. })
     }

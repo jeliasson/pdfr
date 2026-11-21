@@ -215,6 +215,9 @@ impl App {
             }
         }
 
+        // The selected boxes and the frame being dragged.
+        self.draw_picks(&painter, &rects, pointer);
+
         // Comments and markup, over the fields.
         self.draw_marks(&painter, &rects, pointer);
 
@@ -292,7 +295,18 @@ impl App {
 
         // Mouse.
         self.mouse(&resp, &rects, &ctx);
-        if self.tool != Tool::None && resp.hovered() {
+        if self.tool == Tool::Select && resp.hovered() {
+            let on_box = pointer.is_some_and(|p| self.pickable_at(&rects, p).is_some());
+            ctx.set_cursor_icon(
+                if matches!(self.pick_drag, Some(pick::PickDrag::Move { .. })) {
+                    CursorIcon::Grabbing
+                } else if on_box {
+                    CursorIcon::Grab
+                } else {
+                    CursorIcon::Crosshair
+                },
+            );
+        } else if self.tool != Tool::None && resp.hovered() {
             ctx.set_cursor_icon(CursorIcon::Crosshair);
         } else if on_button {
             // The button sets its own pointer.
@@ -349,6 +363,8 @@ impl App {
 
         // Keyboard: scrolling when no field has focus.
         if self.focus.is_none() && !self.keyboard_elsewhere(&ctx) {
+            // The selected boxes take Delete, arrows and Esc first.
+            self.pick_keys(&ctx);
             let vh = self.viewport.height();
             let dy = ctx.input(|i| {
                 let mut dy = 0.0;
@@ -613,6 +629,10 @@ impl App {
                 self.redact_mouse(resp, rects, p);
                 return;
             }
+            Tool::Select if editable => {
+                self.pick_mouse(resp, rects, p);
+                return;
+            }
             Tool::PlaceSignature if editable => {
                 if clicked
                     && let Some((page, r)) = self.placement_at(rects, p)
@@ -627,6 +647,17 @@ impl App {
                 return;
             }
             _ => {}
+        }
+        // Ctrl+click selects added boxes (to remove or move several).
+        let ctrl = ctx.input(|i| i.modifiers.command);
+        if clicked && ctrl && editable {
+            if let Some(id) = self.pickable_at(rects, p) {
+                self.toggle_pick(id);
+                return;
+            }
+        } else if clicked && !self.picks.is_empty() {
+            self.picks.clear();
+            self.status.clear();
         }
         if self.mark_mouse(resp, rects, p) {
             return;
@@ -792,6 +823,9 @@ impl App {
             }
             return;
         }
+        let picks = self.picks.len();
+        let many = picks > 1 && self.picks.contains(&id);
+        let mut remove_picks = false;
         let shown = resp.context_menu(|ui| {
             if let Some(l) = &label {
                 ui.label(egui::RichText::new(l).weak());
@@ -799,6 +833,15 @@ impl App {
             }
             if !real && editable && ui.button("Remove this field").clicked() {
                 remove = true;
+                close = true;
+            }
+            if many
+                && editable
+                && ui
+                    .button(format!("Remove the {} selected boxes", picks))
+                    .clicked()
+            {
+                remove_picks = true;
                 close = true;
             }
             if editable && ui.button("Clear").clicked() {
@@ -819,7 +862,9 @@ impl App {
         if shown.is_none() && !close {
             self.ctx_field = None;
         }
-        if remove {
+        if remove_picks {
+            self.remove_picks();
+        } else if remove {
             self.remove_field(id);
         } else if clear {
             self.clear_field(id);

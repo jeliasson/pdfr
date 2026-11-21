@@ -2314,3 +2314,82 @@ fn settings_ai_agents_section() {
     assert_eq!(a["result"]["suggestions"], json!([]));
     assert!(a["result"]["note"].is_string());
 }
+
+/// The Select tool: a frame picks the boxes inside it, arrows and dragging
+/// move them, Delete removes them, each one undo step; a click picks one,
+/// Ctrl+A every added box on the page, Esc lets go and then puts the tool
+/// down.
+#[test]
+fn select_boxes_move_remove_and_undo() {
+    let mut h = harness("flat_form.pdf", data_dir("pick", None));
+    let count = |h: &Harness<'_, App>| h.state().doc.as_ref().unwrap().entries.len();
+    let x0_of = |h: &Harness<'_, App>, id: u64| {
+        let d = h.state().doc.as_ref().unwrap();
+        d.entries[d.index_of(id).unwrap()].f.rect
+    };
+    let n0 = count(&h);
+    ctrl_shift(&mut h, Key::B);
+    assert!(h.state().tool == Tool::Select);
+
+    // A frame around the three checkboxes picks just them.
+    let a = screen(&h, 140.0, 258.0);
+    let b = screen(&h, 350.0, 286.0);
+    drag(&mut h, a, b);
+    let picks = h.state().picks.clone();
+    assert_eq!(picks.len(), 3, "{picks:?}");
+    let first = picks[0];
+    let r0 = x0_of(&h, first);
+    for id in &picks {
+        assert!(x0_of(&h, *id).width() < 20.0, "only the checkboxes");
+    }
+
+    // An arrow nudges them a point; a drag moves them all.
+    key(&mut h, Key::ArrowRight);
+    assert!((x0_of(&h, first).x0 - r0.x0 - 1.0).abs() < 0.01);
+    let (cx, cy) = x0_of(&h, first).center();
+    let a = screen(&h, cx, cy);
+    let b = screen(&h, cx, cy + 30.0);
+    drag(&mut h, a, b);
+    for id in &picks {
+        let r = x0_of(&h, *id);
+        assert!((r.y0 - 298.0).abs() < 1.5, "moved down: {r:?}");
+    }
+    assert_eq!(h.state().picks.len(), 3, "moving keeps the selection");
+
+    // Delete removes all three; undo brings them back, then undoes the moves.
+    key(&mut h, Key::Delete);
+    assert_eq!(count(&h), n0 - 3);
+    assert!(h.state().picks.is_empty());
+    ctrl(&mut h, Key::Z);
+    assert_eq!(count(&h), n0);
+    assert!((x0_of(&h, first).y0 - 298.0).abs() < 1.5);
+    ctrl(&mut h, Key::Z);
+    assert!((x0_of(&h, first).y0 - 268.0).abs() < 1.5);
+    ctrl(&mut h, Key::Z);
+    assert!((x0_of(&h, first).x0 - r0.x0).abs() < 0.01);
+
+    // A click picks one box; Ctrl+A every added box on the page.
+    let name = entry_at(&h, 150.0, 168.0).id;
+    click_doc(&mut h, 300.0, 178.0);
+    assert_eq!(h.state().picks, vec![name]);
+    assert!(focused_id(&h).is_none(), "selecting never starts typing");
+    ctrl(&mut h, Key::A);
+    let on_page = h
+        .state()
+        .doc
+        .as_ref()
+        .unwrap()
+        .entries
+        .iter()
+        .filter(|e| e.f.page == 0 && !e.f.is_real())
+        .count();
+    assert_eq!(h.state().picks.len(), on_page);
+
+    // Esc lets go, then puts the tool down.
+    key(&mut h, Key::Escape);
+    assert!(h.state().picks.is_empty());
+    assert!(h.state().tool == Tool::Select);
+    key(&mut h, Key::Escape);
+    assert!(h.state().tool == Tool::None);
+    assert_eq!(count(&h), n0);
+}

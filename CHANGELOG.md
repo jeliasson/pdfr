@@ -20,8 +20,18 @@ version's section into its GitHub release notes.
     there altogether.
   - It runs on your computer: pdfr listens only on a socket that only you
     can reach, and nothing is sent anywhere by pdfr.
+- **Select boxes to remove or move them.** The new Select tool (toolbar,
+  Ctrl+Shift+B) picks the boxes you or pdfr added: click one, Shift-click
+  more, drag a frame around several, or Ctrl+A for the whole page. Delete
+  removes them all at once; drag them or use the arrow keys (Shift: 10
+  points) to move them. Ctrl+click selects boxes without the tool too. Each
+  change is one Ctrl+Z.
 
 ### Changed
+
+- **Certificate signatures look formal**, like Adobe Acrobat's: your name in
+  plain type beside "Digitally signed by", the date and the reason, instead
+  of handwriting. A drawn signature is still an option under "Looks like".
 
 - **The text reader downloads from pdfr's own release** on GitHub instead
   of a third-party server (the same files, checked the same way).

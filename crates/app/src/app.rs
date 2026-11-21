@@ -169,6 +169,8 @@ enum Confirm {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Tool {
     None,
+    /// Selecting added boxes to remove or move them.
+    Select,
     AddText,
     AddCheckbox,
     /// Putting down the signature in `App::placing`.
@@ -197,6 +199,12 @@ pub struct App {
     focus: Option<Focus>,
     tool: Tool,
     drag_start: Option<(usize, (f32, f32))>,
+    /// Added boxes selected to remove or move together.
+    picks: Vec<u64>,
+    pick_drag: Option<pick::PickDrag>,
+    /// When the selection was last moved by an arrow key (a run of nudges
+    /// is one undo step).
+    last_nudge: Option<Instant>,
     ctx_field: Option<u64>,
     choice_open: Option<u64>,
     /// The highlighted option of the open drop-down (keyboard).
@@ -344,6 +352,9 @@ impl App {
             focus: None,
             tool: Tool::None,
             drag_start: None,
+            picks: Vec::new(),
+            pick_drag: None,
+            last_nudge: None,
             ctx_field: None,
             choice_open: None,
             choice_sel: 0,
@@ -893,6 +904,7 @@ pub(crate) mod markup;
 mod ocr;
 mod pages;
 mod palette;
+mod pick;
 mod present;
 mod print;
 mod recent;
