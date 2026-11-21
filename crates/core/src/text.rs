@@ -2,7 +2,7 @@
 //! `Device` interface (pure Rust; no separate parser). Used for field labels.
 
 use crate::geom::Rect;
-use hayro::hayro_interpret::font::GlyphRun;
+use hayro::hayro_interpret::font::{Glyph, GlyphRun};
 use hayro::hayro_interpret::util::TransformExt;
 use hayro::hayro_interpret::{
     BlendMode, ClipPath, Context, Device, DrawMode, DrawProps, Image, ImageDrawProps,
@@ -99,6 +99,8 @@ struct G {
     x: f32,
     y: f32,
     size: f32,
+    /// How far the font moves on after this glyph, where it says.
+    advance: Option<f32>,
 }
 
 #[derive(Default)]
@@ -125,11 +127,18 @@ impl Device<'_> for Collector {
                 hayro::hayro_interpret::hayro_cmap::BfString::Char(c) => c.to_string(),
                 hayro::hayro_interpret::hayro_cmap::BfString::String(s) => s,
             };
+            let advance = match &**g {
+                Glyph::Outline(o) => o.advance_width(),
+                Glyph::Type3(t) => t.advance_width(),
+            }
+            .filter(|a| *a > 0.0)
+            .map(|a| a * right.length() as f32 / 1000.0);
             self.glyphs.push(G {
                 s,
                 x: o.x as f32,
                 y: o.y as f32,
                 size: up.length() as f32,
+                advance,
             });
         }
     }
@@ -170,15 +179,20 @@ fn group(mut gs: Vec<G>) -> Vec<TextRun> {
     let mut out = Vec::new();
     for mut l in lines {
         l.sort_by(|a, b| a.x.total_cmp(&b.x));
-        let mut cur: Option<(TextRun, f32)> = None; // (run, x of last glyph)
+        // (run, x of the last glyph, how far a word space is from there)
+        let mut cur: Option<(TextRun, f32, f32)> = None;
         for g in l {
             let adv = 0.55 * g.size; // estimated width of one glyph
-            if let Some((run, last_x)) = &mut cur {
+            // The next glyph starting this far on follows a space. A wide
+            // letter (W, @) moves on almost that far by itself: no space
+            // then, unless there is room for one after it.
+            let word_gap = (0.9 * g.size).max(g.advance.map_or(0.0, |a| a + 0.25 * g.size));
+            if let Some((run, last_x, last_gap)) = &mut cur {
                 let gap = g.x - *last_x;
                 if gap > 2.2 * g.size {
                     out.push(finish(cur.take().unwrap().0));
                 } else {
-                    if gap > 0.9 * g.size && !run.text.ends_with(' ') && g.s != " " {
+                    if gap > *last_gap && !run.text.ends_with(' ') && g.s != " " {
                         run.text.push(' ');
                         run.xs.push(*last_x + adv);
                     }
@@ -186,6 +200,7 @@ fn group(mut gs: Vec<G>) -> Vec<TextRun> {
                     run.xs.extend(std::iter::repeat_n(g.x, g.s.chars().count()));
                     run.rect.x1 = run.rect.x1.max(g.x + adv);
                     *last_x = g.x;
+                    *last_gap = word_gap;
                     continue;
                 }
             }
@@ -200,9 +215,10 @@ fn group(mut gs: Vec<G>) -> Vec<TextRun> {
                     ws: vec![],
                 },
                 g.x,
+                word_gap,
             ));
         }
-        if let Some((run, _)) = cur {
+        if let Some((run, _, _)) = cur {
             out.push(finish(run));
         }
     }
@@ -411,6 +427,40 @@ mod tests {
             xs,
             ws,
         }
+    }
+
+    /// Letters of size 10 on one line, each `(text, x, advance)`.
+    fn letters(gs: &[(&str, f32, Option<f32>)]) -> Vec<G> {
+        gs.iter()
+            .map(|&(s, x, advance)| G {
+                s: s.into(),
+                x,
+                y: 100.0,
+                size: 10.0,
+                advance,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn wide_letters_are_not_followed_by_a_space() {
+        // "@" and "W" are nearly an em wide: the next letter starts more
+        // than 0.9 em on without any space between them.
+        let runs = group(letters(&[
+            ("K", 0.0, Some(6.5)),
+            ("@", 6.5, Some(10.0)),
+            ("W", 16.5, Some(9.6)),
+            ("K", 26.1, Some(6.5)),
+            ("E", 32.6, Some(5.6)),
+        ]));
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].text, "K@WKE");
+        // Room for a space after the wide letter: there is one.
+        let runs = group(letters(&[("W", 0.0, Some(9.6)), ("K", 12.4, Some(6.5))]));
+        assert_eq!(runs[0].text, "W K");
+        // A font that does not say: as before, 0.9 em starts a new word.
+        let runs = group(letters(&[("a", 0.0, None), ("b", 9.5, None)]));
+        assert_eq!(runs[0].text, "a b");
     }
 
     #[test]

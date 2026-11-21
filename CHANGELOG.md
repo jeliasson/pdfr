@@ -37,6 +37,10 @@ version's section into its GitHub release notes.
   page's own colour, not white.
 - **Scanned forms: letters are no checkboxes.** A letter whose curve closes
   into a box (the C of "CORRECT") is no longer offered as a checkbox.
+- **No stray spaces around wide letters.** Printed text with a wide letter
+  (W, M, @) was read with a space on either side of it, so editing
+  "RK@WKEQUITY.COM" showed "RK@ W KEQUITY.COM". pdfr now uses each letter's
+  real width.
 
 ## [0.5.0] - 2026-11-21
 
