@@ -98,6 +98,7 @@ impl App {
         }
         self.draw_hits(&painter, &rects);
         self.draw_text_selection(&painter, &rects);
+        self.draw_redactions(&painter, &rects, pointer);
 
         // Fields.
         let editable_doc = doc.form.editable();
@@ -593,6 +594,10 @@ impl App {
                     .to_page(p);
                     self.place_date(page, x, y);
                 }
+                return;
+            }
+            Tool::Redact if editable => {
+                self.redact_mouse(resp, rects, p);
                 return;
             }
             Tool::PlaceSignature if editable => {

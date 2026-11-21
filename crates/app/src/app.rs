@@ -88,6 +88,8 @@ pub struct Doc {
     pub text_links: HashMap<usize, Vec<pdfr_core::links::Link>>,
     /// Sidebar thumbnails.
     thumbs: HashMap<usize, TextureHandle>,
+    /// Areas marked for redaction (not yet applied).
+    pub redactions: Vec<redact::RedactMark>,
 }
 
 impl Doc {
@@ -164,6 +166,8 @@ enum Tool {
     PlaceSignature,
     /// Putting today's date where the user clicks.
     PlaceDate,
+    /// Marking areas to redact.
+    Redact,
 }
 
 pub struct App {
@@ -199,6 +203,8 @@ pub struct App {
     sig_drag: Option<signature::SigDrag>,
     /// Signing with a certificate, and the open file's signature checks.
     digital: digital_sign::DigitalState,
+    /// The redaction tool's panel, confirm dialog and running job.
+    redact: redact::RedactState,
     /// The text search (Ctrl+F): query, hits, highlights.
     search: Option<search::Search>,
     /// Page text selected with the mouse.
@@ -327,6 +333,7 @@ impl App {
             placing_initials: false,
             sig_drag: None,
             digital: Default::default(),
+            redact: Default::default(),
             search: None,
             text_sel: None,
             page_menu_open: false,
@@ -688,6 +695,7 @@ impl eframe::App for App {
         self.sign_window(&ctx);
         self.digital_window(&ctx);
         self.check_window(&ctx);
+        self.redact_windows(&ctx);
         self.password_window(&ctx);
         self.page_confirm_window(&ctx);
         // The reminder waits while anything else asks for attention.
@@ -819,6 +827,7 @@ mod present;
 mod print;
 mod recent;
 mod record;
+mod redact;
 mod rotate;
 mod search;
 mod select;

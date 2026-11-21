@@ -1470,3 +1470,75 @@ fn drag_a_thumbnail_to_move_a_page() {
     assert_eq!(h.state().doc.as_ref().unwrap().form.page_ids, ids);
     assert_eq!(ids_on(&h, 0), on0);
 }
+
+#[test]
+fn redact_mark_remove_undo_and_apply() {
+    use egui_kittest::kittest::Queryable;
+    let dir = data_dir("redact", None);
+    let mut h = harness("flat_form.pdf", dir.clone());
+    ctrl_shift(&mut h, Key::X);
+    assert!(
+        h.state().tool == Tool::Redact,
+        "Ctrl+Shift+X picks up the tool"
+    );
+    let marks = |h: &Harness<'_, App>| h.state().doc.as_ref().unwrap().redactions.clone();
+    // Drag a box over the "Full name" label (x 50, baseline 184).
+    let a = screen(&h, 45.0, 172.0);
+    let b = screen(&h, 120.0, 188.0);
+    drag(&mut h, a, b);
+    assert_eq!(marks(&h).len(), 1);
+    let r = marks(&h)[0].rect;
+    assert!(
+        (r.x0 - 45.0).abs() < 1.0 && (r.y1 - 188.0).abs() < 1.0,
+        "{r:?}"
+    );
+    // A click on it takes it away; undo brings it back.
+    click_doc(&mut h, 80.0, 180.0);
+    assert!(marks(&h).is_empty());
+    ctrl(&mut h, Key::Z);
+    assert_eq!(marks(&h).len(), 1);
+    // Search and redact: every match.
+    let n = h.state_mut().redact_matches("thirty days");
+    h.run_steps(2);
+    assert_eq!(n, 1);
+    assert_eq!(marks(&h).len(), 2);
+    // Apply asks first, then where to save.
+    h.get_by_label("Apply redactions…").click();
+    h.run_steps(2);
+    assert!(h.state().redact.confirm, "the apply dialog is open");
+    key(&mut h, Key::Escape);
+    assert!(!h.state().redact.confirm);
+    // The original is never the target.
+    let generation = h.state().doc.as_ref().unwrap().generation;
+    h.state_mut()
+        .redacted_save(Some(sample("flat_form.pdf")), generation);
+    assert!(h.state().status.contains("choose a new name"));
+    let out = dir.join("flat_form (redacted).pdf");
+    h.state_mut().redacted_save(Some(out.clone()), generation);
+    // The copy is written and opened, without the marked text.
+    let start = Instant::now();
+    loop {
+        h.run_steps(1);
+        // Undo left the original "changed": it asks before leaving it.
+        if matches!(h.state().confirm, Some(Confirm::Open(_))) {
+            h.run_steps(2);
+            h.get_by_label("Don't save").click();
+            h.run_steps(1);
+        }
+        if let Some(d) = &h.state().doc
+            && d.path == out
+            && d.text.contains_key(&0)
+        {
+            break;
+        }
+        assert!(start.elapsed() < BG_WAIT, "timed out: {}", h.state().status);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let d = h.state().doc.as_ref().unwrap();
+    let text: String = d.text[&0].iter().map(|r| r.text.clone() + "\n").collect();
+    assert!(!text.contains("Full name"), "{text}");
+    assert!(!text.to_lowercase().contains("thirty days"), "{text}");
+    assert!(text.contains("Occupation"), "the rest stays: {text}");
+    assert!(d.redactions.is_empty());
+    assert!(h.state().tool == Tool::None);
+}

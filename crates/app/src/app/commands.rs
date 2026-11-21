@@ -47,6 +47,7 @@ pub enum Command {
     SignDigitally,
     TodaysDate,
     CheckForm,
+    Redact,
     Settings,
     Register,
     ScrollDown,
@@ -128,6 +129,7 @@ const INITIALS: &[KeyboardShortcut] = &[ctrl_shift(Key::I)];
 const SIGN_DIGITALLY: &[KeyboardShortcut] = &[ctrl_shift(Key::C)];
 const TODAY: &[KeyboardShortcut] = &[ctrl_shift(Key::D)];
 const CHECK_FORM: &[KeyboardShortcut] = &[ctrl_shift(Key::E)];
+const REDACT: &[KeyboardShortcut] = &[ctrl_shift(Key::X)];
 const REMOVE_FIELD: &[KeyboardShortcut] = &[ctrl_shift(Key::Delete)];
 const PALETTE: &[KeyboardShortcut] = &[ctrl_shift(Key::P), ctrl(Key::Space)];
 const CHEATSHEET: &[KeyboardShortcut] = &[KeyboardShortcut::new(Modifiers::NONE, Key::F1)];
@@ -167,6 +169,7 @@ impl Command {
         Command::SignDigitally,
         Command::TodaysDate,
         Command::CheckForm,
+        Command::Redact,
         Command::Settings,
         Command::Register,
         Command::ScrollDown,
@@ -356,6 +359,12 @@ impl Command {
                 Icon::TextField,
                 TODAY,
             ),
+            Redact => (
+                "Redact",
+                "Black out text and pictures for good: drag boxes over them",
+                Icon::Redact,
+                REDACT,
+            ),
             Settings => (
                 "Settings",
                 "Autocomplete, AI and remembered people",
@@ -470,6 +479,7 @@ impl Command {
             Command::AddTextField,
             Command::AddCheckbox,
             Command::Sign,
+            Command::Redact,
             Command::FieldMarks,
         ],
     ];
@@ -489,7 +499,7 @@ impl App {
             Save | SaveAs => editable && !self.dialog_open(),
             CheckForm => doc.is_some() && self.check.is_none(),
             Print => doc.is_some() && super::print::AVAILABLE && !self.dialog_open(),
-            AddTextField | AddCheckbox | Sign | Initials | TodaysDate => editable,
+            AddTextField | AddCheckbox | Sign | Initials | TodaysDate | Redact => editable,
             SignDigitally => editable && !self.digital.busy() && !self.dialog_open(),
             Undo => doc.is_some() && !self.undo.is_empty(),
             Redo => doc.is_some() && !self.redo.is_empty(),
@@ -531,6 +541,7 @@ impl App {
                     || self.sign.as_ref().is_some_and(|s| s.initials)
             }
             Command::TodaysDate => self.tool == Tool::PlaceDate,
+            Command::Redact => self.tool == Tool::Redact,
             Command::Settings => self.assist.settings_open,
             Command::Sidebar => self.sidebar_open(),
             Command::DarkPages => self.dark_pages(),
@@ -570,6 +581,13 @@ impl App {
                     Tool::None
                 } else {
                     Tool::AddText
+                }
+            }
+            Redact => {
+                self.tool = if self.tool == Tool::Redact {
+                    Tool::None
+                } else {
+                    Tool::Redact
                 }
             }
             AddCheckbox => {

@@ -57,6 +57,8 @@ pub(super) enum DialogResult {
     InsertFile(Option<PathBuf>, usize),
     /// Where extracted pages go, for the document `generation`.
     Extract(Option<PathBuf>, Vec<usize>, u64),
+    /// Where the redacted copy goes, for the document `generation`.
+    RedactedSave(Option<PathBuf>, u64),
 }
 
 /// What to do once a save has succeeded.
@@ -254,6 +256,7 @@ impl App {
             text: HashMap::new(),
             text_links: HashMap::new(),
             thumbs: HashMap::new(),
+            redactions: vec![],
         };
         for f in &form.fields {
             doc.add(f.clone());
@@ -346,6 +349,7 @@ impl App {
             builtin::Purpose::PickImage => DialogResult::PickImage(picked),
             builtin::Purpose::InsertFile(at) => DialogResult::InsertFile(picked, at),
             builtin::Purpose::Extract(pages, g) => DialogResult::Extract(picked, pages, g),
+            builtin::Purpose::RedactedSave(g) => DialogResult::RedactedSave(picked, g),
         };
         self.handle_dialog(res);
     }
@@ -460,6 +464,7 @@ impl App {
             DialogResult::Printed(Ok(false)) => self.status = "Printing cancelled.".into(),
             DialogResult::Printed(Err(e)) => self.status = format!("Could not print: {e}"),
             DialogResult::SignedSave(p, generation) => self.digital_save(p, generation),
+            DialogResult::RedactedSave(p, generation) => self.redacted_save(p, generation),
             DialogResult::PickCert(Some(p)) => self.digital_file_picked(p),
             DialogResult::PickImage(Some(p)) => self.signature_image_picked(p),
             DialogResult::InsertFile(Some(p), at) => {
@@ -656,6 +661,8 @@ pub(super) mod builtin {
         InsertFile(usize),
         /// Where these pages of document `generation` are extracted to.
         Extract(Vec<usize>, u64),
+        /// The redacted copy of document `generation`.
+        RedactedSave(u64),
     }
 
     /// A dialog picking a file of another kind (certificates, pictures).

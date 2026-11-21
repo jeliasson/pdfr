@@ -9,6 +9,7 @@ use super::*;
 pub(super) struct Snap {
     pub entries: Vec<Entry>,
     pub form: Arc<FormDoc>,
+    pub redactions: Vec<super::redact::RedactMark>,
 }
 
 impl App {
@@ -17,6 +18,7 @@ impl App {
             self.undo.push(Snap {
                 entries: doc.entries.clone(),
                 form: doc.form.clone(),
+                redactions: doc.redactions.clone(),
             });
             if self.undo.len() > 200 {
                 self.undo.remove(0);
@@ -36,6 +38,7 @@ impl App {
             to.push(Snap {
                 entries: std::mem::replace(&mut doc.entries, prev.entries),
                 form: doc.form.clone(),
+                redactions: std::mem::replace(&mut doc.redactions, prev.redactions),
             });
             if !Arc::ptr_eq(&prev.form, &doc.form) {
                 // Pages were turned, moved, added or deleted in this step:

@@ -39,6 +39,7 @@ pub enum Icon {
     Highlight,
     /// Pages: two sheets, one behind the other.
     Pages,
+    Redact,
 }
 
 /// Maps the 24×24 design grid into a rectangle.
@@ -235,6 +236,17 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             pts.push(pts[0]);
             painter.extend(Shape::dashed_line(&pts, st, 2.6 * g.s, 2.4 * g.s));
             line(&[(7.5, 12.0), (13.5, 12.0)]);
+        }
+        Icon::Redact => {
+            // A page of text with one line blacked out.
+            rrect(5.0, 3.0, 14.0, 18.0, 2.5);
+            line(&[(8.5, 7.5), (15.5, 7.5)]);
+            painter.rect_filled(
+                Rect::from_min_max(g.p(8.0, 10.5), g.p(16.0, 13.5)),
+                0.5 * g.s,
+                color,
+            );
+            line(&[(8.5, 16.5), (13.0, 16.5)]);
         }
         Icon::Moon => {
             // A crescent: an outer arc and an inner one.
