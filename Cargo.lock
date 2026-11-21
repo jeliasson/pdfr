@@ -3630,6 +3630,7 @@ dependencies = [
  "signature 2.2.0",
  "spki 0.7.3",
  "x509-cert",
+ "x509-ocsp",
  "x509-tsp",
  "zeroize",
 ]
@@ -6251,6 +6252,21 @@ dependencies = [
  "signature 2.2.0",
  "spki 0.7.3",
  "tls_codec",
+]
+
+[[package]]
+name = "x509-ocsp"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e54e695a31f0fecb826cf59ae2093c941d7ef932a1f8508185dd23b29ce2e2e"
+dependencies = [
+ "const-oid 0.9.6",
+ "der 0.7.10",
+ "digest 0.10.7",
+ "rand_core 0.6.4",
+ "signature 2.2.0",
+ "spki 0.7.3",
+ "x509-cert",
 ]
 
 [[package]]
