@@ -12,10 +12,13 @@
 //! - [`server`]: the window's side: a listener thread that hands each
 //!   request to the UI thread.
 //! - [`shot`]: screenshot scaling and encoding.
+//! - [`install`]: adds pdfr, and a guide on using it, to the agents found on
+//!   this computer (Settings → AI agents → Install).
 //!
 //! What a request does to the window is in `app/agent.rs`.
 
 pub mod bridge;
+pub mod install;
 pub mod mcp;
 pub mod server;
 pub mod shot;

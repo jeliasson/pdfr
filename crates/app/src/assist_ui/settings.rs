@@ -3,6 +3,7 @@
 
 use super::AssistState;
 use super::widgets::*;
+use crate::agent::install::{Client, Launch};
 use crate::icons::{self, Icon};
 use crate::theme::{Palette, mix};
 use eframe::egui::{
@@ -111,6 +112,18 @@ pub struct SettingsUi {
     confirm_clear: bool,
     /// Which "Copy" button of the AI agents section was just pressed.
     copied: Option<(usize, std::time::Instant)>,
+    installs: Installs,
+}
+
+/// AI agents → Install: the agents on this computer, and an install under
+/// way (off the UI thread: Claude Code is asked through its own command).
+#[derive(Default)]
+struct Installs {
+    /// Each agent found and whether pdfr is in it. `None`: not looked yet.
+    found: Option<Vec<(Client, bool)>>,
+    running: Option<(Client, std::sync::mpsc::Receiver<Result<(), String>>)>,
+    /// The agent whose install failed, and why.
+    error: Option<(Client, String)>,
 }
 
 /// What the user asked for this frame, applied after drawing.
@@ -397,6 +410,31 @@ impl AssistState {
             None => (program.as_str(), vec!["mcp"]),
         };
         let json = serde_json::json!({"mcpServers": {"pdfr": {"command": cmd, "args": args}}});
+        let launch = Launch {
+            cmd: cmd.to_string(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+        };
+        // Agents on this computer get an Install button. Not in a Flatpak:
+        // the sandbox cannot see their settings.
+        let home = crate::agent::install::home().filter(|_| !flatpak);
+        let ins = &mut self.settings_ui.installs;
+        if let Some((client, rx)) = &ins.running
+            && let Ok(result) = rx.try_recv()
+        {
+            ins.error = result.err().map(|e| (*client, e));
+            ins.running = None;
+            ins.found = None;
+        }
+        if let (None, Some(home)) = (&ins.found, &home) {
+            ins.found = Some(
+                Client::ALL
+                    .into_iter()
+                    .filter(|cl| cl.found(home))
+                    .map(|cl| (cl, cl.installed(home)))
+                    .collect(),
+            );
+        }
+        let found = ins.found.clone().unwrap_or_default();
         let rows = [
             (
                 "Claude Code",
@@ -410,6 +448,51 @@ impl AssistState {
             ),
         ];
         card(ui, c, Some("Connect your agent"), |ui| {
+            for (client, installed) in &found {
+                let ins = &mut self.settings_ui.installs;
+                let running = ins.running.as_ref().is_some_and(|r| r.0 == *client);
+                let sub = match (installed, client.skill_path(std::path::Path::new(""))) {
+                    (true, _) => "pdfr is connected. Restart the agent if it does not see it yet.",
+                    (false, Some(_)) => "Adds pdfr and a short guide on using it.",
+                    (false, None) => "Adds pdfr to its MCP settings.",
+                };
+                setting_row(ui, c, client.name(), sub, |ui| {
+                    if *installed {
+                        ui.add_enabled_ui(false, |ui| secondary_button(ui, c, "Installed"));
+                    } else if running {
+                        ui.add_enabled_ui(false, |ui| {
+                            secondary_button(ui, c, "Installing\u{2026}")
+                        });
+                    } else if ui
+                        .add_enabled_ui(ins.running.is_none(), |ui| {
+                            primary_button(ui, c, "Install")
+                        })
+                        .inner
+                        .clicked()
+                        && let Some(home) = home.clone()
+                    {
+                        let (tx, rx) = std::sync::mpsc::channel();
+                        let (client, launch, ctx) = (*client, launch.clone(), ui.ctx().clone());
+                        std::thread::spawn(move || {
+                            let _ = tx.send(client.install(&home, &launch));
+                            ctx.request_repaint();
+                        });
+                        ins.running = Some((client, rx));
+                        ins.error = None;
+                    }
+                });
+                if let Some((_, why)) = ins.error.as_ref().filter(|e| e.0 == *client) {
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(why)
+                                .size(12.0)
+                                .color(ui.visuals().error_fg_color),
+                        )
+                        .wrap(),
+                    );
+                }
+                row_divider(ui, c);
+            }
             for (i, (title, sub, text)) in rows.iter().enumerate() {
                 if i > 0 {
                     row_divider(ui, c);
