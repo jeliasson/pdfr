@@ -779,19 +779,55 @@ fn signatures(h: &Harness<'_, App>) -> Vec<Entry> {
         .collect()
 }
 
+/// A wrong-looking answer is pointed out before saving; "Fix first" keeps
+/// the file unsaved and the link goes to the box.
+#[test]
+fn check_before_saving() {
+    use egui_kittest::kittest::Queryable;
+    let mut h = harness("flat_form.pdf", data_dir("check", None));
+    let id = h
+        .state()
+        .doc
+        .as_ref()
+        .unwrap()
+        .entries
+        .iter()
+        .find(|e| e.f.label.as_deref().is_some_and(|l| l.contains("Email")))
+        .expect("the email box has its label")
+        .id;
+    h.state_mut().set_value(id, "anna.example.com");
+    h.run_steps(2);
+    ctrl(&mut h, Key::S);
+    h.run_steps(2);
+    assert!(h.state().check.is_some(), "saving stops at the check");
+    h.get_by_label("Fix first").click();
+    h.run_steps(2);
+    assert!(h.state().check.is_none());
+    assert!(h.state().doc.as_ref().unwrap().dirty, "not saved");
+    ctrl_shift(&mut h, Key::E);
+    h.run_steps(2);
+    h.get_by_label("This doesn't look like an email address.");
+    // The first link is the problem's; empty boxes follow.
+    h.get_all_by_label("Page 1").next().unwrap().click();
+    h.run_steps(2);
+    assert!(h.state().check.is_none());
+    assert_eq!(focused_id(&h), Some(id));
+}
+
 /// Signing with a certificate is a tab of the signing dialog, and back.
 #[test]
 fn certificate_is_a_tab_of_the_signing_dialog() {
     use egui_kittest::kittest::Queryable;
     let mut h = harness("flat_form.pdf", data_dir("sign-tabs", None));
+    // Each switch re-centres the window; let it settle before clicking.
     ctrl(&mut h, Key::I);
-    h.run_steps(2);
+    h.run_steps(5);
     h.get_by_label("Certificate").click();
-    h.run_steps(2);
+    h.run_steps(5);
     assert!(h.state().sign.is_none());
     assert!(h.state().digital.dialog.is_some(), "the certificate tab");
     h.get_by_label("Type").click();
-    h.run_steps(2);
+    h.run_steps(5);
     assert!(h.state().digital.dialog.is_none());
     assert!(h.state().sign.is_some(), "back to the signing dialog");
     h.get_by_label("Place on the page");

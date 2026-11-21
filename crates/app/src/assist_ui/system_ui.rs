@@ -317,6 +317,21 @@ impl AssistState {
                 },
             );
         });
+        card(ui, c, Some("Saving"), |ui| {
+            let mut on = self.a.store.settings.check_before_save;
+            setting_row(
+                ui,
+                c,
+                "Check before saving",
+                "When an answer looks wrong (an email without @, an IBAN with a wrong digit), say so before saving. Ctrl+Shift+E checks any time.",
+                |ui| {
+                    if toggle(ui, c, &mut on).changed() {
+                        self.a.store.settings.check_before_save = on;
+                        changed = true;
+                    }
+                },
+            );
+        });
         card(ui, c, Some("Recent files"), |ui| {
             let st = &mut self.a.store.settings;
             let mut on = st.remember_recent;

@@ -42,6 +42,7 @@ pub enum Command {
     Initials,
     SignDigitally,
     TodaysDate,
+    CheckForm,
     Settings,
     Register,
     ScrollDown,
@@ -121,6 +122,7 @@ const SIGN: &[KeyboardShortcut] = &[ctrl(Key::I)];
 const INITIALS: &[KeyboardShortcut] = &[ctrl_shift(Key::I)];
 const SIGN_DIGITALLY: &[KeyboardShortcut] = &[ctrl_shift(Key::C)];
 const TODAY: &[KeyboardShortcut] = &[ctrl_shift(Key::D)];
+const CHECK_FORM: &[KeyboardShortcut] = &[ctrl_shift(Key::E)];
 const REMOVE_FIELD: &[KeyboardShortcut] = &[ctrl_shift(Key::Delete)];
 const PALETTE: &[KeyboardShortcut] = &[ctrl_shift(Key::P), ctrl(Key::Space)];
 const CHEATSHEET: &[KeyboardShortcut] = &[KeyboardShortcut::new(Modifiers::NONE, Key::F1)];
@@ -155,6 +157,7 @@ impl Command {
         Command::Initials,
         Command::SignDigitally,
         Command::TodaysDate,
+        Command::CheckForm,
         Command::Settings,
         Command::Register,
         Command::ScrollDown,
@@ -302,6 +305,12 @@ impl Command {
                 Icon::Key,
                 SIGN_DIGITALLY,
             ),
+            CheckForm => (
+                "Check the form",
+                "Answers that look wrong, boxes still empty, and what the form asks",
+                Icon::List,
+                CHECK_FORM,
+            ),
             Initials => (
                 "Initials",
                 "Draw or type your initials, then click where they go",
@@ -445,6 +454,7 @@ impl App {
             Settings => true,
             Register => !self.license.registered(),
             Save | SaveAs => editable && !self.dialog_open(),
+            CheckForm => doc.is_some() && self.check.is_none(),
             Print => doc.is_some() && super::print::AVAILABLE && !self.dialog_open(),
             AddTextField | AddCheckbox | Sign | Initials | TodaysDate => editable,
             SignDigitally => editable && !self.digital.busy() && !self.dialog_open(),
@@ -507,8 +517,9 @@ impl App {
             Open => self.pick_and_open(false),
             OpenNewWindow => self.pick_and_open(true),
             Recent => self.open_palette(super::palette::Scope::Recent),
-            Save => self.save(false),
-            SaveAs => self.save(true),
+            Save => self.save_checked(false),
+            SaveAs => self.save_checked(true),
+            CheckForm => self.open_check(None),
             Print => self.print(),
             Undo => self.undo(false),
             Redo => self.undo(true),

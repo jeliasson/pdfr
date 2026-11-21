@@ -121,6 +121,27 @@ impl AssistState {
         }
     }
 
+    /// Answers that look wrong and empty boxes: (entry index, kind, message).
+    pub fn check_doc(
+        &mut self,
+        doc: &mut Doc,
+    ) -> Vec<(usize, pdfr_assist::check::Severity, String)> {
+        self.ensure(doc, false);
+        pdfr_assist::check::check(&self.an, &doc.fields())
+            .into_iter()
+            .map(|f| (f.field, f.severity, f.message))
+            .collect()
+    }
+
+    /// A request to explain the form, when AI may be used.
+    pub fn explain_job(
+        &mut self,
+        doc: &mut Doc,
+    ) -> Option<(std::sync::Arc<dyn pdfr_assist::ai::Backend>, String)> {
+        self.ensure(doc, false);
+        self.a.explain_job(&self.an, &doc.fields())
+    }
+
     /// Position of entry `id` in the analysis, only while the analysis
     /// matches the document's fields exactly (same ids, same order).
     fn index(&self, doc: &Doc, id: u64) -> Option<usize> {

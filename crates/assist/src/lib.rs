@@ -5,6 +5,7 @@
 //! cache, then AI for what is left), and value memory (no AI).
 
 pub mod ai;
+pub mod check;
 pub mod dates;
 pub mod labels;
 pub mod meaning;
@@ -571,6 +572,19 @@ impl Assistant {
             out.push(ai::prepare_label(l));
         }
         out
+    }
+
+    /// A request to explain the form (headings and labels only), with the
+    /// backend to send it to, when AI may be used.
+    pub fn explain_job(
+        &self,
+        an: &Analysis,
+        fields: &[Field],
+    ) -> Option<(Arc<dyn Backend>, String)> {
+        if !self.ai_allowed() {
+            return None;
+        }
+        Some((self.backend.clone()?, check::explain_prompt(an, fields)?))
     }
 
     pub fn make_job(&self, labels: Vec<String>) -> Option<AiJob> {

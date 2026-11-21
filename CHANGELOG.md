@@ -5,6 +5,18 @@ version's section into its GitHub release notes.
 
 ## [Unreleased]
 
+### Added
+
+- **Check the form** (Ctrl+Shift+E): lists answers that look wrong (an
+  email without @, an IBAN or Spanish DNI/NIE or Swedish personnummer whose
+  check digit doesn't match, a birth date in the future, a phone number with
+  letters) and the boxes still empty, each with a link to the box. Saving
+  asks first when an answer looks wrong (Settings → General → Check before
+  saving). All checks run on your computer.
+- **Explain this form.** With AI on, the check can explain in plain words
+  what the form is for and what each part asks. Only headings and box
+  labels are sent, never your answers.
+
 ### Changed
 
 - **Signing with a certificate is a tab of the signing dialog.** Draw,

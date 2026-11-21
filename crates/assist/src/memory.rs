@@ -55,6 +55,9 @@ pub struct Settings {
     /// Pages are shown dark (screen only).
     #[serde(default)]
     pub dark_pages: bool,
+    /// Before saving, answers that look wrong are pointed out.
+    #[serde(default = "yes")]
+    pub check_before_save: bool,
     /// Fillable boxes are tinted on screen (off: the page as other PDF
     /// apps show it).
     #[serde(default = "yes")]
@@ -135,6 +138,7 @@ impl Default for Settings {
             sidebar: false,
             dark_pages: false,
             show_fields: true,
+            check_before_save: true,
             remember_recent: true,
             recent: vec![],
             sign_timestamp: true,

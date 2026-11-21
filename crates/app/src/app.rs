@@ -190,6 +190,8 @@ pub struct App {
     hints: Option<hints::Hints>,
     /// The signing dialog, while open.
     sign: Option<signature::SignDialog>,
+    /// Check the form, while open.
+    check: Option<check::CheckDialog>,
     /// The signature being placed (with `Tool::PlaceSignature`).
     placing: Option<Arc<pdfr_core::signature::Ink>>,
     placing_initials: bool,
@@ -310,6 +312,7 @@ impl App {
             overlay: None,
             hints: None,
             sign: None,
+            check: None,
             placing: None,
             placing_initials: false,
             sig_drag: None,
@@ -658,6 +661,7 @@ impl eframe::App for App {
         self.overlay_ui(&ctx);
         self.sign_window(&ctx);
         self.digital_window(&ctx);
+        self.check_window(&ctx);
         self.password_window(&ctx);
         // The reminder waits while anything else asks for attention.
         let busy = self.confirm.is_some()
@@ -666,6 +670,7 @@ impl eframe::App for App {
             || self.overlay.is_some()
             || self.sign.is_some()
             || self.digital.dialog.is_some()
+            || self.check.is_some()
             || self.password.is_some()
             || self.dialog_open();
         self.license.tick(&ctx, busy);
@@ -768,6 +773,7 @@ impl eframe::App for App {
 }
 
 mod automation;
+mod check;
 pub(crate) mod canvas;
 use files::ParentWindow;
 mod commands;

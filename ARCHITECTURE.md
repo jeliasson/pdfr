@@ -60,8 +60,11 @@ How pdfr is put together, and where new features go.
 
 - Sent to the AI: field labels (`labels::plausible_label`) and section headings
   (`profiles::heading_like`, minus any heading containing a stored value), with
-  row numbers. Built only in `ai::build_prompt` and
-  `profiles::build_people_prompt`.
+  row numbers. Built only in `ai::build_prompt`,
+  `profiles::build_people_prompt` and `check::explain_prompt` ("Explain
+  this form": headings and labels, minus anything containing one of the
+  form's answers).
+- The checks before saving (`check::check`) are local: nothing is sent.
 - Never stored: password fields, secret labels (`is_secret_label`), card
   numbers including across rows of boxes (`never_store`), fields marked
   "don't remember", values deselected in the save dialog.
