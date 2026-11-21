@@ -231,7 +231,8 @@ fn list(m: &Arc<Module>, source: impl Fn(&str) -> Source) -> Vec<CertChoice> {
 
 /// The first thing that stops a card from showing up, in words; for when
 /// no card or token certificate was found. The ID card guide on pdfr.app
-/// walks through the same steps.
+/// walks through the same steps. (macOS lists cards through the Keychain.)
+#[cfg(not(target_os = "macos"))]
 pub(crate) fn diagnose() -> Option<String> {
     const DRIVER: &str =
         "install OpenSC or your country's ID card software, then open this window again";
