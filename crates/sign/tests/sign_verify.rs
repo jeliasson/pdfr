@@ -97,6 +97,7 @@ fn store(ca: &Cert) -> TrustStore {
 
 fn request(spot: Option<(usize, Rect)>) -> SignRequest {
     SignRequest {
+        name_beside: None,
         spot,
         ink: Some(std::sync::Arc::new(pdfr_core::signature::Ink::typed(
             "Åsa Öberg",

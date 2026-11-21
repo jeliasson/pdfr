@@ -234,6 +234,9 @@ pub struct SignRequest {
     pub ink: Option<Arc<Ink>>,
     /// Signer's name, for the appearance and `/Name`.
     pub signer: String,
+    /// Without ink: this name in plain type beside the details, as Adobe
+    /// Acrobat shows a certificate signature.
+    pub name_beside: Option<String>,
     pub reason: Option<String>,
     pub location: Option<String>,
     /// Signing time, Unix seconds (UTC).
@@ -641,6 +644,21 @@ fn appearance(d: &mut Document, req: &SignRequest, r: Rect, geom: &PageGeom) -> 
             content.push_str(&crate::signature::appearance(ink, iw, h));
             if iw >= w { None } else { Some(iw + h * 0.08) }
         }
+        _ if req.name_beside.is_some() && w / h > 2.2 => {
+            let name = req.name_beside.as_deref().unwrap_or_default();
+            name_block(&mut content, name, w * 0.46, h);
+            // A thin rule between the name and the details.
+            let x = w * 0.5;
+            let _ = writeln!(
+                content,
+                "q 0.6 0.6 0.6 RG 0.5 w {} {} m {} {} l S Q",
+                num(x),
+                num(h * 0.12),
+                num(x),
+                num(h * 0.88)
+            );
+            Some(x + h * 0.1)
+        }
         _ => Some(h * 0.08),
     };
     if let Some(x0) = text_x {
@@ -690,11 +708,56 @@ fn appearance(d: &mut Document, req: &SignRequest, r: Rect, geom: &PageGeom) -> 
     d.add_object(Stream::new(dict, content.into_bytes()))
 }
 
+/// The signer's name in plain type, as large as fits `w`×`h` at the
+/// left; on two lines when that makes it larger.
+fn name_block(content: &mut String, name: &str, w: f32, h: f32) {
+    let f = crate::font::font();
+    let pad = h * 0.08;
+    let (aw, ah) = ((w - pad).max(1.0), h - 2.0 * pad);
+    let fit = |lines: &[String]| {
+        let widest = lines
+            .iter()
+            .map(|l| f.text_width(l, 1.0))
+            .fold(0.0f32, f32::max)
+            .max(1e-3);
+        (ah / (lines.len() as f32 * 1.15))
+            .min(aw / widest)
+            .min(h * 0.3)
+    };
+    let one = vec![name.to_string()];
+    let words: Vec<&str> = name.split_whitespace().collect();
+    let mut lines = one.clone();
+    if words.len() > 1 {
+        // The split with the shortest longer line.
+        let two = (1..words.len())
+            .map(|k| vec![words[..k].join(" "), words[k..].join(" ")])
+            .max_by(|a, b| fit(a).total_cmp(&fit(b)))
+            .unwrap();
+        if fit(&two) > fit(&one) * 1.25 {
+            lines = two;
+        }
+    }
+    let size = fit(&lines).max(2.0);
+    let lead = size * 1.15;
+    let top = (h + lead * lines.len() as f32) / 2.0;
+    let _ = writeln!(content, "BT 0.1 0.1 0.1 rg /{FONT_RES} {} Tf", num(size));
+    for (i, l) in lines.iter().enumerate() {
+        let y = top - lead * (i as f32 + 1.0) + (lead - size) / 2.0 + size * 0.2;
+        let hex: String = l
+            .chars()
+            .map(|c| format!("{:04X}", f.glyph_id(c)))
+            .collect();
+        let _ = writeln!(content, "1 0 0 1 {} {} Tm <{hex}> Tj", num(pad), num(y));
+    }
+    content.push_str("ET\n");
+}
+
 /// Width over height of a good box for `req`'s appearance: the
 /// handwriting's shape plus room for the details beside it.
 pub fn appearance_aspect(req: &SignRequest) -> f32 {
     match &req.ink {
         Some(ink) if !ink.is_empty() => (ink.aspect / 0.48).clamp(2.6, 7.0),
+        _ if req.name_beside.is_some() => 4.0,
         _ => 3.4,
     }
 }

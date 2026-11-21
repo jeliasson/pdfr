@@ -85,8 +85,9 @@ fn read_body(resp: ureq::http::Response<ureq::Body>, limit: u64) -> Result<Vec<u
 enum Look {
     /// A saved signature (by index into the saved list) and the details.
     Saved(usize),
-    /// The certificate's name in handwriting, and the details.
-    Typed,
+    /// The certificate's name in plain type beside the details, as Adobe
+    /// Acrobat shows it.
+    Formal,
     /// Only who signed and when.
     Details,
     /// Nothing on the page.
@@ -171,7 +172,6 @@ impl App {
             .map(|p| CertItem::File(PathBuf::from(p)))
             .filter(|i| matches!(i, CertItem::File(p) if p.is_file()))
             .collect();
-        let saved = self.saved_signature_inks();
         self.tool = Tool::None;
         self.placing = None;
         self.digital.pending = None;
@@ -180,11 +180,7 @@ impl App {
             no_card: None,
             items,
             selected: None,
-            look: if saved.is_empty() {
-                Look::Typed
-            } else {
-                Look::Saved(0)
-            },
+            look: Look::Formal,
             reason: st.sign_reason.clone(),
             location: st.sign_location.clone(),
             pin: Zeroizing::new(String::new()),
@@ -383,9 +379,9 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Looks like").color(c.weak));
                     let name = |l: Look| match l {
-                        Look::Saved(0) => "My signature, with the details".to_string(),
-                        Look::Saved(i) => format!("Saved signature {}, with the details", i + 1),
-                        Look::Typed => "My name in handwriting, with the details".into(),
+                        Look::Formal => "My name and the details".to_string(),
+                        Look::Saved(0) => "My drawn signature, with the details".to_string(),
+                        Look::Saved(i) => format!("Drawn signature {}, with the details", i + 1),
                         Look::Details => "Only the details (who and when)".into(),
                         Look::Invisible => "Invisible (nothing on the page)".into(),
                     };
@@ -393,8 +389,9 @@ impl App {
                         .selected_text(name(dlg.look))
                         .width(320.0)
                         .show_ui(ui, |ui| {
-                            let mut looks: Vec<Look> = (0..saved.len()).map(Look::Saved).collect();
-                            looks.extend([Look::Typed, Look::Details, Look::Invisible]);
+                            let mut looks = vec![Look::Formal, Look::Details];
+                            looks.extend((0..saved.len()).map(Look::Saved));
+                            looks.push(Look::Invisible);
                             for l in looks {
                                 if ui.selectable_label(dlg.look == l, name(l)).clicked() {
                                     dlg.look = l;
@@ -539,13 +536,13 @@ impl App {
         let name = signer.cert().name();
         let ink = match dlg.look {
             Look::Saved(i) => saved.get(i).cloned(),
-            Look::Typed => Some(Arc::new(Ink::typed(&display_name(&name)))),
-            Look::Details | Look::Invisible => None,
+            Look::Formal | Look::Details | Look::Invisible => None,
         };
         let invisible = dlg.look == Look::Invisible;
         let req = SignRequest {
             spot: None,
             ink,
+            name_beside: (dlg.look == Look::Formal).then(|| display_name(&name)),
             signer: name,
             reason: Some(dlg.reason.trim().to_string()).filter(|s| !s.is_empty()),
             location: Some(dlg.location.trim().to_string()).filter(|s| !s.is_empty()),
@@ -1080,7 +1077,7 @@ fn preview_ink(req: &SignRequest) -> Ink {
 }
 
 /// "KJELLBERG RASMUS HARALD - Y7445098N" -> "Kjellberg Rasmus Harald": the
-/// name part of a certificate name, in normal case, for handwriting.
+/// name part of a certificate name, in normal case, for the appearance.
 fn display_name(cn: &str) -> String {
     let name = cn.split(" - ").next().unwrap_or(cn).trim();
     if name.chars().any(|c| c.is_lowercase()) {

@@ -29,6 +29,7 @@ fn main() {
     let signer = choice.signer(None).expect("signer");
     let fd = FormDoc::open(std::fs::read(&args[0]).unwrap()).unwrap();
     let req = SignRequest {
+        name_beside: None,
         spot: Some((0, Rect::new(320.0, 700.0, 560.0, 760.0))),
         ink: Some(std::sync::Arc::new(pdfr_core::signature::Ink::typed(
             &choice.cert.name(),

@@ -338,6 +338,7 @@ fn signed(p: &Pki, signed_at: u64, stamped_at: Option<u64>) -> Vec<u8> {
     };
     let fd = FormDoc::open(sample("real_form.pdf")).unwrap();
     let req = SignRequest {
+        name_beside: None,
         spot: None,
         ink: None,
         signer: "Anna Ek".into(),
