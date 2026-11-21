@@ -16,6 +16,13 @@ version's section into its GitHub release notes.
 - **Explain this form.** With AI on, the check can explain in plain words
   what the form is for and what each part asks. Only headings and box
   labels are sent, never your answers.
+- **Scanned forms can be searched and get suggestions.** pdfr reads the
+  text of scanned pages on your computer, so search, copy and suggestions
+  work on scans as on digital forms, and boxes that are really printed
+  text are no longer offered for filling. The first scan needs a one-time
+  13 MB download of the text reader; after that it works offline, and
+  nothing about your files is sent. Turn it off in Settings → General →
+  Read scanned text.
 - **Comments and markup.** Add notes (Ctrl+Shift+A), highlight selected
   text (Ctrl+Shift+H), underline or strike it through, type a text box
   anywhere (Ctrl+Shift+T), and draw rectangles, ellipses and arrows in six

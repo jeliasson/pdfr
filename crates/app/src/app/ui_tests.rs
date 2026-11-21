@@ -473,7 +473,13 @@ fn settings_general_section() {
     let mut h = harness("flat_form.pdf", data_dir("general", None));
     h.state_mut().assist.open_settings("general");
     h.run_steps(3);
-    for label in ["General", "Default PDF app", "Terminal command", "Updates"] {
+    for label in [
+        "General",
+        "Default PDF app",
+        "Terminal command",
+        "Updates",
+        "Read scanned text",
+    ] {
         h.get_by_label(label);
     }
     // The other sections sit under the Autocomplete heading.
@@ -873,6 +879,44 @@ fn sign_place_move_remove_and_undo() {
     assert!(signatures(&h).is_empty());
     ctrl(&mut h, Key::Z);
     assert_eq!(signatures(&h).len(), 1);
+}
+
+/// Without the text reader's models a scan is noted as unread, and tests
+/// never download them.
+#[test]
+fn scanned_page_waits_for_the_text_reader() {
+    let h = harness("scanned_form.pdf", data_dir("scan-unread", None));
+    let s = h.state();
+    let doc = s.doc.as_ref().unwrap();
+    assert!(doc.unread_scans.contains(&0));
+    assert!(s.ocr_status().is_none(), "nothing is downloaded in tests");
+    // Digital pages are not scans.
+    let h = harness("flat_form.pdf", data_dir("scan-digital", None));
+    assert!(h.state().doc.as_ref().unwrap().unread_scans.is_empty());
+}
+
+/// With the models (copied from `PDFR_OCR_MODELS`; skipped without), a
+/// scan's text is read: search finds it, and its boxes get labels.
+#[test]
+fn scanned_text_is_read_and_searchable() {
+    let Some(src) = std::env::var_os("PDFR_OCR_MODELS").map(PathBuf::from) else {
+        return;
+    };
+    if !pdfr_ocr::models_present(&src) {
+        return;
+    }
+    let dir = data_dir("scan-read", None);
+    let models = pdfr_ocr::model_dir(&dir);
+    std::fs::create_dir_all(&models).unwrap();
+    for m in &pdfr_ocr::MODELS {
+        std::fs::copy(src.join(m.name), models.join(m.name)).unwrap();
+    }
+    let mut h = harness("scanned_form.pdf", dir);
+    assert!(h.state().doc.as_ref().unwrap().unread_scans.is_empty());
+    ctrl(&mut h, Key::F);
+    type_text(&mut h, "Occupation");
+    h.run_steps(3);
+    assert!(!h.state().search.as_ref().unwrap().hits.is_empty());
 }
 
 #[test]

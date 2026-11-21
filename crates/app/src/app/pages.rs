@@ -129,6 +129,12 @@ impl App {
             }
             None => false,
         });
+        // Scans not read yet keep waiting at their new place.
+        doc.unread_scans = doc
+            .unread_scans
+            .iter()
+            .filter_map(|&p| new_page(p))
+            .collect();
         // The comments of inserted pages.
         for m in form
             .markups

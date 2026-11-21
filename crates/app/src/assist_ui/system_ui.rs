@@ -316,6 +316,26 @@ impl AssistState {
                     }
                 },
             );
+            row_divider(ui, c);
+            let mut on = self.a.store.settings.read_scans;
+            let ready = self
+                .ocr_dir
+                .as_deref()
+                .is_some_and(pdfr_ocr::models_present);
+            let sub = if ready {
+                "Search, copy and suggestions on scanned pages. Read on this computer; nothing is sent.".to_string()
+            } else {
+                format!(
+                    "Search, copy and suggestions on scanned pages. Read on this computer; the first scan needs a one-time {} MB download.",
+                    pdfr_ocr::download_size().div_ceil(1_000_000)
+                )
+            };
+            setting_row(ui, c, "Read scanned text", &sub, |ui| {
+                if toggle(ui, c, &mut on).changed() {
+                    self.a.store.settings.read_scans = on;
+                    changed = true;
+                }
+            });
         });
         card(ui, c, Some("Saving"), |ui| {
             let mut on = self.a.store.settings.check_before_save;

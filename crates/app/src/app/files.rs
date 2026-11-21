@@ -258,6 +258,8 @@ impl App {
             text_links: HashMap::new(),
             thumbs: HashMap::new(),
             redactions: vec![],
+            unread_scans: Default::default(),
+            reading: false,
         };
         for f in &form.fields {
             doc.add(f.clone());
