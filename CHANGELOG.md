@@ -21,6 +21,20 @@ version's section into its GitHub release notes.
   - It runs on your computer: pdfr listens only on a socket that only you
     can reach, and nothing is sent anywhere by pdfr.
 
+### Changed
+
+- **The text reader downloads from pdfr's own release** on GitHub instead
+  of a third-party server (the same files, checked the same way).
+- **The Sign dialog stays put** near the top of the window when you switch
+  tabs, instead of jumping as its size changes.
+
+### Fixed
+
+- **Editing printed text on a shaded page** covers the old text in the
+  page's own colour, not white.
+- **Scanned forms: letters are no checkboxes.** A letter whose curve closes
+  into a box (the C of "CORRECT") is no longer offered as a checkbox.
+
 ## [0.5.0] - 2026-11-21
 
 More than forms: pdfr reads scanned text on your computer, checks your

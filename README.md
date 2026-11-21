@@ -138,6 +138,30 @@ and saves, in a window on your screen.
   is yours to set in **Settings → AI agents**, where the line for other
   agents is ready to copy.
 
+### Sign it, check it, pass it on
+
+- **Sign without a printer.** Draw or type your signature, or use a photo of
+  it (**Ctrl+I**). Or sign digitally with your ID card, a USB token, a
+  certificate in your browser or the macOS Keychain, or a .p12 file: the
+  Certificate tab of the same dialog (**Ctrl+Shift+C**). Signatures carry a
+  trusted timestamp and the proof needed to check them for years (PAdES B-LTA).
+- **Checks signatures** on the PDFs you receive: who signed, when, whether the
+  document changed since, and whether the certificate was revoked.
+- **Check before you send** (**Ctrl+Shift+E**): answers that look wrong (an
+  e-mail without @, an IBAN or ID number with a wrong digit) and boxes still
+  empty. Saving asks first.
+
+### More than forms
+
+- **Reads scanned pages** on your computer, so scans can be searched and
+  copied, and their boxes get labels and suggestions.
+- **Comments and markup:** notes, highlights, underline and strike-through,
+  text boxes and shapes, saved as standard PDF comments.
+- **Organise pages:** drag thumbnails to move pages; delete, extract, turn,
+  insert blank pages, merge another PDF or add a photo as a page.
+- **Redact for real:** text, pictures and fields under the black boxes are
+  removed from the file, not just covered.
+
 ---
 
 ## How it compares
@@ -155,6 +179,7 @@ The big PDF editors do a lot more. Here's an honest side-by-side.
 | Scanned paper forms | ✅ | ➖ | ➖ | ➖ |
 | One letter per square, automatically | ✅ | ➖ | ➖ | ➖ |
 | Sign with a drawn or typed signature | ✅ | ✅ | ✅ | ✅ |
+| Digital signatures (ID card, token, certificate) | ✅ | ✅ | ✅ | ✅ |
 | Remembers each person separately | ✅ | ❌ | ❌ | ❌ |
 | Linux | ✅ | ❌ | ❌ | ❌ |
 | macOS | ✅ | ✅ | ✅ | ❌ |
@@ -165,11 +190,11 @@ The big PDF editors do a lot more. Here's an honest side-by-side.
 
 |  | pdfr | Acrobat | Foxit | PDF-XChange |
 |---|:---:|:---:|:---:|:---:|
-| Edit text and images | 🔜 | ✅ | ✅ | ✅ |
-| Read text in scans (OCR) | 🔜 | ✅ | ✅ | ✅ |
-| Comments and highlights | 🔜 | ✅ | ✅ | ✅ |
-| Digital signatures | 🔜 | ✅ | ✅ | ✅ |
-| Merge and reorder pages | 🔜 | ✅ | ✅ | ✅ |
+| Read text in scans (OCR) | ✅ | ✅ | ✅ | ✅ |
+| Comments and highlights | ✅ | ✅ | ✅ | ✅ |
+| Merge and reorder pages | ✅ | ✅ | ✅ | ✅ |
+| Redaction | ✅ | ✅ | ✅ | ✅ |
+| Edit the PDF's own text and images | 🔜 | ✅ | ✅ | ✅ |
 
 ✅ Yes &nbsp;·&nbsp; ➖ Possible, but you set it up yourself (often a paid
 extra) &nbsp;·&nbsp; ❌ No &nbsp;·&nbsp; 🔜 Not yet
@@ -231,7 +256,11 @@ You can also turn it on later in **Settings → General**.
 - **Missed a box?** Use the toolbar to add a text box (drag) or a checkbox
   (click) yourself. Right-click a box pdfr added by mistake to remove it.
 - **Copy text from the PDF:** drag over it (or double-click a word), then
-  press **Ctrl+C**.
+  press **Ctrl+C**. Select text to highlight or comment on it too.
+- **Already filled in by another app?** Right-click the printed answer and
+  choose **Edit this text** to type over it.
+- **Pages:** right-click a thumbnail in the sidebar (**Ctrl+B**) to delete,
+  extract or insert pages, or drag it to move the page.
 - **Undo anything** with **Ctrl+Z**.
 
 ### Keyboard shortcuts
@@ -253,6 +282,7 @@ into a box is ever taken as a command.
 | Find a box by its label | Ctrl+Shift+F |
 | Tick a checkbox | Space or click |
 | Sign (draw or type, then click where it goes) | Ctrl+I |
+| Sign with a certificate (ID card, token, file) | Ctrl+Shift+C |
 | Initials / today's date | Ctrl+Shift+I / Ctrl+Shift+D |
 | Open and pick in a drop-down | Space or Alt+↓, then ↑ / ↓ or a letter, Enter |
 | Take the suggestion | Tab |
@@ -262,7 +292,11 @@ into a box is ever taken as a command.
 | Scroll / half a page | Ctrl+J / Ctrl+K, Ctrl+D / Ctrl+U |
 | Next / previous page, go to page | Ctrl+Shift+J / Ctrl+Shift+K, Ctrl+G |
 | Go back after following a link | Ctrl+Shift+G |
-| Page sidebar (thumbnails, outline) | Ctrl+B |
+| Check the form (answers that look wrong, empty boxes) | Ctrl+Shift+E |
+| Note / highlight the selection / text box | Ctrl+Shift+A / Ctrl+Shift+H / Ctrl+Shift+T |
+| Insert pages from a file (PDF or picture) | Ctrl+Shift+M |
+| Redact | Ctrl+Shift+X |
+| Page sidebar (thumbnails, outline, comments, signatures) | Ctrl+B |
 | Undo / redo | Ctrl+Z / Ctrl+Shift+Z |
 | Zoom in / out / 100% / fit width / fit page | Ctrl+= / Ctrl+− / Ctrl+0 / Ctrl+2 / Ctrl+3 (or Ctrl+scroll) |
 | Turn this page / every page | Ctrl+R / Ctrl+Shift+R |
@@ -283,16 +317,27 @@ into a box is ever taken as a command.
   [Claude Code](https://claude.com/claude-code) installed, pdfr can ask it what
   an unusual box label means, or which boxes belong to which person on a
   family form. It only ever sends the printed labels and headings, **never what
-  you type**. pdfr asks before using it the first time, and you can switch it
-  off in Settings. Without it, everything else works just the same.
+  you type**. It can also explain a whole form in plain words, from the same
+  labels and headings. pdfr asks before using it the first time, and you can
+  switch it off in Settings. Without it, everything else works just the same.
+- **Scanned text is read on your computer.** The first scan downloads the
+  text-reading models once (13 MB, from pdfr's own GitHub release, checked
+  against fixed checksums); nothing about your files is sent. Turn it off in
+  Settings.
+- **Checking signatures** can ask a certificate's issuer whether it was
+  revoked, when the file doesn't carry that proof itself. Only the
+  certificate's serial number and its issuer's identity go there, never the
+  document. Turn it off in Settings.
 
 ---
 
 ## Not there yet
 
-- Suggestions on scanned forms only work for forms you've filled in before
-  (pdfr doesn't read scanned text yet).
-- Password-protected PDFs, signature fields and some unusual form types.
+- Reading scanned text covers the Latin alphabet (English works best), and
+  small print can be misread.
+- Changing a PDF's own printed text and pictures (comments, text boxes and
+  redaction work).
+- Forms made only for Adobe Reader (XFA) can't be shown; pdfr says so.
 - Alphabets beyond Latin, Greek and Cyrillic (for example Chinese or Arabic).
 - macOS is new: the app isn't notarized yet (see [Install](#install)) and
   hasn't seen many Macs. Reports are very welcome.
