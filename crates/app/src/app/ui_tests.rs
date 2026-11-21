@@ -1649,9 +1649,15 @@ fn comments_carry_your_profile_name() {
         ..Default::default()
     };
     let mut store = Store::default();
-    store.profiles.push(person(1, 3, "full_name", "Erik Lindqvist"));
-    store.profiles.push(person(2, 9, "full_name", "Anna Lindqvist"));
-    store.profiles.push(person(3, 20, "email", "info@example.com"));
+    store
+        .profiles
+        .push(person(1, 3, "full_name", "Erik Lindqvist"));
+    store
+        .profiles
+        .push(person(2, 9, "full_name", "Anna Lindqvist"));
+    store
+        .profiles
+        .push(person(3, 20, "email", "info@example.com"));
     let mut h = harness("flat_form.pdf", data_dir("author", Some(store)));
     ctrl_shift(&mut h, Key::A);
     click_doc(&mut h, 450.0, 90.0);
