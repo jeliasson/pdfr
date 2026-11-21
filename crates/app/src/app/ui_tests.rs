@@ -1993,10 +1993,10 @@ fn agent_opens_reads_and_saves() {
 #[test]
 fn agent_runs_commands_and_moves_the_view() {
     use serde_json::json;
-    // A long document, without waiting for all its pages to be searched
-    // for boxes: moving about needs none of that.
+    // A document of three pages (a committed sample: the 300-page one is
+    // generated and not in a fresh checkout).
     let cli = CliOptions {
-        file: Some(sample("big_300.pdf")),
+        file: Some(sample("links.pdf")),
         no_ai: true,
         data_dir: Some(data_dir("agent-view", None)),
         zoom: Some(1.0),
@@ -2013,10 +2013,19 @@ fn agent_runs_commands_and_moves_the_view() {
         std::thread::sleep(Duration::from_millis(10));
     }
     h.run_steps(3);
-    let a = agent(&mut h, "view", json!({"page": 7}));
+    assert_eq!(agent(&mut h, "state", json!({}))["state"]["pages"], 3);
+    // The wheel: scrolling down moves on through the document, and back.
+    let before = h.state().scroll.y;
+    let a = agent_computer(&mut h, json!({"action": "scroll", "dy": 300}));
+    assert_eq!(a["ok"], true, "{a}");
+    let down = h.state().scroll.y;
+    assert!(down > before + 200.0, "scrolled down: {before} -> {down}");
+    agent_computer(&mut h, json!({"action": "scroll", "dy": -300}));
+    assert!(h.state().scroll.y < down - 200.0, "and back up");
+    let a = agent(&mut h, "view", json!({"page": 2}));
     assert_eq!(a["ok"], true, "{a}");
     h.run_steps(2);
-    assert_eq!(agent(&mut h, "state", json!({}))["state"]["page"], 7);
+    assert_eq!(agent(&mut h, "state", json!({}))["state"]["page"], 2);
     let a = agent(&mut h, "view", json!({"page": 9999}));
     assert_eq!(a["error"]["code"], "bad_request");
     // Commands by name, as in the palette; only those that can run are listed.
@@ -2032,19 +2041,11 @@ fn agent_runs_commands_and_moves_the_view() {
     let a = agent(&mut h, "run_command", json!({"name": "nextpage"}));
     assert_eq!(a["ok"], true, "{a}");
     h.run_steps(2);
-    assert_eq!(agent(&mut h, "state", json!({}))["state"]["page"], 8);
+    assert_eq!(agent(&mut h, "state", json!({}))["state"]["page"], 3);
     let a = agent(&mut h, "run_command", json!({"name": "Undo"}));
     assert_eq!(a["error"]["code"], "not_now");
     let a = agent(&mut h, "run_command", json!({"name": "Frobnicate"}));
     assert_eq!(a["error"]["code"], "no_such_command");
-    // The wheel: scrolling down moves on through the document, and back.
-    let before = h.state().scroll.y;
-    let a = agent_computer(&mut h, json!({"action": "scroll", "dy": 300}));
-    assert_eq!(a["ok"], true, "{a}");
-    let down = h.state().scroll.y;
-    assert!(down > before + 200.0, "scrolled down: {before} -> {down}");
-    agent_computer(&mut h, json!({"action": "scroll", "dy": -300}));
-    assert!(h.state().scroll.y < down - 200.0, "and back up");
 }
 
 /// The `computer` tool: the agent's steps are fed in as input events, a
