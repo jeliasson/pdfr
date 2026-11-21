@@ -7,6 +7,12 @@ version's section into its GitHub release notes.
 
 ### Added
 
+- **Update now.** When a new version is out, pdfr updates itself instead of
+  handing you a command to copy, then offers to restart into it. Installed
+  from the website or a download, it fetches the release and checks it
+  against the release's checksums. With Homebrew, apt, dnf or zypper, it
+  runs the package manager (your system asks for your password). From the
+  AUR, it opens a terminal with yay or paru.
 - **Check the form** (Ctrl+Shift+E): lists answers that look wrong (an
   email without @, an IBAN or Spanish DNI/NIE or Swedish personnummer whose
   check digit doesn't match, a birth date in the future, a phone number with

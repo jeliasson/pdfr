@@ -566,6 +566,11 @@ impl App {
 impl eframe::App for App {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.remember_position();
+        // "Restart" after an update: start the new pdfr with this file.
+        if let Some(exe) = self.assist.take_restart() {
+            let file = self.doc.as_ref().map(|d| d.path.clone());
+            crate::self_update::relaunch(&exe, file.as_deref());
+        }
     }
 
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
@@ -773,8 +778,8 @@ impl eframe::App for App {
 }
 
 mod automation;
-mod check;
 pub(crate) mod canvas;
+mod check;
 use files::ParentWindow;
 mod commands;
 #[cfg(target_os = "linux")]

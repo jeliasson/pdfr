@@ -4,6 +4,7 @@
 
 use super::AssistState;
 use super::widgets::*;
+use crate::self_update::{self, Method, Stage};
 use crate::system::{self, DefaultApp, InstallKind};
 use crate::theme::Palette;
 use crate::updates;
@@ -34,6 +35,13 @@ pub struct SystemUi {
     started: Instant,
     /// A notice was answered or closed this session.
     notice_closed: bool,
+    /// How this install updates itself; looked up when first needed.
+    method: Option<Option<Method>>,
+    updater: self_update::Updater,
+    /// The update notice was put away.
+    update_notice_hidden: bool,
+    /// "Restart": start this pdfr as the app quits.
+    restart: Option<std::path::PathBuf>,
 }
 
 impl Default for SystemUi {
@@ -50,6 +58,10 @@ impl Default for SystemUi {
             manual_check: false,
             started: Instant::now(),
             notice_closed: false,
+            method: None,
+            updater: Default::default(),
+            update_notice_hidden: false,
+            restart: None,
         }
     }
 }
@@ -62,9 +74,38 @@ enum Notice {
     UpdateOptIn,
     /// A newer version is out.
     NewVersion(String),
+    /// "Update now" is running, has finished or failed.
+    Updating,
 }
 
 impl AssistState {
+    fn update_method(&mut self) -> Option<Method> {
+        let install = self.sys.install;
+        self.sys
+            .method
+            .get_or_insert_with(|| self_update::method(install))
+            .clone()
+    }
+
+    fn start_update(&mut self, ctx: &egui::Context) {
+        let latest = self.a.store.settings.latest_version.clone();
+        if let Some(m) = self.update_method() {
+            self.sys.update_notice_hidden = false;
+            self.sys.updater.start(ctx, m, latest);
+        }
+    }
+
+    /// Quits, then starts the updated pdfr.
+    fn restart(&mut self, ctx: &egui::Context, exe: std::path::PathBuf) {
+        self.sys.restart = Some(exe);
+        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+
+    /// The pdfr to start once this one has quit, after "Restart".
+    pub fn take_restart(&mut self) -> Option<std::path::PathBuf> {
+        self.sys.restart.take()
+    }
+
     fn default_app(&mut self) -> DefaultApp {
         self.sys
             .default_app
@@ -245,10 +286,21 @@ impl AssistState {
             row_divider(ui, c);
             let latest = self.a.store.settings.latest_version.clone();
             let newer = !latest.is_empty() && updates::is_newer(&latest, updates::current());
-            let status = if self.sys.checker.running() {
+            self.sys.updater.poll();
+            let method = if newer { self.update_method() } else { None };
+            let stage = self.sys.updater.stage.clone();
+            let status = if let Stage::Busy(s) = &stage {
+                s.clone()
+            } else if let Stage::Ready { version, .. } = &stage {
+                format!("pdfr {version} is installed. Restart pdfr to use it.")
+            } else if let Stage::Failed(e) = &stage {
+                format!("Could not update: {e}")
+            } else if self.sys.checker.running() {
                 "Checking\u{2026}".to_string()
             } else if let Some(e) = &self.sys.check_error {
                 format!("Could not check: {e}")
+            } else if newer && method.is_some() {
+                format!("pdfr {latest} is available.")
             } else if newer {
                 match install.update_hint() {
                     Some(cmd) => {
@@ -266,13 +318,30 @@ impl AssistState {
             };
             let mut check = false;
             let mut download = false;
+            let mut update = false;
+            let mut restart = None;
             setting_row(
                 ui,
                 c,
                 &format!("Version {}", updates::current()),
                 &status,
                 |ui| {
-                    if newer && let Some(cmd) = install.update_hint() {
+                    if let Stage::Ready { exe, .. } = &stage {
+                        if primary_button(ui, c, "Restart pdfr").clicked() {
+                            restart = Some(exe.clone());
+                        }
+                    } else if let Some(m) = &method {
+                        let busy = matches!(stage, Stage::Busy(_));
+                        let label = if matches!(stage, Stage::Failed(_)) {
+                            "Try again"
+                        } else {
+                            m.button()
+                        };
+                        update = ui
+                            .add_enabled_ui(!busy, |ui| primary_button(ui, c, label))
+                            .inner
+                            .clicked();
+                    } else if newer && let Some(cmd) = install.update_hint() {
                         if primary_button(ui, c, "Copy command").clicked() {
                             ui.ctx().copy_text(cmd.to_string());
                             self.sys.msg =
@@ -297,6 +366,12 @@ impl AssistState {
             }
             if download {
                 self.open_releases();
+            }
+            if update {
+                self.start_update(ui.ctx());
+            }
+            if let Some(exe) = restart {
+                self.restart(ui.ctx(), exe);
             }
         });
         if !install.checks_for_updates() {
@@ -435,6 +510,7 @@ impl AssistState {
             row_divider(ui, c);
             let nss = pdfr_sign::signer::pkcs11::nss_dir();
             let where_ = match &nss {
+                _ if cfg!(target_os = "macos") => "Certificates in your Keychain (macOS asks you before each use), ID cards, and .p12 files you choose. pdfr never stores a PIN or password.".into(),
                 Some(d) => format!(
                     "Certificates installed in your browser ({}), ID cards and tokens, and .p12 files you choose. pdfr never stores a PIN or password.",
                     d.display()
@@ -500,6 +576,10 @@ impl AssistState {
     }
 
     fn notice(&mut self) -> Option<Notice> {
+        self.sys.updater.poll();
+        if self.sys.updater.stage != Stage::Idle && !self.sys.update_notice_hidden {
+            return Some(Notice::Updating);
+        }
         if self.sys.notice_closed
             || self.sys.install == InstallKind::Dev
             || self.sys.started.elapsed().as_secs_f32() < 2.0
@@ -558,6 +638,26 @@ impl AssistState {
                 "Yes",
                 "No thanks",
             ),
+            Notice::NewVersion(v) if self.update_method().is_some() => (
+                format!("pdfr {v} is available"),
+                format!(
+                    "You have {}. pdfr can update itself now.",
+                    updates::current()
+                ),
+                self.update_method().map_or("Update now", |m| m.button()),
+                "Later",
+            ),
+            Notice::Updating => match self.sys.updater.stage.clone() {
+                Stage::Busy(s) => ("Updating pdfr".to_string(), s, "", "Hide"),
+                Stage::Ready { version, .. } => (
+                    format!("pdfr {version} is installed"),
+                    "Restart pdfr to use it. Unsaved changes are asked about first.".to_string(),
+                    "Restart",
+                    "Later",
+                ),
+                Stage::Failed(e) => ("pdfr could not update".to_string(), e, "Try again", "Close"),
+                Stage::Idle => return,
+            },
             Notice::NewVersion(v) => (
                 format!("pdfr {v} is available"),
                 match self.sys.install.update_hint() {
@@ -587,7 +687,7 @@ impl AssistState {
                     ui.add(egui::Label::new(RichText::new(&body).color(c.weak)).wrap());
                     ui.add_space(4.0);
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if primary_button(ui, &c, yes).clicked() {
+                        if !yes.is_empty() && primary_button(ui, &c, yes).clicked() {
                             answer = Some(true);
                         }
                         if secondary_button(ui, &c, no).clicked() {
@@ -597,8 +697,17 @@ impl AssistState {
                 });
             });
         let Some(yes) = answer else { return };
+        if let Notice::Updating = notice {
+            match self.sys.updater.stage.clone() {
+                Stage::Ready { exe, .. } if yes => self.restart(ctx, exe),
+                Stage::Failed(_) if yes => self.start_update(ctx),
+                _ => self.sys.update_notice_hidden = true,
+            }
+            return;
+        }
         self.sys.notice_closed = true;
         match notice {
+            Notice::Updating => {}
             Notice::DefaultApp { register } => {
                 self.a.store.settings.default_app_asked = true;
                 if yes {
@@ -612,6 +721,11 @@ impl AssistState {
                 }
             }
             Notice::NewVersion(v) => {
+                if yes && self.update_method().is_some() {
+                    self.start_update(ctx);
+                    // Not dismissed: if the update fails, the notice can come back.
+                    return;
+                }
                 if yes {
                     match self.sys.install.update_hint() {
                         Some(cmd) => {
