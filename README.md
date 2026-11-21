@@ -321,9 +321,10 @@ into a box is ever taken as a command.
 
   <img src="docs/media/settings.png" width="560" alt="pdfr Settings, People section: each remembered person with their role and how often they were used, with buttons to show details or forget them.">
 - **Optional AI helper.** If you have
-  [Claude Code](https://claude.com/claude-code) installed, pdfr can ask it what
-  an unusual box label means, or which boxes belong to which person on a
-  family form. It only ever sends the printed labels and headings, **never what
+  [Claude Code](https://claude.com/claude-code), Pi, MiniMax Code or Kimi Code
+  installed, or a model running on your own computer with Ollama or LM Studio,
+  pdfr can ask it what an unusual box label means, or which boxes belong to
+  which person on a family form. You choose which one in Settings → AI. It only ever sends the printed labels and headings, **never what
   you type**. It can also explain a whole form in plain words, from the same
   labels and headings. pdfr asks before using it the first time, and you can
   switch it off in Settings. Without it, everything else works just the same.

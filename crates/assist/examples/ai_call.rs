@@ -11,9 +11,8 @@ fn main() {
     let l = pdfr_core::pipeline::load(std::fs::read(&args[1]).unwrap()).unwrap();
     let mut store = Store::default();
     store.settings.ai_consent = Some(true);
-    let backend = ai::detect(None).expect("no AI tool installed");
-    println!("backend: {}", ai::Backend::name(&backend));
-    let backend: Arc<dyn ai::Backend> = Arc::new(backend);
+    let backend: Arc<dyn ai::Backend> = ai::detect("", "", "").expect("no AI tool installed");
+    println!("backend: {}", backend.name());
     let a = Assistant::new(store, None, Some(backend.clone()));
     let an = a.analyse(&l.fields, &l.text, &l.form.pages);
     let pending = a.pending_labels(&an);

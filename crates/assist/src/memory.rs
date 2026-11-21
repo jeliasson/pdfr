@@ -21,9 +21,16 @@ pub struct Settings {
     /// `None`: not asked yet.
     #[serde(default)]
     pub ai_consent: Option<bool>,
-    /// Model name override; empty means the tool's cheapest model.
+    /// Model name override for Claude Code; empty means its cheapest model.
     #[serde(default)]
     pub model: String,
+    /// The AI tool to use (`ai::Tool::id`); empty: the first one found.
+    #[serde(default)]
+    pub ai_tool: String,
+    /// The model for `ai_tool` when it is not Claude Code; empty: its own
+    /// default.
+    #[serde(default)]
+    pub ai_tool_model: String,
     /// Old "pause learning" switch; read as `remember = Never`.
     #[serde(default, skip_serializing)]
     pub learning_paused: bool,
@@ -151,6 +158,8 @@ impl Default for Settings {
             ai_enabled: true,
             ai_consent: None,
             model: String::new(),
+            ai_tool: String::new(),
+            ai_tool_model: String::new(),
             learning_paused: false,
             remember: Remember::Ask,
             default_app_asked: false,

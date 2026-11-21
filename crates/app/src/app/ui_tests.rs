@@ -2274,6 +2274,10 @@ fn settings_ai_agents_section() {
     use egui_kittest::kittest::Queryable;
     use serde_json::json;
     let mut h = harness("flat_form.pdf", data_dir("agent-settings", None));
+    // A home folder of the test's own, with Cursor in it and no other agent.
+    let home = data_dir("agent-settings-home", None);
+    std::fs::create_dir_all(home.join(".cursor")).unwrap();
+    h.state_mut().assist.settings_ui.agent_home = Some(home.clone());
     // The defaults: agents allowed; signing and saving over a file ask
     // first, printing and remembered details do not.
     let st = h.state().assist.a.store.settings.clone();
@@ -2299,6 +2303,22 @@ fn settings_ai_agents_section() {
             .next()
             .is_some()
     );
+    // Cursor is on this computer: Install adds pdfr to its settings and
+    // gives it the guide.
+    h.get_by_label("Cursor");
+    h.get_by_label("Install").click();
+    for _ in 0..200 {
+        h.run_steps(2);
+        if h.query_by_label("Installed").is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    h.get_by_label("Installed");
+    let mcp = std::fs::read_to_string(home.join(".cursor/mcp.json")).unwrap();
+    let mcp: serde_json::Value = serde_json::from_str(&mcp).unwrap();
+    assert_eq!(mcp["mcpServers"]["pdfr"]["args"], json!(["mcp"]));
+    assert!(home.join(".agents/skills/pdfr/SKILL.md").is_file());
     // While these switches show, an agent's clicks and keys are refused.
     let a = agent_computer(&mut h, json!({"action": "key", "keys": "Tab"}));
     assert_eq!(a["error"]["code"], "busy");

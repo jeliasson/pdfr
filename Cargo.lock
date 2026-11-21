@@ -3614,6 +3614,7 @@ dependencies = [
  "pdfr-core",
  "serde",
  "serde_json",
+ "ureq",
 ]
 
 [[package]]

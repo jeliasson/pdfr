@@ -1,5 +1,14 @@
-//! Layer 2's last resort: ask the user's installed AI command-line tool to
-//! map unknown labels to canonical keys.
+//! Layer 2's last resort: ask an AI tool the user has (a command-line agent,
+//! or a model server running on this computer) to map unknown labels to
+//! canonical keys.
+//!
+//! A tool is offered only if it answers as a plain model, with every tool of
+//! its own switched off: a label printed in a PDF is text someone else wrote,
+//! and an agent that can read files or run commands could be talked into
+//! reading and sending what pdfr remembers about the user. Claude Code, Pi,
+//! MiniMax Code and Kimi Code can be run that way; Ollama and LM Studio are
+//! bare model servers. Agents that cannot (Codex, Cursor, Antigravity, Grok,
+//! Hermes, …) are not used here; they can still drive pdfr over MCP.
 //!
 //! Token rules: labels only (never values, page text, images or the PDF), one
 //! call per document (split above 150 labels), closed vocabulary, compact
@@ -131,23 +140,112 @@ pub fn parse_reply(reply: &str, n: usize, vocab: &[String]) -> Option<Vec<Option
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tool {
     Claude,
+    /// Kept for its reply parser; never chosen (see `TOOLS`).
     Codex,
+    Pi,
+    MiniMax,
+    Kimi,
+    Ollama,
+    LmStudio,
 }
 
+/// The tools pdfr may use, in the order it looks for one.
+pub const TOOLS: [Tool; 6] = [
+    Tool::Claude,
+    Tool::Pi,
+    Tool::MiniMax,
+    Tool::Kimi,
+    Tool::Ollama,
+    Tool::LmStudio,
+];
+
 impl Tool {
+    /// The name kept in the settings file.
+    pub fn id(self) -> &'static str {
+        match self {
+            Tool::Claude => "claude",
+            Tool::Codex => "codex",
+            Tool::Pi => "pi",
+            Tool::MiniMax => "minimax",
+            Tool::Kimi => "kimi",
+            Tool::Ollama => "ollama",
+            Tool::LmStudio => "lmstudio",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Tool> {
+        TOOLS.into_iter().find(|t| t.id() == id)
+    }
+
+    /// The name shown to the user.
+    pub fn name(self) -> &'static str {
+        match self {
+            Tool::Claude => "Claude Code",
+            Tool::Codex => "Codex",
+            Tool::Pi => "Pi",
+            Tool::MiniMax => "MiniMax Code",
+            Tool::Kimi => "Kimi Code",
+            Tool::Ollama => "Ollama",
+            Tool::LmStudio => "LM Studio",
+        }
+    }
+
+    /// The command of a command-line tool; empty for a model server.
     pub fn binary(self) -> &'static str {
         match self {
             Tool::Claude => "claude",
             Tool::Codex => "codex",
+            Tool::Pi => "pi",
+            Tool::MiniMax => "mcode",
+            Tool::Kimi => "kimi",
+            Tool::Ollama | Tool::LmStudio => "",
         }
     }
-    /// The cheapest model each tool offers (checked against the tools' own
-    /// model lists); overridable in settings.
+
+    /// The tool's own folder under the home folder. A command on the PATH
+    /// can be a launcher that installs the tool when first run; the folder
+    /// shows the user has run it.
+    fn home_dir(self) -> Option<&'static str> {
+        match self {
+            Tool::Pi => Some(".pi/agent"),
+            Tool::MiniMax => Some(".minimax"),
+            Tool::Kimi => Some(".kimi-code"),
+            _ => None,
+        }
+    }
+
+    /// Where a model server listens on this computer (its OpenAI-style API).
+    pub fn server(self) -> Option<(u16, &'static str)> {
+        match self {
+            Tool::Ollama => Some((11434, "http://127.0.0.1:11434/v1")),
+            Tool::LmStudio => Some((1234, "http://127.0.0.1:1234/v1")),
+            _ => None,
+        }
+    }
+
+    /// The model used when the settings name none. Claude Code: its
+    /// cheapest. Empty: the tool's own default (a model server: the first
+    /// model it has).
     pub fn default_model(self) -> &'static str {
         match self {
             Tool::Claude => "haiku",
             Tool::Codex => "gpt-6-luna",
+            _ => "",
         }
+    }
+
+    /// Whether the tool can be used right now: its command is installed and
+    /// has been run, or its server is listening.
+    pub fn available(self) -> bool {
+        if let Some((port, _)) = self.server() {
+            let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+            return std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok();
+        }
+        which(self.binary()).is_some()
+            && self.home_dir().is_none_or(|d| {
+                std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+                    .is_some_and(|h| PathBuf::from(h).join(d).is_dir())
+            })
     }
 }
 
@@ -190,18 +288,144 @@ pub fn which(bin: &str) -> Option<PathBuf> {
     None
 }
 
-/// Claude Code's CLI. Codex is not used: its non-interactive mode has no
-/// way to turn its shell tool off (even its read-only sandbox can read every
-/// file), so a hostile label printed in a PDF could make it read and send the
-/// user's remembered values. Claude Code runs with all tools disabled.
-pub fn detect(model: Option<&str>) -> Option<CliBackend> {
-    let tool = Tool::Claude;
-    let path = which(tool.binary())?;
-    let model = model
-        .filter(|m| !m.trim().is_empty())
+/// The tool to use: the one chosen in the settings (`tool`, by id) if it
+/// can be used now, else the first of `TOOLS` that can. `claude_model` is
+/// the setting for Claude Code; `model` the one for the chosen tool.
+///
+/// Codex is not offered: its non-interactive mode has no way to turn its
+/// shell tool off (even its read-only sandbox can read every file), so a
+/// hostile label printed in a PDF could make it read and send the user's
+/// remembered values. Every tool here runs with all tools disabled.
+pub fn detect(tool: &str, claude_model: &str, model: &str) -> Option<std::sync::Arc<dyn Backend>> {
+    let chosen = Tool::from_id(tool);
+    let tool = match chosen {
+        Some(t) if t.available() => t,
+        // The chosen tool is gone: no other is used in its place, so labels
+        // are never sent somewhere the user did not pick.
+        Some(_) => return None,
+        None => TOOLS.into_iter().find(|t| t.available())?,
+    };
+    let model = match tool {
+        Tool::Claude => claude_model,
+        // A model named for one tool means nothing to another.
+        _ if chosen.is_some() => model,
+        _ => "",
+    };
+    let model = Some(model.trim())
+        .filter(|m| !m.is_empty())
         .unwrap_or(tool.default_model())
         .to_string();
-    Some(CliBackend { tool, path, model })
+    Some(match tool.server() {
+        Some((_, base)) => std::sync::Arc::new(HttpBackend {
+            tool,
+            base: base.to_string(),
+            model,
+        }),
+        None => std::sync::Arc::new(CliBackend {
+            tool,
+            path: which(tool.binary())?,
+            model,
+        }),
+    })
+}
+
+/// A model server on this computer, spoken to in the OpenAI style
+/// (`/chat/completions`). It is a bare model: it has no tools to switch off.
+pub struct HttpBackend {
+    pub tool: Tool,
+    /// The API's address, ending in `/v1`.
+    pub base: String,
+    /// Empty: the first model the server lists.
+    pub model: String,
+}
+
+fn http_agent(timeout: Duration) -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_global(Some(timeout))
+        .build()
+        .into()
+}
+
+/// The models a server has, as it lists them.
+pub fn server_models(base: &str, timeout: Duration) -> Result<Vec<String>, String> {
+    let body = http_agent(timeout)
+        .get(format!("{base}/models"))
+        .call()
+        .map_err(|e| e.to_string())?
+        .body_mut()
+        .read_to_string()
+        .map_err(|e| e.to_string())?;
+    let v: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    Ok(v["data"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|m| m["id"].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+/// A chat reply in the OpenAI style: the text and the tokens used. What a
+/// reasoning model wrote inside `<think>` is not part of the answer.
+pub fn parse_chat_json(out: &str) -> Result<Reply, String> {
+    let v: serde_json::Value =
+        serde_json::from_str(out.trim()).map_err(|e| format!("bad JSON from the server: {e}"))?;
+    if let Some(e) = v.get("error") {
+        return Err(e["message"].as_str().unwrap_or("error").to_string());
+    }
+    let mut text = v["choices"][0]["message"]["content"]
+        .as_str()
+        .ok_or("no reply")?
+        .to_string();
+    while let Some(a) = text.find("<think>") {
+        match text[a..].find("</think>") {
+            Some(b) => text.replace_range(a..a + b + "</think>".len(), ""),
+            None => text.truncate(a),
+        }
+    }
+    Ok(Reply {
+        text: text.trim().to_string(),
+        input_tokens: v["usage"]["prompt_tokens"].as_u64(),
+        output_tokens: v["usage"]["completion_tokens"].as_u64(),
+    })
+}
+
+impl Backend for HttpBackend {
+    fn name(&self) -> String {
+        match self.model.as_str() {
+            "" => format!("{} (on this computer)", self.tool.name()),
+            m => format!("{} (on this computer, model {m})", self.tool.name()),
+        }
+    }
+
+    fn run(&self, instruction: &str, prompt: &str) -> Result<Reply, String> {
+        let model = match self.model.as_str() {
+            "" => server_models(&self.base, Duration::from_secs(5))?
+                .into_iter()
+                .next()
+                .ok_or_else(|| format!("{} has no model yet", self.tool.name()))?,
+            m => m.to_string(),
+        };
+        let request = serde_json::json!({
+            "model": model,
+            "messages": [
+                {"role": "system", "content": instruction},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0,
+            "stream": false,
+        });
+        let body = http_agent(TIMEOUT)
+            .post(format!("{}/chat/completions", self.base))
+            .header("Content-Type", "application/json")
+            .send(request.to_string())
+            .map_err(|e| e.to_string())?
+            .body_mut()
+            .read_to_string()
+            .map_err(|e| e.to_string())?;
+        parse_chat_json(&body)
+    }
 }
 
 /// A private, freshly created, randomly named empty directory for the tool
@@ -306,9 +530,9 @@ fn run_with_timeout(mut cmd: Command, input: &str, timeout: Duration) -> Result<
 
 impl Backend for CliBackend {
     fn name(&self) -> String {
-        match self.tool {
-            Tool::Claude => format!("Claude Code (claude, model {})", self.model),
-            Tool::Codex => format!("Codex (codex, model {})", self.model),
+        match self.model.as_str() {
+            "" => format!("{} ({})", self.tool.name(), self.tool.binary()),
+            m => format!("{} ({}, model {m})", self.tool.name(), self.tool.binary()),
         }
     }
 
@@ -355,8 +579,116 @@ impl Backend for CliBackend {
                 let full = format!("{instruction}\n\n{prompt}");
                 run_with_timeout(c, &full, TIMEOUT).and_then(|out| parse_codex_jsonl(&out))
             }
+            Tool::Pi => {
+                // No tools of any kind, nothing of the user's loaded, no
+                // session kept.
+                let mut c = Command::new(&self.path);
+                c.current_dir(&dir).args([
+                    "-p",
+                    "--no-tools",
+                    "--no-mcp",
+                    "--no-extensions",
+                    "--no-skills",
+                    "--no-prompt-templates",
+                    "--no-context-files",
+                    "--no-session",
+                    "--system-prompt",
+                    instruction,
+                ]);
+                if !self.model.is_empty() {
+                    c.args(["--model", &self.model]);
+                }
+                run_with_timeout(c, prompt, TIMEOUT).and_then(|out| plain_reply(&out))
+            }
+            Tool::MiniMax => {
+                // "Lightweight" sends the model no tool at all, and no
+                // skills, memory or workspace instructions.
+                let mut c = Command::new(&self.path);
+                c.current_dir(&dir).args([
+                    "exec",
+                    "--mode",
+                    "lightweight",
+                    "--output-format",
+                    "json",
+                    "--input",
+                    "-",
+                ]);
+                if !self.model.is_empty() {
+                    c.args(["--model", &self.model]);
+                }
+                let full = format!("{instruction}\n\n{prompt}");
+                run_with_timeout(c, &full, TIMEOUT).and_then(|out| parse_minimax_json(&out))
+            }
+            Tool::Kimi => {
+                // An agent of our own with an empty tool list (that covers
+                // MCP tools too) and the instruction as its whole prompt;
+                // skills are looked for in an empty folder.
+                let agent = dir.join("agent.md");
+                let skills = dir.join("skills");
+                std::fs::create_dir(&skills).map_err(|e| e.to_string())?;
+                std::fs::write(
+                    &agent,
+                    format!(
+                        "---\nname: pdfr-labels\ndescription: Maps form-field labels to keys.\n\
+                         tools: []\n---\n\n{instruction}\n"
+                    ),
+                )
+                .map_err(|e| e.to_string())?;
+                let mut c = Command::new(&self.path);
+                c.current_dir(&dir)
+                    .arg("--agent-file")
+                    .arg(&agent)
+                    .arg("--skills-dir")
+                    .arg(&skills)
+                    .args(["--output-format", "text"]);
+                if !self.model.is_empty() {
+                    c.args(["-m", &self.model]);
+                }
+                c.args(["-p", prompt]);
+                run_with_timeout(c, "", TIMEOUT).and_then(|out| plain_reply(&out))
+            }
+            Tool::Ollama | Tool::LmStudio => Err("not a command-line tool".into()),
         }
     }
+}
+
+/// A reply printed as plain text. Kimi Code starts paragraphs with a bullet.
+pub fn plain_reply(out: &str) -> Result<Reply, String> {
+    let text = out
+        .lines()
+        .map(|l| l.trim_start().trim_start_matches('\u{2022}').trim())
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string();
+    if text.is_empty() {
+        return Err("no reply".into());
+    }
+    Ok(Reply {
+        text,
+        ..Default::default()
+    })
+}
+
+/// `mcode exec --output-format json`: one object with `output`, or `error`.
+pub fn parse_minimax_json(out: &str) -> Result<Reply, String> {
+    let v: serde_json::Value =
+        serde_json::from_str(out.trim()).map_err(|e| format!("bad JSON from mcode: {e}"))?;
+    if let Some(e) = v.get("error").filter(|e| !e.is_null()) {
+        return Err(e["message"]
+            .as_str()
+            .or(e.as_str())
+            .unwrap_or("error")
+            .to_string());
+    }
+    let text = v["output"].as_str().ok_or("no output")?.to_string();
+    let u = &v["usage"];
+    let g = |a: &str, b: &str| u[a].as_u64().or(u[b].as_u64());
+    Ok(Reply {
+        text,
+        input_tokens: g("inputTokens", "input_tokens"),
+        output_tokens: g("outputTokens", "output_tokens"),
+    })
 }
 
 /// `claude -p --output-format json`: one JSON object with `result` and `usage`.
@@ -420,6 +752,117 @@ pub fn parse_codex_jsonl(out: &str) -> Result<Reply, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A model server for one test: answers each request with the canned
+    /// body for its path, and gives back what it was sent.
+    fn fake_server(
+        replies: Vec<(&'static str, String)>,
+    ) -> (String, std::sync::mpsc::Receiver<String>) {
+        use std::io::{BufRead, BufReader};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}/v1", listener.local_addr().unwrap());
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut head = String::new();
+                let mut len = 0;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                        break;
+                    }
+                    if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        len = v.trim().parse().unwrap_or(0);
+                    }
+                    head.push_str(&line);
+                }
+                let mut body = vec![0; len];
+                reader.read_exact(&mut body).unwrap();
+                let path = head.split_whitespace().nth(1).unwrap_or("").to_string();
+                let _ = tx.send(format!("{path} {}", String::from_utf8_lossy(&body)));
+                let reply = replies
+                    .iter()
+                    .find(|r| r.0 == path)
+                    .map_or("{}".to_string(), |r| r.1.clone());
+                let mut stream = stream;
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                    reply.len()
+                );
+            }
+        });
+        (base, rx)
+    }
+
+    #[test]
+    fn a_model_server_is_asked_in_the_openai_style() {
+        let (base, sent) = fake_server(vec![
+            (
+                "/v1/models",
+                r#"{"data":[{"id":"llama3.2:3b"},{"id":"other"}]}"#.into(),
+            ),
+            (
+                "/v1/chat/completions",
+                r#"{"choices":[{"message":{"content":"<think>hm</think>\n1:email"}}],
+                    "usage":{"prompt_tokens":40,"completion_tokens":3}}"#
+                    .into(),
+            ),
+        ]);
+        // No model named: the first one the server has.
+        let b = HttpBackend {
+            tool: Tool::Ollama,
+            base,
+            model: String::new(),
+        };
+        assert_eq!(b.name(), "Ollama (on this computer)");
+        let r = b.run("INSTRUCTION", "LABELS").unwrap();
+        assert_eq!(r.text, "1:email");
+        assert_eq!((r.input_tokens, r.output_tokens), (Some(40), Some(3)));
+        assert!(sent.recv().unwrap().starts_with("/v1/models"));
+        let chat = sent.recv().unwrap();
+        let body: serde_json::Value =
+            serde_json::from_str(chat.strip_prefix("/v1/chat/completions ").unwrap()).unwrap();
+        assert_eq!(body["model"], "llama3.2:3b");
+        assert_eq!(body["messages"][0]["content"], "INSTRUCTION");
+        assert_eq!(body["messages"][1]["content"], "LABELS");
+        // Nothing but the model and the two messages: no tools are offered.
+        assert!(body.get("tools").is_none());
+    }
+
+    #[test]
+    fn a_server_error_is_told() {
+        let e = parse_chat_json(r#"{"error":{"message":"model not found"}}"#).unwrap_err();
+        assert_eq!(e, "model not found");
+        assert!(parse_chat_json("{}").is_err());
+    }
+
+    #[test]
+    fn replies_of_the_other_tools() {
+        // Kimi Code prints paragraphs behind a bullet.
+        let r = plain_reply("\u{2022} 1:email\n2:none\n").unwrap();
+        assert_eq!(r.text, "1:email\n2:none");
+        assert!(plain_reply(" \n").is_err());
+        let r = parse_minimax_json(
+            r#"{"schemaVersion":1,"type":"exec.result","output":"1:email","usage":{"inputTokens":9,"outputTokens":2}}"#,
+        )
+        .unwrap();
+        assert_eq!(r.text, "1:email");
+        assert_eq!((r.input_tokens, r.output_tokens), (Some(9), Some(2)));
+        assert!(parse_minimax_json(r#"{"error":{"message":"no key"}}"#).is_err());
+    }
+
+    #[test]
+    fn tools_keep_their_ids() {
+        for t in TOOLS {
+            assert_eq!(Tool::from_id(t.id()), Some(t));
+        }
+        // Codex cannot be run without its tools: never offered.
+        assert_eq!(Tool::from_id("codex"), None);
+        assert_eq!(Tool::from_id(""), None);
+    }
 
     fn vocab() -> Vec<String> {
         ["full_name", "email", "date_of_birth"]

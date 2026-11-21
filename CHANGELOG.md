@@ -24,6 +24,12 @@ version's section into its GitHub release notes.
     there altogether.
   - It runs on your computer: pdfr listens only on a socket that only you
     can reach, and nothing is sent anywhere by pdfr.
+- **The AI helper works with more than Claude Code.** Settings → AI now has
+  a choice of tool: Claude Code, Pi, MiniMax Code, Kimi Code, or a model
+  running on your own computer with Ollama or LM Studio (nothing leaves the
+  computer then). pdfr only uses a tool it can run as a plain model, with no
+  access to your files; agents that cannot be run that way (Codex, Cursor,
+  Grok and others) are not offered here.
 - **Select boxes to remove or move them.** The new Select tool (toolbar,
   Ctrl+Shift+B) picks the boxes you or pdfr added: click one, Shift-click
   more, drag a frame around several, or Ctrl+A for the whole page. Delete

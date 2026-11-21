@@ -290,8 +290,8 @@ impl Assistant {
     /// Loads the store from `path` (if any) and finds an AI tool.
     pub fn open_at(path: Option<PathBuf>) -> Assistant {
         let store = path.as_deref().map(Store::load).unwrap_or_default();
-        let model = store.settings.model.clone();
-        let backend = ai::detect(Some(&model)).map(|b| Arc::new(b) as Arc<dyn Backend>);
+        let st = &store.settings;
+        let backend = ai::detect(&st.ai_tool, &st.model, &st.ai_tool_model);
         Assistant {
             base: store.clone(),
             store,
@@ -319,8 +319,8 @@ impl Assistant {
     }
 
     pub fn redetect_backend(&mut self) {
-        let model = self.store.settings.model.clone();
-        self.backend = ai::detect(Some(&model)).map(|b| Arc::new(b) as Arc<dyn Backend>);
+        let st = &self.store.settings;
+        self.backend = ai::detect(&st.ai_tool, &st.model, &st.ai_tool_model);
     }
 
     pub fn backend_name(&self) -> Option<String> {

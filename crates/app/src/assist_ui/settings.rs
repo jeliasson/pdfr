@@ -9,6 +9,7 @@ use crate::theme::{Palette, mix};
 use eframe::egui::{
     self, Align, Color32, CornerRadius, Frame, Layout, Margin, RichText, Sense, Stroke, Ui, vec2,
 };
+use pdfr_assist::ai::{TOOLS, Tool};
 use pdfr_assist::memory::Remember;
 use std::collections::HashSet;
 
@@ -113,6 +114,15 @@ pub struct SettingsUi {
     /// Which "Copy" button of the AI agents section was just pressed.
     copied: Option<(usize, std::time::Instant)>,
     installs: Installs,
+    /// For tests: a folder to look for agents in, in place of the home
+    /// folder.
+    pub agent_home: Option<std::path::PathBuf>,
+    /// AI → Tool: the AI tools that can be used now. `None`: not looked yet.
+    ai_found: Option<Vec<Tool>>,
+    /// The models a model server lists, asked once per tool.
+    ai_models: Option<(Tool, Vec<String>)>,
+    /// The model name being typed for a command-line tool.
+    ai_model_edit: Option<String>,
 }
 
 /// AI agents → Install: the agents on this computer, and an install under
@@ -419,7 +429,11 @@ impl AssistState {
         };
         // Agents on this computer get an Install button. Not in a Flatpak:
         // the sandbox cannot see their settings.
-        let home = crate::agent::install::home().filter(|_| !flatpak);
+        let home = self
+            .settings_ui
+            .agent_home
+            .clone()
+            .or_else(|| crate::agent::install::home().filter(|_| !flatpak));
         let ins = &mut self.settings_ui.installs;
         if let Some((client, rx)) = &ins.running
             && let Ok(result) = rx.try_recv()
@@ -594,35 +608,52 @@ impl AssistState {
                 },
             );
             row_divider(ui, c);
-            let (tool, sub) = match &backend {
-                // "Claude Code (claude, model haiku)" -> "Claude Code"; the model has its own row.
-                Some(n) => (
-                    n.split(" (").next().unwrap_or(n).to_string(),
-                    "Found on this computer.",
-                ),
-                None => (
-                    "Not found".to_string(),
-                    if std::path::Path::new("/.flatpak-info").exists() {
-                        "The Flatpak version can't use programs on your computer. Install pdfr from your distribution's packages to use AI."
-                    } else {
-                        "Install Claude Code to use AI. Everything else works without it."
-                    },
-                ),
+            let found = self
+                .settings_ui
+                .ai_found
+                .get_or_insert_with(|| TOOLS.into_iter().filter(|t| t.available()).collect())
+                .clone();
+            let chosen = Tool::from_id(&self.a.store.settings.ai_tool);
+            // The tool in use: the chosen one, or the first one found.
+            let active = match chosen {
+                Some(t) => found.contains(&t).then_some(t),
+                None => found.first().copied(),
             };
-            setting_row(ui, c, "Tool", sub, |ui| {
-                ui.label(RichText::new(tool).color(if backend.is_some() {
-                    c.text
-                } else {
-                    c.weak
-                }));
+            let sub = match (active, chosen) {
+                (Some(_), _) => "Found on this computer.".to_string(),
+                (None, Some(t)) => format!(
+                    "{} is not installed or not running now. Nothing is asked until it is.",
+                    t.name()
+                ),
+                (None, None) if std::path::Path::new("/.flatpak-info").exists() => {
+                    "The Flatpak version can't use programs on your computer. Install pdfr from your distribution's packages to use AI.".to_string()
+                }
+                (None, None) => {
+                    "Install Claude Code, Pi, MiniMax Code or Kimi Code, or run Ollama or LM Studio, to use AI. Everything else works without it.".to_string()
+                }
+            };
+            setting_row(ui, c, "Tool", &sub, |ui| {
+                if found.is_empty() && chosen.is_none() {
+                    ui.label(RichText::new("Not found").color(c.weak));
+                } else if let Some(id) = tool_picker(ui, c, chosen, &found) {
+                    let st = &mut self.a.store.settings;
+                    st.ai_tool = id;
+                    st.ai_tool_model.clear();
+                    self.settings_ui.ai_models = None;
+                    self.settings_ui.ai_model_edit = None;
+                    self.a.redetect_backend();
+                    act.changed = true;
+                }
             });
             row_divider(ui, c);
-            setting_row(
-                ui,
-                c,
-                "Model",
-                "Labels are short; the fastest model is usually enough.",
-                |ui| {
+            let model_sub = match active {
+                Some(t) if t.server().is_some() => {
+                    "A model that runs on this computer. Small ones answer fastest."
+                }
+                _ => "Labels are short; the fastest model is usually enough.",
+            };
+            setting_row(ui, c, "Model", model_sub, |ui| match active {
+                Some(Tool::Claude) | None => {
                     if let Some(m) =
                         model_picker(ui, c, &self.a.store.settings.model, backend.is_some())
                     {
@@ -630,8 +661,60 @@ impl AssistState {
                         self.a.redetect_backend();
                         act.changed = true;
                     }
-                },
-            );
+                }
+                // A model server: the models it has.
+                Some(t) if t.server().is_some() => {
+                    let models = match &self.settings_ui.ai_models {
+                        Some((of, models)) if *of == t => models.clone(),
+                        _ => {
+                            let base = t.server().map_or("", |s| s.1);
+                            let models = pdfr_assist::ai::server_models(
+                                base,
+                                std::time::Duration::from_millis(800),
+                            )
+                            .unwrap_or_default();
+                            self.settings_ui.ai_models = Some((t, models.clone()));
+                            models
+                        }
+                    };
+                    // Only a model of the chosen tool is kept in the settings.
+                    let current = match chosen {
+                        Some(_) => self.a.store.settings.ai_tool_model.clone(),
+                        None => String::new(),
+                    };
+                    if let Some(m) = server_model_picker(ui, c, &current, &models) {
+                        let st = &mut self.a.store.settings;
+                        st.ai_tool = t.id().to_string();
+                        st.ai_tool_model = m;
+                        self.a.redetect_backend();
+                        act.changed = true;
+                    }
+                }
+                // A command-line tool: its own name for a model, typed.
+                Some(t) => {
+                    let stored = match chosen {
+                        Some(_) => self.a.store.settings.ai_tool_model.clone(),
+                        None => String::new(),
+                    };
+                    let text = self.settings_ui.ai_model_edit.get_or_insert(stored.clone());
+                    let r = ui.add(
+                        egui::TextEdit::singleline(text)
+                            .hint_text("Default")
+                            .desired_width(170.0),
+                    );
+                    if r.lost_focus() {
+                        let typed = text.trim().to_string();
+                        self.settings_ui.ai_model_edit = None;
+                        if typed != stored {
+                            let st = &mut self.a.store.settings;
+                            st.ai_tool = t.id().to_string();
+                            st.ai_tool_model = typed;
+                            self.a.redetect_backend();
+                            act.changed = true;
+                        }
+                    }
+                }
+            });
         });
         let u = &self.a.store.usage;
         card(ui, c, Some("Usage"), |ui| {
@@ -941,8 +1024,109 @@ impl AssistState {
             self.settings_open = false;
             self.refresh_system();
             self.settings_ui.confirm_clear = false;
+            // Looked for again the next time Settings opens.
+            self.settings_ui.ai_found = None;
+            self.settings_ui.ai_models = None;
+            self.settings_ui.ai_model_edit = None;
         }
     }
+}
+
+/// A row of a drop-down: a name and a note under it.
+fn option_row(ui: &mut Ui, c: &Colors, selected: bool, name: &str, note: &str) -> bool {
+    let mut job = egui::text::LayoutJob::default();
+    let fmt = |size: f32, color: Color32| egui::TextFormat {
+        font_id: egui::FontId::proportional(size),
+        color,
+        ..Default::default()
+    };
+    job.append(name, 0.0, fmt(14.0, c.text));
+    job.append(&format!("\n{note}"), 0.0, fmt(12.0, c.weak));
+    ui.add(egui::Button::selectable(selected, job).min_size(vec2(200.0, 0.0)))
+        .clicked()
+}
+
+/// A drop-down of the AI tools that can be used now (`found`), and the
+/// chosen one even if it cannot. Returns the new setting ("" = automatic)
+/// when the user picks another.
+fn tool_picker(ui: &mut Ui, c: &Colors, chosen: Option<Tool>, found: &[Tool]) -> Option<String> {
+    let shown = match chosen {
+        Some(t) => t.name().to_string(),
+        None => found
+            .first()
+            .map_or("Automatic".into(), |t| t.name().into()),
+    };
+    let mut picked = None;
+    egui::ComboBox::from_id_salt("pdfr-ai-tool")
+        .selected_text(RichText::new(shown).color(c.text))
+        .width(170.0)
+        .show_ui(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            let auto = match found.first() {
+                Some(t) => format!("The first one found: {}", t.name()),
+                None => "The first one found".into(),
+            };
+            if option_row(ui, c, chosen.is_none(), "Automatic", &auto) && chosen.is_some() {
+                picked = Some(String::new());
+            }
+            for t in TOOLS {
+                let here = found.contains(&t);
+                if !here && chosen != Some(t) {
+                    continue;
+                }
+                let note = match (here, t.server().is_some()) {
+                    (false, _) => "Not found now",
+                    (true, true) => "Runs on this computer",
+                    (true, false) => "Uses your account with it",
+                };
+                if option_row(ui, c, chosen == Some(t), t.name(), note) && chosen != Some(t) {
+                    picked = Some(t.id().to_string());
+                }
+            }
+        });
+    picked
+}
+
+/// A drop-down of a model server's models. `current` is the stored setting
+/// ("" = the first model it has). Returns the new setting when the user
+/// picks another.
+fn server_model_picker(
+    ui: &mut Ui,
+    c: &Colors,
+    current: &str,
+    models: &[String],
+) -> Option<String> {
+    let shown = match current {
+        "" => models.first().map_or("None yet", |m| m.as_str()),
+        m => m,
+    };
+    let mut picked = None;
+    egui::ComboBox::from_id_salt("pdfr-ai-server-model")
+        .selected_text(RichText::new(shown).color(c.text))
+        .width(170.0)
+        .show_ui(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            if models.is_empty() {
+                ui.label(RichText::new("No model is installed yet.").color(c.weak));
+            }
+            for (i, m) in models.iter().enumerate() {
+                let selected = if current.is_empty() {
+                    i == 0
+                } else {
+                    m == current
+                };
+                let note = if i == 0 { "Default" } else { "" };
+                if option_row(ui, c, selected, m, note) && !selected {
+                    // The first model is stored as "" so it follows the server.
+                    picked = Some(if i == 0 { String::new() } else { m.clone() });
+                }
+            }
+            // A model set earlier that the server no longer lists.
+            if !current.is_empty() && !models.iter().any(|m| m == current) {
+                option_row(ui, c, true, current, "Not installed now");
+            }
+        });
+    picked
 }
 
 /// A drop-down of the AI tool's models. `current` is the stored setting
