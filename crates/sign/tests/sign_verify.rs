@@ -309,3 +309,13 @@ fn cms_parses_back() {
     let si = sd.signer_infos.0.iter().next().unwrap();
     assert_eq!(si.signed_attrs.as_ref().unwrap().len(), 3);
 }
+
+#[test]
+fn looking_for_certificates_never_fails() {
+    // Keychain (macOS), NSS database and tokens: whatever the machine has,
+    // listing returns (possibly nothing) and every choice is described.
+    for c in pdfr_sign::signer::discover() {
+        assert!(!c.source.describe().is_empty());
+        assert!(!c.cert.name().is_empty());
+    }
+}

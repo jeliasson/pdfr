@@ -7,6 +7,10 @@ version's section into its GitHub release notes.
 
 ### Added
 
+- **macOS: sign with the certificates in your Keychain.** Certificates you
+  added to the Keychain (and ID cards macOS offers) are listed in the
+  signing dialog. The key stays in the Keychain, and macOS asks you before
+  pdfr may use it.
 - **Update now.** When a new version is out, pdfr updates itself instead of
   handing you a command to copy, then offers to restart into it. Installed
   from the website or a download, it fetches the release and checks it
@@ -22,6 +26,14 @@ version's section into its GitHub release notes.
 - **Explain this form.** With AI on, the check can explain in plain words
   what the form is for and what each part asks. Only headings and box
   labels are sent, never your answers.
+- **Says why your ID card doesn't show up.** When no card or token is
+  found, the signing dialog names the first thing to fix: smartcard support
+  not installed, the smartcard service (pcscd) not running, a reader with no
+  card pdfr can read, or no reader at all. A link leads to the step-by-step
+  guide on pdfr.app.
+- **PIN tries left, before you type.** When a card reports that a wrong
+  PIN was entered before, the dialog says a few tries are left, or that the
+  next wrong PIN locks the card. A locked card says how to unlock it.
 - **XFA forms are explained.** Forms made only for Adobe Reader (XFA),
   which no other PDF app can show, now say so when opened instead of
   showing a "Please wait…" page.
@@ -40,6 +52,16 @@ version's section into its GitHub release notes.
 
 ### Fixed
 
+- **Signing with national ID cards** whose signing key asks for the PIN
+  again at the moment of signing (as on the Spanish DNIe, Belgian eID and
+  Estonian ID card) works; it failed with "user not logged in". Not yet
+  tried with each of these cards: please report how yours does.
+- **A wrong PIN brings the signing dialog back**, with the same
+  certificate selected and how many tries are left, instead of closing it.
+  pdfr never tries a PIN again by itself.
+- **The signing certificate comes first.** ID cards hold one certificate
+  to log in to websites and one to sign; the signing one is now listed
+  first and chosen by default, and the other is marked "for logging in".
 - **No blank pages while scrolling long files.** One background thread is
   kept for drawing pages, so a page scrolled into view no longer waits
   for box detection to finish on every thread.

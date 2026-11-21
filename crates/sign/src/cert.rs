@@ -122,6 +122,14 @@ impl Cert {
         }
     }
 
+    /// A certificate meant for signing documents: its key usage includes
+    /// non-repudiation (content commitment), as on the signing certificate
+    /// of an ID card, not only digital signature (which logging in uses).
+    pub fn is_signature_cert(&self) -> bool {
+        self.ext::<KeyUsage>(oids::KEY_USAGE)
+            .is_some_and(|ku| ku.0.contains(KeyUsages::NonRepudiation))
+    }
+
     pub fn is_ca(&self) -> bool {
         self.ext::<BasicConstraints>(oids::BASIC_CONSTRAINTS)
             .is_some_and(|b| b.ca)
