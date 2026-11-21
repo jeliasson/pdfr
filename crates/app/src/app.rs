@@ -632,16 +632,7 @@ impl eframe::App for App {
                 .show(ui, |ui| self.status_bar(ui));
         }
         if self.sidebar_open() && !presenting {
-            egui::Panel::left("sidebar")
-                .resizable(true)
-                .default_size(170.0)
-                .size_range(130.0..=320.0)
-                .frame(
-                    egui::Frame::new()
-                        .fill(self.palette.toolbar)
-                        .inner_margin(egui::Margin::symmetric(6, 6)),
-                )
-                .show(ui, |ui| self.sidebar(ui));
+            self.sidebar_panel(ui);
         }
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(if presenting {

@@ -10,7 +10,7 @@ const THUMB_W: f32 = 120.0;
 const LABEL_H: f32 = 18.0;
 const ROW_GAP: f32 = 10.0;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub(super) enum SideTab {
     #[default]
     Pages,
@@ -42,8 +42,9 @@ impl App {
         THUMB_W * tallest + LABEL_H + ROW_GAP
     }
 
-    pub(super) fn sidebar(&mut self, ui: &mut egui::Ui) {
-        let c = Colors::new(&self.palette);
+    /// The sidebar's tabs (none when there are only pages). Goes back to
+    /// Pages if the current tab is gone.
+    fn side_tabs(&mut self) -> Vec<(SideTab, &'static str)> {
         let has_outline = self
             .doc
             .as_ref()
@@ -57,15 +58,53 @@ impl App {
         {
             self.side_tab = SideTab::Pages;
         }
-        if has_outline || signed {
-            let mut tabs = vec![(SideTab::Pages, "Pages")];
-            if has_outline {
-                tabs.push((SideTab::Outline, "Outline"));
-            }
-            if signed {
-                tabs.push((SideTab::Signatures, "Signatures"));
-            }
-            if let Some(t) = crate::assist_ui::widgets::segmented(ui, &c, &tabs, self.side_tab) {
+        if !has_outline && !signed {
+            return vec![];
+        }
+        let mut tabs = vec![(SideTab::Pages, "Pages")];
+        if has_outline {
+            tabs.push((SideTab::Outline, "Outline"));
+        }
+        if signed {
+            tabs.push((SideTab::Signatures, "Signatures"));
+        }
+        tabs
+    }
+
+    /// The sidebar as a left panel, as wide as the current tab needs: the
+    /// thumbnails are narrow, the signatures' cards wide. Each tab keeps its
+    /// own width if dragged.
+    pub(super) fn sidebar_panel(&mut self, ui: &mut egui::Ui) {
+        let tabs = self.side_tabs();
+        let labels: Vec<&str> = tabs.iter().map(|(_, l)| *l).collect();
+        // The frame's margins on both sides.
+        let tab_bar = if tabs.is_empty() {
+            0.0
+        } else {
+            crate::assist_ui::widgets::segmented_min_width(ui, &labels) + 12.0
+        };
+        let content = match self.side_tab {
+            SideTab::Pages => THUMB_W + 16.0 + 12.0,
+            SideTab::Outline => 230.0,
+            SideTab::Signatures => 280.0,
+        };
+        let width = content.max(tab_bar);
+        egui::Panel::left(("sidebar", self.side_tab))
+            .resizable(true)
+            .default_size(width)
+            .size_range(tab_bar.max(130.0)..=480.0)
+            .frame(
+                egui::Frame::new()
+                    .fill(self.palette.toolbar)
+                    .inner_margin(egui::Margin::symmetric(6, 6)),
+            )
+            .show(ui, |ui| self.sidebar(ui, &tabs));
+    }
+
+    fn sidebar(&mut self, ui: &mut egui::Ui, tabs: &[(SideTab, &str)]) {
+        let c = Colors::new(&self.palette);
+        if !tabs.is_empty() {
+            if let Some(t) = crate::assist_ui::widgets::segmented(ui, &c, tabs, self.side_tab) {
                 self.side_tab = t;
             }
             ui.add_space(8.0);

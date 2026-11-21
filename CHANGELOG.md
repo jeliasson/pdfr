@@ -13,6 +13,9 @@ version's section into its GitHub release notes.
 - **The Signatures sidebar matches the rest of pdfr:** one card per
   signature, with who signed and the verdict on top and the details below.
   The sidebar's tabs are a segmented control.
+- **The sidebar fits what it shows:** narrow for page thumbnails, wider
+  for the outline and the signatures. Each tab keeps its own width if you
+  drag the edge.
 
 ### Fixed
 

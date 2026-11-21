@@ -363,6 +363,31 @@ pub(crate) fn link(ui: &mut Ui, c: &Colors, label: &str) -> egui::Response {
         .on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
+const SEGMENT_FONT: f32 = 12.5;
+/// Room around a segment's label.
+const SEGMENT_PAD: f32 = 18.0;
+
+fn label_width(ui: &Ui, label: &str) -> f32 {
+    ui.fonts_mut(|f| {
+        f.layout_no_wrap(
+            label.to_string(),
+            egui::FontId::proportional(SEGMENT_FONT),
+            Color32::WHITE,
+        )
+        .size()
+        .x
+    })
+}
+
+/// The narrowest a segmented control with these labels can be.
+pub(crate) fn segmented_min_width(ui: &Ui, labels: &[&str]) -> f32 {
+    labels
+        .iter()
+        .map(|l| label_width(ui, l) + SEGMENT_PAD)
+        .sum::<f32>()
+        + 6.0
+}
+
 /// A row of tabs as one rounded, segmented control, as wide as the space
 /// it is given. Returns the tab clicked, if it is not the current one.
 pub(crate) fn segmented<T: Copy + PartialEq>(
@@ -380,13 +405,20 @@ pub(crate) fn segmented<T: Copy + PartialEq>(
         egui::StrokeKind::Inside,
     );
     let inner = outer.shrink(3.0);
-    let w = inner.width() / tabs.len().max(1) as f32;
+    // Each segment fits its label; the room left is shared equally.
+    let texts: Vec<f32> = tabs
+        .iter()
+        .map(|(_, l)| label_width(ui, l) + SEGMENT_PAD)
+        .collect();
+    let spare = (inner.width() - texts.iter().sum::<f32>()).max(0.0) / tabs.len().max(1) as f32;
+    let mut x = inner.left();
     let mut picked = None;
     for (i, &(t, label)) in tabs.iter().enumerate() {
         let r = egui::Rect::from_min_size(
-            egui::pos2(inner.left() + i as f32 * w, inner.top()),
-            vec2(w, inner.height()),
+            egui::pos2(x, inner.top()),
+            vec2(texts[i] + spare, inner.height()),
         );
+        x = r.right();
         let selected = t == current;
         let resp = ui.interact(r, ui.scope_id().with(("segment", label)), Sense::click());
         resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Tab, true, selected, label));
