@@ -16,6 +16,36 @@ version's section into its GitHub release notes.
 - **Explain this form.** With AI on, the check can explain in plain words
   what the form is for and what each part asks. Only headings and box
   labels are sent, never your answers.
+- **Comments and markup.** Add notes (Ctrl+Shift+A), highlight selected
+  text (Ctrl+Shift+H), underline or strike it through, type a text box
+  anywhere (Ctrl+Shift+T), and draw rectangles, ellipses and arrows in six
+  colours from the new Markup button. Select one to move, resize, recolour
+  or delete it. They are saved as standard PDF comments, so other PDF apps
+  show them too, and comments already in a file can be edited or removed.
+  A Comments tab in the sidebar lists them all. Adding comments to a
+  digitally signed file keeps its signature valid.
+- **Organise pages.** Drag thumbnails in the sidebar to move pages; Ctrl
+  or Shift+click picks several. Right-click a page to turn, delete or
+  extract it, add a blank page, or insert pages from a file: another PDF
+  (its fields come along) or a JPEG/PNG picture. Ctrl+Shift+M inserts pages
+  after the current one. Every change can be undone. A digitally signed
+  file asks first, because changing its pages removes the signatures.
+- **Redact** (Ctrl+Shift+X): drag boxes, mark the selected text, or mark
+  every place a word or number appears. Applying removes the text,
+  pictures and form fields under the boxes for good, not just covers them,
+  and saves a new copy ("name (redacted).pdf"); the original stays as it
+  is.
+- **Revoked certificates are caught.** Checking a signed file now also
+  checks whether the signer's certificate was revoked, from the proof
+  inside the file or by asking the certificate's issuer (Settings →
+  Signing with a certificate; on by default). A signature made after its
+  certificate was revoked is not valid; one timestamped before stays
+  valid. The signature card says how it was checked.
+- **Signatures that last.** Files you sign with a timestamp now carry the
+  proof needed to check them years from now, even offline and after your
+  certificate expires (PAdES B-LT, sealed with a document timestamp as
+  B-LTA). If that proof can't be fetched, the signature is still made and
+  the status line says so.
 - **XFA forms are explained.** Forms made only for Adobe Reader (XFA),
   which no other PDF app can show, now say so when opened instead of
   showing a "Please wait…" page.
