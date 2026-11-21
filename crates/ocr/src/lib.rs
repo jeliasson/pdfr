@@ -22,17 +22,22 @@ pub struct ModelFile {
     pub sha256: &'static str,
 }
 
-/// The models, pinned to the files the ocrs 0.14 tools download.
+/// The models, pinned to the files the ocrs 0.14 tools download, served
+/// from pdfr's own GitHub release `ocr-models-1` (unchanged copies) so
+/// reading scans doesn't depend on another server.
+///
+/// Ocrs models (<https://github.com/robertknight/ocrs-models>), trained on
+/// the HierText dataset by Google Research. Licensed under CC BY-SA 4.0.
 pub const MODELS: [ModelFile; 2] = [
     ModelFile {
         name: "text-detection.onnx",
-        url: "https://ocrs-models.s3-accelerate.amazonaws.com/text-detection.onnx",
+        url: "https://github.com/kjellberg/pdfr/releases/download/ocr-models-1/text-detection.onnx",
         bytes: 2_499_479,
         sha256: "a917b23dbd9524b465df7e922641b3ff2981623df4ded5a0234004ef2fee7cfe",
     },
     ModelFile {
         name: "text-recognition.onnx",
-        url: "https://ocrs-models.s3-accelerate.amazonaws.com/text-recognition.onnx",
+        url: "https://github.com/kjellberg/pdfr/releases/download/ocr-models-1/text-recognition.onnx",
         bytes: 9_713_177,
         sha256: "86c145c2edb96c8caed5b1ebb8f44d706408922211451c309c625157dd6061c5",
     },
