@@ -69,6 +69,8 @@ pub struct Doc {
     pub name: String,
     pub form: Arc<FormDoc>,
     pub entries: Vec<Entry>,
+    /// Comments and markup, with stable ids.
+    pub marks: Vec<markup::MarkEntry>,
     next_id: u64,
     pub order: Vec<u64>,
     sizes: Vec<(f32, f32)>,
@@ -168,6 +170,12 @@ enum Tool {
     PlaceDate,
     /// Marking areas to redact.
     Redact,
+    /// Putting a note where the user clicks.
+    Note,
+    /// Dragging (or clicking) a text box onto the page.
+    TextBox,
+    /// Dragging a rectangle, ellipse or arrow.
+    Shape(pdfr_core::markup::MarkKind),
 }
 
 pub struct App {
@@ -209,6 +217,8 @@ pub struct App {
     search: Option<search::Search>,
     /// Page text selected with the mouse.
     text_sel: Option<select::TextSel>,
+    /// Comments and markup: the selected one, dragging, editing, colour.
+    marks_ui: markup::MarksUi,
     /// The right-click menu of the page (not of a box) is open.
     page_menu_open: bool,
     /// Where on which page it was opened (points).
@@ -336,6 +346,7 @@ impl App {
             redact: Default::default(),
             search: None,
             text_sel: None,
+            marks_ui: Default::default(),
             page_menu_open: false,
             page_menu_at: None,
             back: vec![],
@@ -822,6 +833,7 @@ mod hints;
 mod history;
 mod links;
 mod pages;
+pub(crate) mod markup;
 mod palette;
 mod present;
 mod print;

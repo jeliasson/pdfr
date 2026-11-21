@@ -8,6 +8,7 @@ use crate::forms::{
 };
 use crate::geom::{PageGeom, Rect};
 use crate::layout::layout;
+use crate::markup::Markup;
 use crate::pdf_font::{ensure_font, num};
 use lopdf::{Dictionary, Document, Object, Stream, StringFormat, dictionary, text_string};
 use std::collections::{HashMap, HashSet};
@@ -451,7 +452,12 @@ fn cells_are_even(rect: &Rect, cells: &[(f32, f32)]) -> bool {
 /// A digitally signed file gets the changes appended after its signatures
 /// (an incremental update), so they stay valid; other files are rewritten.
 pub fn save(fd: &FormDoc, fields: &[Field]) -> Result<Vec<u8>, SaveError> {
-    let d = build(fd, fields)?;
+    save_with(fd, fields, &fd.markups)
+}
+
+/// Like [`save`], with the document's comments and markup now `marks`.
+pub fn save_with(fd: &FormDoc, fields: &[Field], marks: &[Markup]) -> Result<Vec<u8>, SaveError> {
+    let d = build_with(fd, fields, marks)?;
     write_doc(fd, &d)
 }
 
@@ -518,8 +524,19 @@ pub(crate) fn append_update(
     Ok(out)
 }
 
+/// `fd`'s document with `fields` and `marks` written into it.
+pub(crate) fn build_with(
+    fd: &FormDoc,
+    fields: &[Field],
+    marks: &[Markup],
+) -> Result<Document, SaveError> {
+    let mut d = build_fields(fd, fields)?;
+    crate::markup::write(&mut d, &fd.page_ids, &fd.pages, &fd.markups, marks);
+    Ok(d)
+}
+
 /// `fd`'s document with `fields` written into it.
-pub(crate) fn build(fd: &FormDoc, fields: &[Field]) -> Result<Document, SaveError> {
+fn build_fields(fd: &FormDoc, fields: &[Field]) -> Result<Document, SaveError> {
     let Some(orig) = &fd.doc else {
         return Err(SaveError::ReadOnly);
     };

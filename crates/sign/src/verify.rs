@@ -696,6 +696,12 @@ fn classify(rev: &lopdf::Document, cur: &lopdf::Document) -> std::collections::B
         })
         .collect();
     let validation = validation_objects(cur);
+    // Pages' /Annots arrays kept as objects of their own.
+    let annot_arrays: std::collections::HashSet<lopdf::ObjectId> = pages
+        .iter()
+        .filter_map(|p| cur.get_dictionary(*p).ok())
+        .filter_map(|p| p.get(b"Annots").ok()?.as_reference().ok())
+        .collect();
     for (id, o) in &cur.objects {
         let old = rev.objects.get(id);
         if old == Some(o) {
@@ -759,6 +765,8 @@ fn classify(rev: &lopdf::Document, cur: &lopdf::Document) -> std::collections::B
             } else {
                 Kind::Other
             }
+        } else if annot_arrays.contains(id) {
+            Kind::Annot
         } else if content_streams.contains(id) || name(b"Type").as_deref() == Some(b"Pages") {
             Kind::Other
         } else if name(b"Type").as_deref() == Some(b"Sig") || name(b"FT").as_deref() == Some(b"Sig")

@@ -40,6 +40,16 @@ pub enum Icon {
     /// Pages: two sheets, one behind the other.
     Pages,
     Redact,
+    /// Comments and markup: a pen over a wavy line.
+    Markup,
+    Note,
+    TextBox,
+    Marker,
+    Underline,
+    Strike,
+    Rectangle,
+    Ellipse,
+    Arrow,
 }
 
 /// Maps the 24×24 design grid into a rectangle.
@@ -247,6 +257,110 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 color,
             );
             line(&[(8.5, 16.5), (13.0, 16.5)]);
+        }
+        Icon::Markup => {
+            // A pen writing down to the left, over a wavy line.
+            closed(&[
+                (6.0, 15.5),
+                (6.6, 12.5),
+                (15.4, 3.7),
+                (18.3, 6.6),
+                (9.5, 15.4),
+            ]);
+            line(&[(13.6, 5.5), (16.5, 8.4)]);
+            line(&smooth(&[
+                (3.5, 20.0),
+                (6.5, 18.5),
+                (9.5, 20.0),
+                (12.5, 18.5),
+                (15.5, 20.0),
+                (18.5, 18.5),
+                (20.5, 19.5),
+            ]));
+        }
+        Icon::Note => {
+            // A speech bubble with lines of writing.
+            line(&smooth_corners_open(&[
+                (8.0, 17.0),
+                (4.0, 17.0),
+                (4.0, 4.5),
+                (20.0, 4.5),
+                (20.0, 17.0),
+                (12.5, 17.0),
+            ]));
+            line(&[(12.5, 17.0), (8.0, 21.0), (8.0, 17.0)]);
+            line(&[(8.0, 9.0), (16.0, 9.0)]);
+            line(&[(8.0, 12.5), (13.5, 12.5)]);
+        }
+        Icon::TextBox => {
+            // A T inside corner marks.
+            line(&[(8.0, 8.0), (16.0, 8.0)]);
+            line(&[(12.0, 8.0), (12.0, 17.0)]);
+            for (x, y, dx, dy) in [
+                (3.5, 3.5, 1.0, 1.0),
+                (20.5, 3.5, -1.0, 1.0),
+                (3.5, 20.5, 1.0, -1.0),
+                (20.5, 20.5, -1.0, -1.0),
+            ] {
+                line(&[(x, y + 3.5 * dy), (x, y), (x + 3.5 * dx, y)]);
+            }
+        }
+        Icon::Marker => {
+            // A highlighter's chisel tip over a thick stroke.
+            closed(&[
+                (8.0, 15.0),
+                (8.0, 11.5),
+                (15.5, 4.0),
+                (19.5, 8.0),
+                (12.0, 15.5),
+                (8.5, 15.5),
+            ]);
+            line(&[(6.5, 17.0), (8.0, 15.0)]);
+            painter.add(Shape::line(
+                g.pts(&[(3.5, 20.0), (20.5, 20.0)]),
+                Stroke::new(w * 2.0, color),
+            ));
+        }
+        Icon::Underline => {
+            line(&smooth(&[
+                (7.0, 4.0),
+                (7.0, 11.0),
+                (8.5, 14.5),
+                (12.0, 15.5),
+                (15.5, 14.5),
+                (17.0, 11.0),
+                (17.0, 4.0),
+            ]));
+            line(&[(5.0, 20.0), (19.0, 20.0)]);
+        }
+        Icon::Strike => {
+            // An S with a line through it.
+            line(&smooth(&[
+                (16.5, 6.5),
+                (12.0, 4.5),
+                (7.5, 6.5),
+                (8.0, 10.0),
+                (12.0, 12.0),
+                (16.0, 14.0),
+                (16.5, 17.5),
+                (12.0, 19.5),
+                (7.0, 17.5),
+            ]));
+            line(&[(4.0, 12.0), (20.0, 12.0)]);
+        }
+        Icon::Rectangle => rrect(3.5, 6.0, 17.0, 12.0, 1.5),
+        Icon::Ellipse => {
+            let pts: Vec<(f32, f32)> = (0..32)
+                .map(|k| {
+                    let a = 2.0 * PI * k as f32 / 32.0;
+                    (12.0 + 8.5 * a.cos(), 12.0 + 6.5 * a.sin())
+                })
+                .collect();
+            closed(&pts);
+        }
+        Icon::Arrow => {
+            line(&[(5.0, 19.0), (19.0, 5.0)]);
+            line(&[(11.0, 5.0), (19.0, 5.0), (19.0, 13.0)]);
         }
         Icon::Moon => {
             // A crescent: an outer arc and an inner one.

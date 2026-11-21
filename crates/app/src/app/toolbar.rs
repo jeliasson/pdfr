@@ -18,6 +18,7 @@ const GAP: f32 = 10.0;
 impl App {
     pub(crate) fn toolbar(&mut self, ui: &mut egui::Ui) {
         let mut clicked: Option<Command> = None;
+        let mut anchor = None;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             for (gi, group) in Command::TOOLBAR.iter().enumerate() {
@@ -29,8 +30,12 @@ impl App {
                         if i > 0 {
                             app.divider(ui);
                         }
-                        if app.icon_button(ui, c) {
+                        let (hit, rect) = app.icon_button(ui, c);
+                        if hit {
                             clicked = Some(c);
+                        }
+                        if c == Command::Markup {
+                            anchor = Some(rect);
                         }
                         // The zoom level sits between zoom out and zoom in.
                         if c == Command::ZoomOut && app.doc.is_some() {
@@ -57,7 +62,7 @@ impl App {
             // Settings at the far right.
             ui.add_space((ui.available_width() - BUTTON.x - 2.0 * INSET).max(GAP));
             self.capsule(ui, |app, ui| {
-                if app.icon_button(ui, Command::Settings) {
+                if app.icon_button(ui, Command::Settings).0 {
                     clicked = Some(Command::Settings);
                 }
             });
@@ -65,6 +70,9 @@ impl App {
         if let Some(c) = clicked {
             self.run(c);
         }
+        self.marks_ui.anchor = anchor;
+        let ctx = ui.ctx().clone();
+        self.markup_menu(&ctx);
     }
 
     /// The capsule's fill and outline, from the theme.
@@ -122,8 +130,8 @@ impl App {
         );
     }
 
-    /// One icon button. Returns true when clicked.
-    fn icon_button(&self, ui: &mut egui::Ui, c: Command) -> bool {
+    /// One icon button. Returns whether it was clicked, and where it is.
+    fn icon_button(&self, ui: &mut egui::Ui, c: Command) -> (bool, Rect) {
         let enabled = self.can(c);
         let on = self.is_on(c);
         let (rect, resp) = ui.allocate_exact_size(
@@ -165,6 +173,6 @@ impl App {
         } else {
             resp
         };
-        enabled && resp.clicked()
+        (enabled && resp.clicked(), rect)
     }
 }

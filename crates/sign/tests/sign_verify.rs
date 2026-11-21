@@ -204,6 +204,43 @@ fn sign_then_verify_then_tamper() {
 }
 
 #[test]
+fn comments_after_signing_keep_the_signature_valid() {
+    use pdfr_core::markup::{MarkKind, Markup};
+    let pki = pki();
+    let signer = pdfr_sign::signer::p12::open(&pki.p12, "secret").unwrap();
+    let fd = FormDoc::open(sample("real_form.pdf")).unwrap();
+    let signed = sign_with(&fd, &fd.fields, &signer, &request(None));
+    let fd2 = FormDoc::open(signed.clone()).unwrap();
+    let g = fd2.pages[0];
+    let mut note = Markup::note(0, &g, 100.0, 100.0, [255, 212, 0]);
+    note.text = "Looks good".into();
+    let marks = vec![
+        note,
+        Markup::shape(
+            MarkKind::Square,
+            0,
+            &g,
+            (50.0, 50.0),
+            (150.0, 90.0),
+            [255, 0, 0],
+        ),
+    ];
+    let after = pdfr_core::save::save_with(&fd2, &fd2.fields, &marks).unwrap();
+    assert!(after.starts_with(&signed), "added as an update");
+    let fd3 = FormDoc::open(after.clone()).unwrap();
+    assert_eq!(fd3.markups.len(), 2);
+    let r = &verify_all(&after, &fd3.digital, &store(&pki.ca))[0];
+    assert_eq!(r.status, Status::Valid, "{:?}", r.problem);
+    match &r.after {
+        After::Changes { allowed, what } => {
+            assert!(allowed, "{what:?}");
+            assert!(what.iter().any(|w| w.contains("comments")), "{what:?}");
+        }
+        a => panic!("{a:?}"),
+    }
+}
+
+#[test]
 fn changing_the_page_after_signing_is_reported() {
     let pki = pki();
     let signer = pdfr_sign::signer::p12::open(&pki.p12, "secret").unwrap();

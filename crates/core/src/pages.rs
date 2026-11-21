@@ -102,9 +102,15 @@ impl FormDoc {
     }
 }
 
-/// A new PDF of `pages` (in that order) of `fd`, with `fields` filled in.
-pub fn extract(fd: &FormDoc, fields: &[Field], pages: &[usize]) -> Result<Vec<u8>> {
-    let mut d = crate::save::build(fd, fields).map_err(|e| e.to_string())?;
+/// A new PDF of `pages` (in that order) of `fd`, with `fields` filled in
+/// and `marks` (comments and markup) on them.
+pub fn extract(
+    fd: &FormDoc,
+    fields: &[Field],
+    marks: &[crate::markup::Markup],
+    pages: &[usize],
+) -> Result<Vec<u8>> {
+    let mut d = crate::save::build_with(fd, fields, marks).map_err(|e| e.to_string())?;
     prepare(&mut d, &fd.page_ids, fd.is_digitally_signed());
     let ids: Vec<ObjId> = pages
         .iter()

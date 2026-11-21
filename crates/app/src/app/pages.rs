@@ -114,6 +114,29 @@ impl App {
             }
             None => false,
         });
+        // Comments and redaction marks follow their page too.
+        doc.marks.retain_mut(|e| match new_page(e.m.page) {
+            Some(n) => {
+                e.m.page = n;
+                true
+            }
+            None => false,
+        });
+        doc.redactions.retain_mut(|r| match new_page(r.page) {
+            Some(n) => {
+                r.page = n;
+                true
+            }
+            None => false,
+        });
+        // The comments of inserted pages.
+        for m in form
+            .markups
+            .iter()
+            .filter(|m| map.get(m.page) == Some(&None))
+        {
+            doc.add_mark(m.clone());
+        }
         // The fields of inserted pages.
         for f in form
             .fields
@@ -252,7 +275,7 @@ impl App {
             self.status = "Not extracted: the document changed meanwhile.".into();
             return;
         };
-        let res = pdfr_core::pages::extract(&doc.form, &doc.fields(), pages)
+        let res = pdfr_core::pages::extract(&doc.form, &doc.fields(), &doc.mark_list(), pages)
             .and_then(|b| std::fs::write(&target, b).map_err(|e| e.to_string()));
         self.status = match res {
             Ok(()) => format!("Saved {} as {}.", pages_text(pages), target.display()),

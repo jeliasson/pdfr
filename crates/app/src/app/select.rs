@@ -160,6 +160,8 @@ impl App {
         let mut redact = false;
         let editable = self.doc.as_ref().is_some_and(|d| d.form.editable());
         let mut edit = false;
+        let mut mark = None;
+        let can_mark = text.is_some() && self.can(super::commands::Command::HighlightText);
         let shown = resp.context_menu(|ui| {
             if printed.is_some() {
                 if ui
@@ -199,7 +201,25 @@ impl App {
                     ui.close();
                 }
             }
+            if can_mark {
+                ui.separator();
+                use super::commands::Command;
+                for (c, label) in [
+                    (Command::HighlightText, "Highlight"),
+                    (Command::UnderlineText, "Underline"),
+                    (Command::StrikeText, "Strike through"),
+                    (Command::CommentText, "Comment…"),
+                ] {
+                    if ui.button(label).clicked() {
+                        mark = Some(c);
+                        ui.close();
+                    }
+                }
+            }
         });
+        if let Some(c) = mark {
+            self.run(c);
+        }
         if copy {
             self.copy_selection(ctx);
         }
@@ -214,7 +234,7 @@ impl App {
             self.update_search(&q);
             self.open_palette(super::palette::Scope::Find);
         }
-        if shown.is_none() || copy || find || edit || redact {
+        if shown.is_none() || copy || find || edit || redact || mark.is_some() {
             self.page_menu_open = false;
         }
     }

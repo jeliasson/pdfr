@@ -181,7 +181,7 @@ fn extract_pages_to_a_new_file() {
     let two = fd.with_blank_page(1, 0).unwrap();
     let mut fields2 = two.fields.clone();
     fields2[i].value = "Extracted".into();
-    let out = extract(&two, &fields2, &[0]).unwrap();
+    let out = extract(&two, &fields2, &two.markups, &[0]).unwrap();
     let ex = FormDoc::open(out.clone()).unwrap();
     assert_eq!(ex.pages.len(), 1);
     assert_eq!(texts(&out)[0], texts(&fd.bytes)[0]);
@@ -190,7 +190,7 @@ fn extract_pages_to_a_new_file() {
     assert_eq!(two.pages.len(), 2);
     // Page order follows the list.
     let links = open("links.pdf");
-    let out = extract(&links, &[], &[2, 1]).unwrap();
+    let out = extract(&links, &[], &links.markups, &[2, 1]).unwrap();
     let t = texts(&links.bytes);
     assert_eq!(texts(&out), vec![t[2].clone(), t[1].clone()]);
 }

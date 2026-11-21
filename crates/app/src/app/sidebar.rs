@@ -73,6 +73,8 @@ pub(super) enum SideTab {
     Outline,
     /// The document's digital signatures and their checks.
     Signatures,
+    /// Notes and markup.
+    Comments,
 }
 
 impl App {
@@ -109,12 +111,14 @@ impl App {
             .doc
             .as_ref()
             .is_some_and(|d| d.form.is_digitally_signed());
+        let has_marks = self.doc.as_ref().is_some_and(|d| !d.marks.is_empty());
         if (!has_outline && self.side_tab == SideTab::Outline)
             || (!signed && self.side_tab == SideTab::Signatures)
+            || (!has_marks && self.side_tab == SideTab::Comments)
         {
             self.side_tab = SideTab::Pages;
         }
-        if !has_outline && !signed {
+        if !has_outline && !signed && !has_marks {
             return vec![];
         }
         let mut tabs = vec![(SideTab::Pages, "Pages")];
@@ -123,6 +127,9 @@ impl App {
         }
         if signed {
             tabs.push((SideTab::Signatures, "Signatures"));
+        }
+        if has_marks {
+            tabs.push((SideTab::Comments, "Comments"));
         }
         tabs
     }
@@ -143,6 +150,7 @@ impl App {
             SideTab::Pages => THUMB_W + 16.0 + 12.0,
             SideTab::Outline => 230.0,
             SideTab::Signatures => 280.0,
+            SideTab::Comments => 260.0,
         };
         let width = content.max(tab_bar);
         egui::Panel::left(("sidebar", self.side_tab))
@@ -169,6 +177,7 @@ impl App {
             SideTab::Pages => self.thumbnails(ui, &c),
             SideTab::Outline => self.outline(ui, &c),
             SideTab::Signatures => self.signatures_panel(ui, &c),
+            SideTab::Comments => self.comments_panel(ui, &c),
         }
     }
 

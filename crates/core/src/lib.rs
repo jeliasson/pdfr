@@ -12,6 +12,7 @@ pub mod forms;
 pub mod geom;
 pub mod layout;
 pub mod links;
+pub mod markup;
 pub mod outline;
 pub mod pages;
 pub mod pdf_font;
