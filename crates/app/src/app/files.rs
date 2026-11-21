@@ -250,6 +250,8 @@ impl App {
             text: HashMap::new(),
             text_links: HashMap::new(),
             thumbs: HashMap::new(),
+            unread_scans: Default::default(),
+            reading: false,
         };
         for f in &form.fields {
             doc.add(f.clone());

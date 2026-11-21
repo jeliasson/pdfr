@@ -2,7 +2,7 @@
 
 use crate::draw::{self, PageXf};
 use crate::theme::{self, Palette};
-use crate::worker::{Msg, Worker};
+use crate::worker::{Msg, Scan, Worker};
 use eframe::egui::{
     self, Color32, CursorIcon, Event, EventFilter, Id, Key, Modifiers, Pos2, Rect, Sense, Stroke,
     TextureHandle, Vec2, pos2, vec2,
@@ -88,6 +88,11 @@ pub struct Doc {
     pub text_links: HashMap<usize, Vec<pdfr_core::links::Link>>,
     /// Sidebar thumbnails.
     thumbs: HashMap<usize, TextureHandle>,
+    /// Scanned pages whose text could not be read yet (reading is off or
+    /// its models are not downloaded).
+    pub unread_scans: std::collections::BTreeSet<usize>,
+    /// A scanned page is being read: the status line says so.
+    pub reading: bool,
 }
 
 impl Doc {
@@ -259,6 +264,8 @@ pub struct App {
     cups_dialog: Option<print::CupsDialog>,
     /// Hidden demo recorder (`--record`).
     rec: Option<record::Recorder>,
+    /// Reading scanned text: the setting as applied, the model download.
+    ocr: ocr::OcrState,
     egui_ctx: egui::Context,
 }
 
@@ -358,12 +365,14 @@ impl App {
                 }
                 _ => None,
             },
+            ocr: Default::default(),
             egui_ctx: ctx.clone(),
         };
         if let Some(s) = &cli.settings {
             app.assist.open_settings(s);
         }
         app.follow_dark_pages();
+        app.follow_ocr();
         if let Some(p) = cli.file {
             app.open(p);
         }
@@ -372,6 +381,7 @@ impl App {
 
     fn poll(&mut self, ctx: &egui::Context) {
         self.follow_dark_pages();
+        self.follow_ocr();
         self.poll_dialog();
         for p in crate::system::take_opened() {
             self.open_from_system(p);
@@ -407,6 +417,7 @@ impl App {
             }
         }
         let mut detected_any = false;
+        let mut unread = false;
         while let Ok(msg) = self.worker.rx.try_recv() {
             let Some(doc) = &mut self.doc else { continue };
             match msg {
@@ -443,11 +454,16 @@ impl App {
                     }
                     self.thumbs_asked.retain(|p| *p != page);
                 }
+                Msg::Reading { generation } if generation == doc.generation => {
+                    doc.reading = true;
+                }
                 Msg::Text {
                     generation,
                     page,
                     text,
+                    scan,
                 } if generation == doc.generation => {
+                    unread |= Self::note_scan(doc, page, scan);
                     doc.text.insert(page, text);
                     Self::add_text_links(doc, page);
                 }
@@ -456,11 +472,17 @@ impl App {
                     page,
                     fields,
                     text,
+                    scan,
                 } if generation == doc.generation => {
                     doc.detected[page] = true;
-                    // Panels that already hold printed answers start with them.
+                    unread |= Self::note_scan(doc, page, scan);
+                    // Panels that already hold printed answers start with
+                    // them (not with words read from a scan: they may be
+                    // misread).
                     let mut fields = fields;
-                    pdfr_core::detect::prefill_printed(&mut fields, &text);
+                    if scan == Scan::Digital {
+                        pdfr_core::detect::prefill_printed(&mut fields, &text);
+                    }
                     doc.text.insert(page, text);
                     Self::add_text_links(doc, page);
                     let existing: Vec<Field> = doc.entries.iter().map(|e| e.f.clone()).collect();
@@ -484,6 +506,9 @@ impl App {
                 }
                 _ => {}
             }
+        }
+        if unread {
+            self.on_unread_scan();
         }
         if detected_any {
             let doc = self.doc.as_mut().unwrap();
@@ -520,7 +545,9 @@ impl App {
                     let cur = self.current_page();
                     ui.label(format!("Page {} of {n}", cur + 1));
                     let left = doc.detected.iter().filter(|d| !**d).count();
-                    if left > 0 {
+                    if let Some(s) = self.ocr_status() {
+                        ui.label(s);
+                    } else if left > 0 {
                         ui.label(format!("Finding fields… {left} pages left"));
                     }
                     if let Some(s) = self.assist.status_text() {
@@ -779,6 +806,7 @@ mod files;
 mod hints;
 mod history;
 mod links;
+mod ocr;
 mod palette;
 mod present;
 mod print;

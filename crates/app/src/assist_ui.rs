@@ -65,6 +65,9 @@ pub struct AssistState {
     no_ai: bool,
     last_ai: Option<String>,
     sys: system_ui::SystemUi,
+    /// Where the text reader's models are kept (Settings shows whether
+    /// they are there).
+    ocr_dir: Option<std::path::PathBuf>,
 }
 
 impl AssistState {
@@ -74,6 +77,7 @@ impl AssistState {
         data_dir: Option<std::path::PathBuf>,
         auto_remember: bool,
     ) -> AssistState {
+        let ocr_dir = pdfr_license::data_dir(data_dir.as_deref()).map(|d| pdfr_ocr::model_dir(&d));
         let a = match data_dir {
             Some(d) => Assistant::open_at(Some(d.join("memory.json"))),
             None => Assistant::open_default(),
@@ -101,6 +105,7 @@ impl AssistState {
             no_ai,
             last_ai: None,
             sys: Default::default(),
+            ocr_dir,
         }
     }
 

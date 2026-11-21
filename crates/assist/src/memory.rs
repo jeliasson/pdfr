@@ -59,6 +59,10 @@ pub struct Settings {
     /// apps show it).
     #[serde(default = "yes")]
     pub show_fields: bool,
+    /// Read the text of scanned pages on this computer (OCR), so search,
+    /// copy and suggestions work on scans.
+    #[serde(default = "yes")]
+    pub read_scans: bool,
     /// Keep a list of recently opened files and where they were left.
     #[serde(default = "yes")]
     pub remember_recent: bool,
@@ -135,6 +139,7 @@ impl Default for Settings {
             sidebar: false,
             dark_pages: false,
             show_fields: true,
+            read_scans: true,
             remember_recent: true,
             recent: vec![],
             sign_timestamp: true,

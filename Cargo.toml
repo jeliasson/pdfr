@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/assist", "crates/license", "crates/sign", "crates/app"]
+members = ["crates/core", "crates/ocr", "crates/assist", "crates/license", "crates/sign", "crates/app"]
 
 [workspace.package]
 version = "0.4.0"
@@ -22,3 +22,29 @@ opt-level = 2
 # hold up page renders long enough to show blank pages while scrolling.
 [profile.dev.package.pdfr-core]
 opt-level = 2
+
+# The OCR models' maths (scanned pages): with debug checks a page takes
+# minutes in debug builds instead of seconds.
+[profile.dev.package.rten]
+debug-assertions = false
+overflow-checks = false
+
+[profile.dev.package.rten-gemm]
+debug-assertions = false
+overflow-checks = false
+
+[profile.dev.package.rten-simd]
+debug-assertions = false
+overflow-checks = false
+
+[profile.dev.package.rten-vecmath]
+debug-assertions = false
+overflow-checks = false
+
+[profile.dev.package.rten-tensor]
+debug-assertions = false
+overflow-checks = false
+
+[profile.dev.package.ocrs]
+debug-assertions = false
+overflow-checks = false

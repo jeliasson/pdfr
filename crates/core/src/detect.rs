@@ -1690,6 +1690,23 @@ pub fn detect_page<'a>(
     cache: &crate::render::RenderCache<'a>,
     index: usize,
 ) -> Vec<Field> {
+    detect_page_gray(page, cache, index).0
+}
+
+/// A grey page render at [`DETECT_SCALE`], one byte per pixel.
+pub struct PageGray {
+    pub w: usize,
+    pub h: usize,
+    pub px: Vec<u8>,
+}
+
+/// Like [`detect_page`], also handing back the grey render it used (for
+/// reading scanned text without rendering the page again).
+pub fn detect_page_gray<'a>(
+    page: &'a hayro::hayro_syntax::page::Page<'a>,
+    cache: &crate::render::RenderCache<'a>,
+    index: usize,
+) -> (Vec<Field>, PageGray) {
     let img = crate::render::render_page(page, cache, DETECT_SCALE);
     let gray = img.to_gray();
     let g = Gray {
@@ -1706,7 +1723,126 @@ pub fn detect_page<'a>(
             b.color = mean_colour(&img, &x.rect, b.color[0]);
         }
     }
-    f
+    let page_gray = PageGray {
+        w: img.width as usize,
+        h: img.height as usize,
+        px: gray,
+    };
+    (f, page_gray)
+}
+
+/// Whether a page has (almost) no text layer: a scan, whose text can only
+/// be read from the picture. A page number or stamp alone doesn't count.
+pub fn lacks_text(runs: &[crate::text::TextRun]) -> bool {
+    let chars: usize = runs
+        .iter()
+        .map(|r| r.text.chars().filter(|c| c.is_alphanumeric()).count())
+        .sum();
+    chars < 40
+}
+
+/// Drops found boxes that are printed text, judged by the words read from
+/// a scan: a box mostly filled by words inside it (not a label above or
+/// beside it) is a table cell or a framed paragraph, not a place to write.
+/// Checkboxes and combs are kept; a big box with a heading in it is kept.
+pub fn drop_text_boxes(fields: &mut Vec<Field>, words: &[crate::text::TextRun]) {
+    fields.retain(|f| !(f.origin == Origin::Detected && holds_text(f, words)));
+}
+
+/// Fits found boxes and words read from a scan together: boxes that are
+/// printed text go ([`drop_text_boxes`]), and checkbox outlines read as a
+/// letter ("[ Other", "L Male") are cut from the words.
+pub fn fit_scan_words(fields: &mut Vec<Field>, words: &mut Vec<crate::text::TextRun>) {
+    drop_text_boxes(fields, words);
+    let boxes: Vec<Rect> = fields
+        .iter()
+        .filter(|f| f.kind.is_toggle())
+        .map(|f| f.rect.inset(-1.5))
+        .collect();
+    for w in words.iter_mut() {
+        trim_marks(w, &boxes);
+    }
+    words.retain(|w| !w.text.is_empty());
+}
+
+/// Cuts the first and last word of a phrase when they lie on a checkbox.
+fn trim_marks(w: &mut crate::text::TextRun, boxes: &[Rect]) {
+    let chars: Vec<char> = w.text.chars().collect();
+    if chars.len() != w.xs.len() || boxes.is_empty() {
+        return;
+    }
+    let cy = w.rect.center().1;
+    let on_box = |i: usize| {
+        let cx = w.xs[i] + w.ws[i] / 2.0;
+        boxes.iter().any(|b| b.contains(cx, cy))
+    };
+    let (mut a, mut b) = (0, chars.len());
+    if let Some(sp) = chars.iter().position(|c| *c == ' ')
+        && (0..sp).all(on_box)
+    {
+        a = sp + 1;
+    }
+    if let Some(sp) = chars.iter().rposition(|c| *c == ' ')
+        && sp >= a
+        && (sp + 1..chars.len()).all(on_box)
+    {
+        b = sp;
+    }
+    if (a, b) == (0, chars.len()) {
+        return;
+    }
+    if (a..b).all(on_box) {
+        b = a;
+    }
+    w.text = chars[a..b].iter().collect();
+    w.xs = w.xs[a..b].to_vec();
+    w.ws = w.ws[a..b].to_vec();
+    if let (Some(x0), Some(x1)) = (w.xs.first(), w.xs.last().zip(w.ws.last())) {
+        w.rect.x0 = *x0;
+        w.rect.x1 = x1.0 + x1.1;
+    }
+}
+
+fn holds_text(f: &Field, words: &[crate::text::TextRun]) -> bool {
+    if !matches!(
+        f.kind.text_mode(),
+        Some(TextMode::Single | TextMode::Multi | TextMode::OnLine)
+    ) {
+        return false;
+    }
+    let r = f.rect;
+    if r.width() <= 0.0 || r.height() <= 0.0 {
+        return false;
+    }
+    let inside: Vec<&Rect> = words
+        .iter()
+        .map(|w| &w.rect)
+        .filter(|w| r.contains(w.center().0, w.center().1) && w.overlap_ratio(&r) > 0.7)
+        .collect();
+    let Some(line_h) = inside.iter().map(|w| w.height()).reduce(f32::max) else {
+        return false;
+    };
+    let area: f32 = inside
+        .iter()
+        .filter_map(|w| w.intersect(&r))
+        .map(|w| w.area())
+        .sum();
+    if r.height() < 2.5 * line_h {
+        // One line: words across most of its width.
+        let mut spans: Vec<(f32, f32)> = inside
+            .iter()
+            .map(|w| (w.x0.max(r.x0), w.x1.min(r.x1)))
+            .collect();
+        spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let (mut covered, mut end) = (0.0, r.x0);
+        for (a, b) in spans {
+            covered += (b - a.max(end)).max(0.0);
+            end = end.max(b);
+        }
+        covered > 0.6 * r.width()
+    } else {
+        area > 0.35 * r.area()
+    }
 }
 
 /// The average colour of the pixels under `r` whose grey is about `grey`

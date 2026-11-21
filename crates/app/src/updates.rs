@@ -49,6 +49,11 @@ impl Checker {
 }
 
 pub(crate) fn agent() -> ureq::Agent {
+    agent_with_timeout(15)
+}
+
+/// An HTTPS client giving up after `secs` seconds in all.
+pub(crate) fn agent_with_timeout(secs: u64) -> ureq::Agent {
     let provider = Arc::new(rustls_rustcrypto::provider());
     let tls = ureq::tls::TlsConfig::builder()
         .provider(ureq::tls::TlsProvider::Rustls)
@@ -57,7 +62,7 @@ pub(crate) fn agent() -> ureq::Agent {
         .build();
     ureq::Agent::config_builder()
         .tls_config(tls)
-        .timeout_global(Some(std::time::Duration::from_secs(15)))
+        .timeout_global(Some(std::time::Duration::from_secs(secs)))
         .user_agent(concat!("pdfr/", env!("CARGO_PKG_VERSION")))
         .build()
         .into()

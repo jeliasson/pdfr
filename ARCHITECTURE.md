@@ -7,6 +7,7 @@ How pdfr is put together, and where new features go.
 | Crate | Owns | Never |
 |---|---|---|
 | `crates/core` (`pdfr-core`) | PDF reading (`forms`), saving (`save`, `pdf_font`), field model (`field`), the one text layout used on screen *and* in saved files (`layout`), the caret editor (`edit`), field detection (`detect`), text extraction (`text`), rendering wrapper (`render`) | UI, network, user data |
+| `crates/ocr` (`pdfr-ocr`) | Reading scanned text (OCR, pure-Rust `ocrs`) into `TextRun`s; the models' pinned URLs and SHA-256 sums, checking and storing them | UI, network (the app downloads the models) |
 | `crates/assist` (`pdfr-assist`) | Labels, meanings, value memory and profiles, suggestions, the AI backend | UI, PDF writing |
 | `crates/license` (`pdfr-license`) | Licence keys: offline Ed25519 verification, the key/state files, the `pdfr-license` tool (format: `docs/license-keys.md`) | UI, network |
 | `crates/app` (`pdfr`) | The window, input, rendering threads, theming, dialogs | PDF structure details |
@@ -28,7 +29,8 @@ How pdfr is put together, and where new features go.
 | `app/editing.rs` | Focused field: keys, typing, Tab order, ghost text, value writes |
 | `app/canvas.rs` | Drawing pages and fields, pointer input, context menu, popups |
 | `app/automation.rs` | Hidden `--demo/--save/--screenshot` flags for tests |
-| `worker.rs` | Render/detect thread pool (newest request per page wins) |
+| `worker.rs` | Render/detect thread pool (newest request per page wins); reads scanned pages (one at a time) |
+| `app/ocr.rs` | "Read scanned text": the one-time model download, reading again scans found before it |
 | `assist_ui.rs` | Ghost text, suggestion list, consent and remember dialogs, settings |
 | `license_ui.rs` | Registering: the reminder for unregistered copies, the register dialog, Settings → License, the daily online check (`license_ui/online.rs`) |
 | `theme.rs` | Omarchy theme following |
@@ -66,6 +68,9 @@ How pdfr is put together, and where new features go.
   numbers including across rows of boxes (`never_store`), fields marked
   "don't remember", values deselected in the save dialog.
 - AI replies must answer every line exactly once, or are discarded.
+- Scanned pages are read (OCR) on this computer. The only network use is
+  the one-time download of two fixed model files, checked against pinned
+  SHA-256 sums; nothing about the user or their files is sent.
 
 ## Next structural steps (for Acrobat-class features)
 

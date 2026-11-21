@@ -6,10 +6,14 @@
 //! newest render request per page and serves renders before detection.
 
 use eframe::egui::{self, ColorImage, TextureHandle, TextureOptions};
+use pdfr_core::detect::DETECT_SCALE;
+use pdfr_core::detect::PageGray;
 use pdfr_core::field::Field;
 use pdfr_core::render::{RenderCache, page_geom, render_page};
+use pdfr_core::text::TextRun;
 use std::collections::{HashMap, VecDeque};
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex};
 
@@ -41,13 +45,28 @@ pub enum Msg {
         page: usize,
         fields: Vec<Field>,
         text: Vec<pdfr_core::text::TextRun>,
+        scan: Scan,
     },
     /// A page's text, for documents without detection (search, copy).
     Text {
         generation: u64,
         page: usize,
         text: Vec<pdfr_core::text::TextRun>,
+        scan: Scan,
     },
+    /// Reading a scanned page's text has started (it takes a while).
+    Reading { generation: u64 },
+}
+
+/// Where a page's text came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scan {
+    /// The page's own text layer.
+    Digital,
+    /// Read from the picture (OCR).
+    Read,
+    /// A scan that was not read: reading is off or its models are missing.
+    Unread,
 }
 
 #[derive(Default)]
@@ -63,12 +82,19 @@ struct State {
     thumbs: VecDeque<usize>,
     /// Pages are shown dark (lightness inverted).
     dark: bool,
+    /// Where the OCR models are, while reading scanned text is on and
+    /// they are there.
+    ocr: Option<PathBuf>,
     quit: bool,
 }
 
 struct Shared {
     state: Mutex<State>,
     cv: Condvar,
+    /// The OCR engine, loaded on first use. Its lock lets one page be read
+    /// at a time: the engine uses every core for it, and the page wanted
+    /// first is done soonest.
+    reader: Mutex<Option<(PathBuf, pdfr_ocr::Reader)>>,
 }
 
 pub struct Worker {
@@ -88,6 +114,7 @@ impl Worker {
         let shared = Arc::new(Shared {
             state: Mutex::new(State::default()),
             cv: Condvar::new(),
+            reader: Mutex::new(None),
         });
         let (tx, rx) = channel();
         let threads = std::thread::available_parallelism()
@@ -190,6 +217,12 @@ impl Worker {
         s.renders.retain(|p, _| keep(*p));
     }
 
+    /// Reads the text of scanned pages with the models in `dir` from now
+    /// on (`None`: scans are not read).
+    pub fn set_ocr(&self, dir: Option<PathBuf>) {
+        self.shared.state.lock().unwrap().ocr = dir;
+    }
+
     /// Moves detection of these pages to the front of the queue.
     pub fn prioritise_detection(&self, pages: &[usize]) {
         let mut s = self.shared.state.lock().unwrap();
@@ -280,11 +313,13 @@ fn serve(
                     page,
                     fields: vec![],
                     text: vec![],
+                    scan: Scan::Digital,
                 },
                 Job::Text(page) => Msg::Text {
                     generation,
                     page,
                     text: vec![],
+                    scan: Scan::Digital,
                 },
                 Job::Thumb(page) => Msg::Thumb {
                     generation,
@@ -373,20 +408,30 @@ fn serve(
                 ctx.request_repaint();
             }
             Job::Text(page) => {
-                let text = pages
+                let (text, scan) = pages
                     .get(page)
                     .and_then(|p| {
                         catch_unwind(AssertUnwindSafe(|| {
-                            pdfr_core::text::extract(p, &text_cache)
+                            let mut text = pdfr_core::text::extract(p, &text_cache);
+                            let scan = read_scan(shared, tx, generation, &mut text, || {
+                                let img = render_page(p, &cache, DETECT_SCALE);
+                                PageGray {
+                                    w: img.width as usize,
+                                    h: img.height as usize,
+                                    px: img.to_gray(),
+                                }
+                            });
+                            (text, scan)
                         }))
                         .ok()
                     })
-                    .unwrap_or_default();
+                    .unwrap_or((vec![], Scan::Digital));
                 if tx
                     .send(Msg::Text {
                         generation,
                         page,
                         text,
+                        scan,
                     })
                     .is_err()
                 {
@@ -402,6 +447,7 @@ fn serve(
                             page,
                             fields: vec![],
                             text: vec![],
+                            scan: Scan::Digital,
                         })
                         .is_err()
                     {
@@ -410,22 +456,33 @@ fn serve(
                     continue;
                 };
                 let res = catch_unwind(AssertUnwindSafe(|| {
-                    pdfr_core::detect::detect_page(p, &cache, page)
+                    pdfr_core::detect::detect_page_gray(p, &cache, page)
                 }));
-                let fields = res.unwrap_or_else(|_| {
-                    cache = RenderCache::new();
-                    vec![]
-                });
-                let text = catch_unwind(AssertUnwindSafe(|| {
+                let (mut fields, gray) = match res {
+                    Ok((f, g)) => (f, Some(g)),
+                    Err(_) => {
+                        cache = RenderCache::new();
+                        (vec![], None)
+                    }
+                };
+                let mut text = catch_unwind(AssertUnwindSafe(|| {
                     pdfr_core::text::extract(p, &text_cache)
                 }))
                 .unwrap_or_default();
+                let mut scan = Scan::Digital;
+                if let Some(gray) = gray {
+                    scan = read_scan(shared, tx, generation, &mut text, || gray);
+                    if scan == Scan::Read {
+                        pdfr_core::detect::fit_scan_words(&mut fields, &mut text);
+                    }
+                }
                 if tx
                     .send(Msg::Detected {
                         generation,
                         page,
                         fields,
                         text,
+                        scan,
                     })
                     .is_err()
                 {
@@ -434,5 +491,43 @@ fn serve(
                 ctx.request_repaint();
             }
         }
+    }
+}
+
+/// On a page without a text layer, reads its text from the picture (made
+/// by `gray` only then) while reading scans is on and its models load.
+fn read_scan(
+    shared: &Shared,
+    tx: &Sender<Msg>,
+    generation: u64,
+    text: &mut Vec<TextRun>,
+    gray: impl FnOnce() -> PageGray,
+) -> Scan {
+    if !pdfr_core::detect::lacks_text(text) {
+        return Scan::Digital;
+    }
+    let Some(dir) = shared.state.lock().unwrap().ocr.clone() else {
+        return Scan::Unread;
+    };
+    let gray = gray();
+    let mut reader = shared.reader.lock().unwrap_or_else(|e| e.into_inner());
+    // Waited while another page was read: the document may have changed.
+    if shared.state.lock().unwrap().generation != generation {
+        return Scan::Unread;
+    }
+    if reader.as_ref().is_none_or(|(d, _)| *d != dir) {
+        *reader = pdfr_ocr::Reader::load(&dir).ok().map(|r| (dir, r));
+    }
+    let Some((_, r)) = reader.as_ref() else {
+        return Scan::Unread;
+    };
+    let _ = tx.send(Msg::Reading { generation });
+    let res = catch_unwind(AssertUnwindSafe(|| r.read(&gray)));
+    match res {
+        Ok(words) => {
+            *text = words;
+            Scan::Read
+        }
+        Err(_) => Scan::Unread,
     }
 }
