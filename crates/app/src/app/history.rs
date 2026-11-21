@@ -4,7 +4,8 @@
 use super::*;
 
 /// One undo step: the fields, and the document as it was (pages can be
-/// turned; the document is shared, so keeping it costs nothing).
+/// turned, moved, added and deleted; the document is shared, so keeping it
+/// costs nothing). Field page numbers belong to that document.
 pub(super) struct Snap {
     pub entries: Vec<Entry>,
     pub form: Arc<FormDoc>,
@@ -37,13 +38,9 @@ impl App {
                 form: doc.form.clone(),
             });
             if !Arc::ptr_eq(&prev.form, &doc.form) {
-                // Pages were turned in this step: show them as they were.
-                let changed: Vec<usize> = (0..prev.form.pages.len())
-                    .filter(|&i| {
-                        doc.form.pages.get(i).map(|g| g.rotate) != Some(prev.form.pages[i].rotate)
-                    })
-                    .collect();
-                self.apply_form(prev.form, &changed);
+                // Pages were turned, moved, added or deleted in this step:
+                // show them as they were.
+                self.apply_form(prev.form);
             }
             let doc = self.doc.as_mut().unwrap();
             doc.reorder();
