@@ -75,6 +75,11 @@ pub struct Settings {
     /// The timestamp server; empty means pdfr's default.
     #[serde(default)]
     pub tsa_url: String,
+    /// Check whether signers' certificates were revoked, asking the issuer
+    /// when the file has no answer; and add those answers to files pdfr
+    /// signs (long-term validation).
+    #[serde(default = "yes")]
+    pub check_revocation: bool,
     /// Reason and place written into new digital signatures.
     #[serde(default)]
     pub sign_reason: String,
@@ -143,6 +148,7 @@ impl Default for Settings {
             recent: vec![],
             sign_timestamp: true,
             tsa_url: String::new(),
+            check_revocation: true,
             sign_reason: String::new(),
             sign_location: String::new(),
             last_cert: String::new(),

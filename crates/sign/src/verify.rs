@@ -4,8 +4,11 @@
 //! does the signature match the signer's certificate, does that
 //! certificate lead to a trusted root, is there a valid timestamp, and was
 //! the file changed after signing (and if so, only in allowed ways: form
-//! fill, annotations, further signatures).
+//! fill, annotations, further signatures), and was the signer's
+//! certificate revoked (see `revocation`). Document timestamps
+//! (`ETSI.RFC3161`) are checked too, and give the PAdES level B-LTA.
 
+use crate::revocation::{Evidence, Online, Revocation, State};
 use crate::trust::{Anchor, TrustStore, check_chain, hash, hash_name};
 use crate::{Cert, oids};
 use cms::content_info::ContentInfo;
@@ -32,7 +35,8 @@ pub enum Status {
 /// What happened to the file after this signature.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum After {
-    /// Nothing: the signature covers the whole file.
+    /// Nothing: the signature covers the whole file, or only validation
+    /// data (DSS, document timestamps) was added after it.
     Nothing,
     /// Changes were added; `allowed` if they are only form fill,
     /// annotations and signatures. `what` describes them.
@@ -58,24 +62,92 @@ pub struct Report {
     /// Why it is broken or untrusted, if it is.
     pub problem: Option<String>,
     pub after: After,
-    /// "PAdES B-T", "PAdES B-B" or "PKCS#7".
+    /// "PAdES B-LTA", "PAdES B-LT", "PAdES B-T", "PAdES B-B", "PKCS#7"
+    /// or "Document timestamp".
     pub kind: String,
     pub digest: String,
     pub reason: Option<String>,
     pub location: Option<String>,
+    /// Whether the signer's certificate was revoked (`None`: not got that
+    /// far, e.g. the signature is broken).
+    pub revocation: Option<Revocation>,
+    /// A document timestamp rather than a person's signature.
+    pub doc_timestamp: bool,
 }
+
+/// The document timestamp sub-filter.
+pub const DOC_TIMESTAMP: &str = "ETSI.RFC3161";
 
 /// Size limit for a signature's CMS (real ones are well below).
 const MAX_CMS: usize = 1 << 20;
 
-/// Checks every signature of the file `bytes`, given what core read.
+/// Checks every signature of the file `bytes`, given what core read,
+/// using only revocation data in the file.
 pub fn verify_all(bytes: &[u8], sigs: &[DigitalSig], store: &TrustStore) -> Vec<Report> {
-    sigs.iter()
-        .map(|s| verify_one(bytes, s, sigs, store))
-        .collect()
+    verify_all_with(bytes, sigs, store, None)
+}
+
+/// Like `verify_all`, asking certificate issuers about revocation when the
+/// file has no answer and `online` is given.
+pub fn verify_all_with(
+    bytes: &[u8],
+    sigs: &[DigitalSig],
+    store: &TrustStore,
+    online: Option<Online>,
+) -> Vec<Report> {
+    let dss = dss_of(bytes);
+    let ctx = Ctx {
+        dss: &dss,
+        online,
+        now: crate::now(),
+    };
+    let mut reports: Vec<Report> = sigs
+        .iter()
+        .map(|s| verify_one_in(bytes, s, sigs, store, &ctx))
+        .collect();
+    // B-LTA: a valid document timestamp over the validation data.
+    for (i, s) in sigs.iter().enumerate() {
+        let covered = sigs.iter().zip(&reports).any(|(o, r)| {
+            r.doc_timestamp && r.status == Status::Valid && o.covered_end() > s.covered_end()
+        });
+        if covered && reports[i].kind == "PAdES B-LT" {
+            reports[i].kind = "PAdES B-LTA".into();
+        }
+    }
+    reports
+}
+
+/// What all signatures of a file share while checking.
+struct Ctx<'a> {
+    /// Validation data in the file's DSS.
+    dss: &'a Evidence,
+    online: Option<Online<'a>>,
+    now: u64,
+}
+
+fn dss_of(bytes: &[u8]) -> Evidence {
+    lopdf::Document::load_mem(bytes)
+        .map(|d| crate::revocation::from_dss(&d))
+        .unwrap_or_default()
 }
 
 pub fn verify_one(bytes: &[u8], s: &DigitalSig, all: &[DigitalSig], store: &TrustStore) -> Report {
+    let dss = dss_of(bytes);
+    let ctx = Ctx {
+        dss: &dss,
+        online: None,
+        now: crate::now(),
+    };
+    verify_one_in(bytes, s, all, store, &ctx)
+}
+
+fn verify_one_in(
+    bytes: &[u8],
+    s: &DigitalSig,
+    all: &[DigitalSig],
+    store: &TrustStore,
+    ctx: &Ctx,
+) -> Report {
     let mut r = Report {
         field: s.field.clone(),
         page: s.page,
@@ -97,8 +169,17 @@ pub fn verify_one(bytes: &[u8], s: &DigitalSig, all: &[DigitalSig], store: &Trus
         digest: String::new(),
         reason: s.reason.clone(),
         location: s.location.clone(),
+        revocation: None,
+        doc_timestamp: s.sub_filter == DOC_TIMESTAMP,
     };
-    match check(bytes, s, all, store, &mut r) {
+    let res = if r.doc_timestamp {
+        r.kind = "Document timestamp".into();
+        r.signer = "Document timestamp".into();
+        check_doc_timestamp(bytes, s, all, store, &mut r)
+    } else {
+        check(bytes, s, all, store, ctx, &mut r)
+    };
+    match res {
         Ok(()) => {}
         Err(e) => {
             r.status = Status::Broken;
@@ -108,22 +189,8 @@ pub fn verify_one(bytes: &[u8], s: &DigitalSig, all: &[DigitalSig], store: &Trus
     r
 }
 
-fn check(
-    bytes: &[u8],
-    s: &DigitalSig,
-    all: &[DigitalSig],
-    store: &TrustStore,
-    r: &mut Report,
-) -> Result<(), String> {
-    if !matches!(
-        s.sub_filter.as_str(),
-        "adbe.pkcs7.detached" | "ETSI.CAdES.detached"
-    ) {
-        return Err(format!(
-            "this kind of signature ({}) can't be checked",
-            s.sub_filter
-        ));
-    }
+/// The signed bytes of `s` and its CMS (DER, padding removed).
+fn signed_part<'a>(bytes: &[u8], s: &'a DigitalSig) -> Result<(Vec<u8>, &'a [u8]), String> {
     let signed = s
         .signed_bytes(bytes)
         .ok_or("the signed part of the file doesn't match the file")?;
@@ -137,15 +204,40 @@ fn check(
     if der.len() > MAX_CMS {
         return Err("the signature is too large".into());
     }
+    Ok((signed, der))
+}
+
+/// The SignedData of a CMS signature.
+pub(crate) fn signed_data(der: &[u8]) -> Result<SignedData, String> {
     let ci = ContentInfo::from_der(der).map_err(|_| "the signature can't be read")?;
     if ci.content_type != oids::SIGNED_DATA {
         return Err("the signature can't be read".into());
     }
-    let sd: SignedData = ci
-        .content
+    ci.content
         .decode_as()
-        .map_err(|_| "the signature can't be read")?;
-    let pool = certs_of(&sd);
+        .map_err(|_| "the signature can't be read".into())
+}
+
+fn check(
+    bytes: &[u8],
+    s: &DigitalSig,
+    all: &[DigitalSig],
+    store: &TrustStore,
+    ctx: &Ctx,
+    r: &mut Report,
+) -> Result<(), String> {
+    if !matches!(
+        s.sub_filter.as_str(),
+        "adbe.pkcs7.detached" | "ETSI.CAdES.detached"
+    ) {
+        return Err(format!(
+            "this kind of signature ({}) can't be checked",
+            s.sub_filter
+        ));
+    }
+    let (signed, der) = signed_part(bytes, s)?;
+    let sd = signed_data(der)?;
+    let mut pool = certs_of(&sd);
     let si = sd
         .signer_infos
         .0
@@ -167,11 +259,17 @@ fn check(
     // Timestamp over the signature value.
     if let Some(token) = timestamp_token(si) {
         match check_timestamp(&token, si.signature.as_bytes(), store) {
-            Ok(t) => {
+            Ok((t, _, Some(_))) => {
                 r.timestamp = Some(t);
                 if s.sub_filter == "ETSI.CAdES.detached" {
                     r.kind = "PAdES B-T".into();
                 }
+            }
+            Ok((_, tsa, None)) => {
+                r.timestamp_problem = Some(format!(
+                    "the timestamp authority \"{}\" is not trusted",
+                    tsa.name()
+                ))
             }
             Err(e) => r.timestamp_problem = Some(e),
         }
@@ -179,6 +277,15 @@ fn check(
 
     // Changes after this signature.
     r.after = changes_after(bytes, s, all);
+
+    // Validation data in the file: the DSS and inside the signature.
+    let mut ev = ctx.dss.clone();
+    ev.merge(&crate::revocation::from_cms(&sd, si));
+    for c in ev.cert_pool() {
+        if !pool.contains(&c) {
+            pool.push(c);
+        }
+    }
 
     // Trust, at the timestamp's time if there is one.
     let at = r.timestamp.or(r.claimed_time).unwrap_or_else(crate::now);
@@ -201,6 +308,86 @@ fn check(
                     .map_or_else(|| cert.issuer_name(), |c| c.name())
             )
         })),
+        _ => None,
+    };
+
+    let (rev, used) = crate::revocation::check_path(&cert, &chain.chain, &ev, ctx.online, ctx.now);
+    apply_revocation(r, &rev);
+    let from_dss = used.has_revocation_data()
+        && used.ocsps.iter().all(|o| ctx.dss.ocsps.contains(o))
+        && used.crls.iter().all(|c| ctx.dss.crls.contains(c));
+    if r.kind == "PAdES B-T" && from_dss {
+        r.kind = "PAdES B-LT".into();
+    }
+    r.revocation = Some(rev);
+    Ok(())
+}
+
+/// A revoked certificate makes the signature not valid, unless a trusted
+/// timestamp proves it was made before the revocation.
+fn apply_revocation(r: &mut Report, rev: &Revocation) {
+    let State::Revoked { at, reason } = &rev.state else {
+        return;
+    };
+    let whose = match &rev.ca {
+        Some(ca) => format!("the certificate of \"{ca}\", which issued the signer's,"),
+        None => "the signer's certificate".into(),
+    };
+    let why = reason
+        .as_ref()
+        .map(|x| format!(" ({x})"))
+        .unwrap_or_default();
+    let when = pdfr_core::digital::display_date(*at);
+    match (r.timestamp, r.claimed_time) {
+        (Some(ts), _) if *at > ts => {}
+        (None, Some(t)) if *at > t => {
+            if r.status == Status::Valid {
+                r.status = Status::Untrusted;
+            }
+            r.problem.get_or_insert(format!(
+                "{whose} was revoked on {when}{why}, and without a trusted timestamp nothing proves it was signed before that"
+            ));
+        }
+        _ => {
+            r.status = Status::Broken;
+            r.problem = Some(format!(
+                "{whose} was revoked on {when}{why}, before it was signed"
+            ));
+        }
+    }
+}
+
+/// A document timestamp (`ETSI.RFC3161`): an RFC 3161 token over the
+/// file up to it.
+fn check_doc_timestamp(
+    bytes: &[u8],
+    s: &DigitalSig,
+    all: &[DigitalSig],
+    store: &TrustStore,
+    r: &mut Report,
+) -> Result<(), String> {
+    let (signed, der) = signed_part(bytes, s)?;
+    let info = crate::tsa::tst_info(der).map_err(|_| "the timestamp can't be read")?;
+    r.digest = hash_name(info.message_imprint.hash_algorithm.oid).into();
+    let (t, tsa, anchor) = check_timestamp(der, &signed, store)
+        .map_err(|_| "the document was changed: it no longer matches its timestamp")?;
+    r.signer = tsa.name();
+    r.issuer = Some(tsa.issuer_name());
+    r.cert = Some(tsa.clone());
+    r.timestamp = Some(t);
+    r.anchor = anchor;
+    r.after = changes_after(bytes, s, all);
+    r.status = match (&r.after, anchor) {
+        (After::Changes { allowed: false, .. }, _) => Status::Modified,
+        (_, Some(_)) => Status::Valid,
+        _ => Status::Untrusted,
+    };
+    r.problem = match r.status {
+        Status::Modified => Some("the document was changed after it was timestamped".into()),
+        Status::Untrusted => Some(format!(
+            "the timestamp authority \"{}\" is not one this computer trusts",
+            tsa.name()
+        )),
         _ => None,
     };
     Ok(())
@@ -260,10 +447,15 @@ fn check_signer_info(
     Ok(digest_oid)
 }
 
-/// Checks an RFC 3161 token over `sig_value`; returns its time.
-fn check_timestamp(token: &[u8], sig_value: &[u8], store: &TrustStore) -> Result<u64, String> {
+/// Checks an RFC 3161 token over `data`; returns its time, the timestamp
+/// authority's certificate and the root it is trusted through, if any.
+fn check_timestamp(
+    token: &[u8],
+    data: &[u8],
+    store: &TrustStore,
+) -> Result<(u64, Cert, Option<Anchor>), String> {
     let info = crate::tsa::tst_info(token)?;
-    let h = hash(info.message_imprint.hash_algorithm.oid, sig_value)
+    let h = hash(info.message_imprint.hash_algorithm.oid, data)
         .ok_or("the timestamp uses an unknown digest")?;
     if info.message_imprint.hashed_message.as_bytes() != h.as_slice() {
         return Err("the timestamp is for another signature".into());
@@ -289,16 +481,10 @@ fn check_timestamp(token: &[u8], sig_value: &[u8], store: &TrustStore) -> Result
         .map_err(|_| "the timestamp's own signature does not match".to_string())?;
     let t = info.gen_time.to_unix_duration().as_secs();
     let chain = check_chain(&tsa, &pool, store, t);
-    if chain.anchor.is_none() {
-        return Err(format!(
-            "the timestamp authority \"{}\" is not trusted",
-            tsa.name()
-        ));
-    }
-    Ok(t)
+    Ok((t, tsa, chain.anchor))
 }
 
-fn certs_of(sd: &SignedData) -> Vec<Cert> {
+pub(crate) fn certs_of(sd: &SignedData) -> Vec<Cert> {
     sd.certificates
         .as_ref()
         .map(|set| {
@@ -316,7 +502,7 @@ fn certs_of(sd: &SignedData) -> Vec<Cert> {
         .unwrap_or_default()
 }
 
-fn find_signer(si: &SignerInfo, pool: &[Cert]) -> Option<Cert> {
+pub(crate) fn find_signer(si: &SignerInfo, pool: &[Cert]) -> Option<Cert> {
     match &si.sid {
         SignerIdentifier::IssuerAndSerialNumber(is) => pool
             .iter()
@@ -343,7 +529,7 @@ fn find_signer(si: &SignerInfo, pool: &[Cert]) -> Option<Cert> {
     }
 }
 
-fn timestamp_token(si: &SignerInfo) -> Option<Vec<u8>> {
+pub(crate) fn timestamp_token(si: &SignerInfo) -> Option<Vec<u8>> {
     si.unsigned_attrs
         .as_ref()?
         .iter()
@@ -374,7 +560,7 @@ fn signing_time_attr(si: &SignerInfo) -> Option<u64> {
 }
 
 /// The first DER element of `b` (`/Contents` is padded with zeros).
-fn der_prefix(b: &[u8]) -> Option<&[u8]> {
+pub(crate) fn der_prefix(b: &[u8]) -> Option<&[u8]> {
     if b.len() < 2 || b[0] != 0x30 {
         return None;
     }
@@ -441,7 +627,10 @@ fn changes_after(bytes: &[u8], s: &DigitalSig, all: &[DigitalSig]) -> After {
         return After::Nothing;
     }
     let mut what = Vec::new();
-    if all.iter().any(|o| o.covered_end() > end) {
+    if all
+        .iter()
+        .any(|o| o.covered_end() > end && o.sub_filter != DOC_TIMESTAMP)
+    {
         what.push("signed again".to_string());
     }
     let (Ok(rev), Ok(cur)) = (
@@ -454,12 +643,15 @@ fn changes_after(bytes: &[u8], s: &DigitalSig, all: &[DigitalSig]) -> After {
         };
     };
     let kinds = classify(&rev, &cur);
+    if what.is_empty() && !kinds.is_empty() && kinds.iter().all(|k| *k == Kind::Validation) {
+        return After::Nothing;
+    }
     let allowed = !kinds.contains(&Kind::Other);
     for k in kinds {
         let w = match k {
             Kind::Form => "form fields filled in",
             Kind::Annot => "comments or annotations added",
-            Kind::Sig => continue,
+            Kind::Sig | Kind::Validation => continue,
             Kind::Other => "the pages or document changed",
         };
         if !what.iter().any(|x| x == w) {
@@ -477,6 +669,8 @@ enum Kind {
     Form,
     Annot,
     Sig,
+    /// Validation data (DSS) and document timestamps.
+    Validation,
     Other,
 }
 
@@ -501,9 +695,14 @@ fn classify(rev: &lopdf::Document, cur: &lopdf::Document) -> std::collections::B
             _ => vec![],
         })
         .collect();
+    let validation = validation_objects(cur);
     for (id, o) in &cur.objects {
         let old = rev.objects.get(id);
         if old == Some(o) {
+            continue;
+        }
+        if validation.contains(id) {
+            out.insert(Kind::Validation);
             continue;
         }
         let dict = match o {
@@ -517,7 +716,11 @@ fn classify(rev: &lopdf::Document, cur: &lopdf::Document) -> std::collections::B
                 .map(<[u8]>::to_vec)
         };
         let kind = if Some(*id) == acroform_id {
-            Kind::Form
+            if only_timestamp_fields_added(cur, old, o, &validation) {
+                Kind::Validation
+            } else {
+                Kind::Form
+            }
         } else if Some(*id) == catalog_id {
             // Only the form, signature permissions or validation data.
             let changed_only = |allowed: &[&[u8]]| {
@@ -533,7 +736,9 @@ fn classify(rev: &lopdf::Document, cur: &lopdf::Document) -> std::collections::B
                     .filter(|k| a.get(k).ok() != b.get(k).ok())
                     .all(|k| allowed.contains(&k))
             };
-            if changed_only(&[b"AcroForm", b"DSS", b"Perms", b"Extensions"]) {
+            if changed_only(&[b"DSS", b"Extensions"]) {
+                Kind::Validation
+            } else if changed_only(&[b"AcroForm", b"DSS", b"Perms", b"Extensions"]) {
                 Kind::Form
             } else {
                 Kind::Other
@@ -580,6 +785,90 @@ fn classify(rev: &lopdf::Document, cur: &lopdf::Document) -> std::collections::B
         out.insert(kind);
     }
     out
+}
+
+/// Objects of the DSS (and everything under it) and of document
+/// timestamps (their signature dictionaries and fields).
+fn validation_objects(cur: &lopdf::Document) -> std::collections::HashSet<lopdf::ObjectId> {
+    use lopdf::Object;
+    let mut out = std::collections::HashSet::new();
+    let mut stack: Vec<(Object, usize)> = cur
+        .catalog()
+        .ok()
+        .and_then(|c| c.get(b"DSS").ok())
+        .map(|o| vec![(o.clone(), 0)])
+        .unwrap_or_default();
+    while let Some((o, depth)) = stack.pop() {
+        if depth > 4 {
+            continue;
+        }
+        match o {
+            Object::Reference(id) => {
+                if out.insert(id)
+                    && let Ok(x) = cur.get_object(id)
+                {
+                    stack.push((x.clone(), depth + 1));
+                }
+            }
+            Object::Array(a) => stack.extend(a.into_iter().map(|x| (x, depth + 1))),
+            Object::Dictionary(d) => {
+                stack.extend(d.into_iter().map(|(_, x)| (x, depth + 1)));
+            }
+            _ => {}
+        }
+    }
+    let is_dts = |o: &Object| {
+        o.as_dict()
+            .ok()
+            .and_then(|d| d.get(b"Type").ok())
+            .and_then(|t| t.as_name().ok())
+            == Some(b"DocTimeStamp")
+    };
+    for (id, o) in &cur.objects {
+        let Ok(d) = o.as_dict() else { continue };
+        let v = d.get(b"V").ok().and_then(|v| match v {
+            Object::Reference(r) => cur.get_object(*r).ok(),
+            v => Some(v),
+        });
+        if is_dts(o) || v.is_some_and(is_dts) {
+            out.insert(*id);
+        }
+    }
+    out
+}
+
+/// The form dictionary changed only by adding document timestamp fields.
+fn only_timestamp_fields_added(
+    cur: &lopdf::Document,
+    old: Option<&lopdf::Object>,
+    new: &lopdf::Object,
+    validation: &std::collections::HashSet<lopdf::ObjectId>,
+) -> bool {
+    use lopdf::Object;
+    let (Some(Object::Dictionary(a)), Object::Dictionary(b)) = (old, new) else {
+        return false;
+    };
+    let fields = |d: &lopdf::Dictionary| -> Vec<Object> {
+        match d.get(b"Fields") {
+            Ok(Object::Array(x)) => x.clone(),
+            Ok(Object::Reference(r)) => cur
+                .get_object(*r)
+                .ok()
+                .and_then(|o| o.as_array().ok().cloned())
+                .unwrap_or_default(),
+            _ => vec![],
+        }
+    };
+    let (fa, fb) = (fields(a), fields(b));
+    let mut a2 = a.clone();
+    let mut b2 = b.clone();
+    a2.remove(b"Fields");
+    b2.remove(b"Fields");
+    a2 == b2
+        && fb.starts_with(&fa)
+        && fb[fa.len()..]
+            .iter()
+            .all(|o| o.as_reference().is_ok_and(|id| validation.contains(&id)))
 }
 
 #[cfg(test)]

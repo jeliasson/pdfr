@@ -14,6 +14,8 @@ use egui::{Align, Layout, RichText};
 use pdfr_core::digital::{DEFAULT_RESERVE, SignRequest};
 use pdfr_core::signature::Ink;
 use pdfr_sign::Signer;
+use pdfr_sign::ltv::Level;
+use pdfr_sign::revocation::{Cache, Fetch, Online, Revocation, Source, State};
 use pdfr_sign::signer::CertChoice;
 use pdfr_sign::trust::TrustStore;
 use pdfr_sign::verify::{After, Report, Status};
@@ -25,6 +27,51 @@ use zeroize::Zeroizing;
 fn trust() -> &'static TrustStore {
     static T: OnceLock<TrustStore> = OnceLock::new();
     T.get_or_init(TrustStore::standard)
+}
+
+/// Issuers' revocation answers, kept for a day.
+fn revocation_cache() -> &'static Cache {
+    static C: OnceLock<Cache> = OnceLock::new();
+    C.get_or_init(Cache::default)
+}
+
+/// Asks certificate issuers (OCSP responders, CRLs) over plain HTTP(S),
+/// giving up quickly so a check never waits long.
+struct NetFetch(ureq::Agent);
+
+impl NetFetch {
+    fn new() -> NetFetch {
+        NetFetch(crate::updates::agent_with_timeout(6))
+    }
+}
+
+impl Fetch for NetFetch {
+    fn post(&self, url: &str, content_type: &str, body: &[u8]) -> Result<Vec<u8>, String> {
+        let resp = self
+            .0
+            .post(url)
+            .header("Content-Type", content_type)
+            .send(body)
+            .map_err(|e| format!("could not reach the issuer ({e})"))?;
+        read_body(resp, 1 << 20)
+    }
+
+    fn get(&self, url: &str) -> Result<Vec<u8>, String> {
+        let resp = self
+            .0
+            .get(url)
+            .call()
+            .map_err(|e| format!("could not reach the issuer ({e})"))?;
+        read_body(resp, 32 << 20)
+    }
+}
+
+fn read_body(resp: ureq::http::Response<ureq::Body>, limit: u64) -> Result<Vec<u8>, String> {
+    resp.into_body()
+        .with_config()
+        .limit(limit)
+        .read_to_vec()
+        .map_err(|e| e.to_string())
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -560,12 +607,13 @@ impl App {
                 st.tsa_url.trim().to_string()
             }
         });
+        let ltv = st.check_revocation;
         let ctx = self.egui_ctx.clone();
         let (tx, rx) = channel();
         self.status = "Signing…".into();
         std::thread::spawn(move || {
             pending.req.time = pdfr_sign::now();
-            let res = sign_job(&form, &fields, &pending, tsa.as_deref(), &target);
+            let res = sign_job(&form, &fields, &pending, tsa.as_deref(), ltv, &target);
             let _ = tx.send(res.map(|note| (target, note)));
             ctx.request_repaint();
         });
@@ -626,10 +674,16 @@ impl App {
             return;
         }
         let form = doc.form.clone();
+        let online = self.assist.a.store.settings.check_revocation;
         let ctx = self.egui_ctx.clone();
         let (tx, rx) = channel();
         std::thread::spawn(move || {
-            let r = pdfr_sign::verify::verify_all(&form.bytes, &form.digital, trust());
+            let net = NetFetch::new();
+            let online = online.then_some(Online {
+                fetch: &net,
+                cache: revocation_cache(),
+            });
+            let r = pdfr_sign::verify::verify_all_with(&form.bytes, &form.digital, trust(), online);
             let _ = tx.send(r);
             ctx.request_repaint();
         });
@@ -744,12 +798,18 @@ fn signature_card(ui: &mut egui::Ui, c: &Colors, r: &Report) -> bool {
             if let After::Changes { what, .. } = &r.after {
                 detail(ui, c, "Since signed", &what.join(", "), None);
             }
+            let revocation = r
+                .revocation
+                .as_ref()
+                .map_or("Revocation not checked".into(), |rev| {
+                    capitalise(&revocation_line(r, rev))
+                });
             detail(
                 ui,
                 c,
                 "Format",
                 &format!("{} · {}", r.kind, r.digest),
-                Some("Revocation not checked"),
+                Some(&revocation),
             );
             if let Some(p) = r.page {
                 ui.add_space(2.0);
@@ -813,6 +873,7 @@ fn sign_job(
     fields: &[Field],
     p: &Pending,
     tsa: Option<&str>,
+    ltv: bool,
     target: &std::path::Path,
 ) -> Result<String, String> {
     let post = |body: &[u8]| -> Result<Vec<u8>, String> {
@@ -841,15 +902,41 @@ fn sign_job(
         Ok(s.der)
     })
     .map_err(|e| e.to_string())?;
+    // Long-term validation: only on top of a timestamp, and only if
+    // asking issuers is allowed.
+    let (bytes, lt) = if ltv && tsa.is_some() && ts_error.is_none() {
+        let net = NetFetch::new();
+        let fresh = Cache::default();
+        let online = Online {
+            fetch: &net,
+            cache: &fresh,
+        };
+        let x = pdfr_sign::ltv::extend(
+            bytes,
+            trust(),
+            online,
+            Some(&ts as pdfr_sign::cades::Timestamper),
+        );
+        (x.bytes, Some((x.level, x.problem)))
+    } else {
+        (bytes, None)
+    };
     // Check the file before it is written: it must open, and the new
     // signature must cover it and match.
     let back = FormDoc::open(bytes.clone())
         .map_err(|e| format!("the signed file did not open ({e:?})"))?;
     let reports = pdfr_sign::verify::verify_all(&bytes, &back.digital, trust());
     let mine = reports
-        .last()
+        .iter()
+        .rfind(|r| !r.doc_timestamp)
         .ok_or("the signature was not found in the signed file")?;
-    if matches!(mine.status, Status::Broken | Status::Modified) || mine.after != After::Nothing {
+    let stamp_broken = reports
+        .iter()
+        .any(|r| r.doc_timestamp && matches!(r.status, Status::Broken | Status::Modified));
+    if matches!(mine.status, Status::Broken | Status::Modified)
+        || mine.after != After::Nothing
+        || stamp_broken
+    {
         return Err(format!(
             "the signed file did not pass its check ({})",
             mine.problem.clone().unwrap_or_default()
@@ -864,9 +951,29 @@ fn sign_job(
         })?;
     Ok(match (tsa, ts_error) {
         (None, _) => String::new(),
-        (Some(_), None) => " Timestamped.".into(),
         (Some(_), Some(e)) => format!(" Without a timestamp: {e}."),
+        (Some(_), None) => ltv_note(lt),
     })
+}
+
+/// The status-line note about a timestamped signature's level.
+fn ltv_note(lt: Option<(Level, Option<String>)>) -> String {
+    match lt {
+        None => " Timestamped.".into(),
+        Some((level @ (Level::Lt | Level::Lta), None)) => format!(
+            " Timestamped, with proof it can be checked for years ({}).",
+            level.name()
+        ),
+        Some((level @ Level::Lt, Some(why))) => format!(
+            " Timestamped, with proof it can be checked for years ({}); {why}.",
+            level.name()
+        ),
+        Some((level, why)) => format!(
+            " Timestamped ({}); the long-term proof could not be added: {}.",
+            level.name(),
+            why.unwrap_or_default()
+        ),
+    }
 }
 
 /// What the page shows while placing: the real appearance as a picture.
@@ -927,6 +1034,11 @@ fn verdict(r: &Report) -> (&'static str, Color32, String) {
     let amber = Color32::from_rgb(200, 140, 30);
     let red = Color32::from_rgb(200, 60, 60);
     match r.status {
+        Status::Valid if r.doc_timestamp => (
+            "✔",
+            green,
+            "Valid timestamp: proves the document existed, as it is, at this time.".into(),
+        ),
         Status::Valid => match &r.after {
             After::Nothing => (
                 "✔",
@@ -949,6 +1061,36 @@ fn verdict(r: &Report) -> (&'static str, Color32, String) {
     }
 }
 
+/// The card's words for what is known about revocation.
+fn revocation_line(r: &Report, rev: &Revocation) -> String {
+    let date = pdfr_core::digital::display_date;
+    match &rev.state {
+        State::Good => {
+            let how = match rev.source {
+                Some(Source::Online) => "checked online",
+                _ => "from the file",
+            };
+            match rev.at {
+                Some(t) => format!("not revoked ({how}, {})", date(t)),
+                None => format!("not revoked ({how})"),
+            }
+        }
+        State::Revoked { at, reason } => {
+            let who = if rev.ca.is_some() { "issuer " } else { "" };
+            let why = reason
+                .as_ref()
+                .map(|x| format!(" ({x})"))
+                .unwrap_or_default();
+            let after = match r.timestamp {
+                Some(ts) if *at > ts => ", after it was timestamped",
+                _ => "",
+            };
+            format!("{who}revoked {}{why}{after}", date(*at))
+        }
+        State::Unknown(why) => format!("revocation not checked: {why}"),
+    }
+}
+
 /// One line for the status bar about the document's signatures.
 fn summary(reports: &[Report]) -> String {
     let n = reports.len();
@@ -962,8 +1104,11 @@ fn summary(reports: &[Report]) -> String {
         })
         .max()
         .unwrap_or(0);
-    let who = reports
+    let people: Vec<&Report> = reports.iter().filter(|r| !r.doc_timestamp).collect();
+    let n = if people.is_empty() { n } else { people.len() };
+    let who = people
         .first()
+        .or(reports.first().as_ref())
         .map(|r| r.signer.clone())
         .unwrap_or_default();
     let what = if n == 1 {
@@ -992,5 +1137,81 @@ mod tests {
         );
         assert_eq!(display_name("Anna Ek"), "Anna Ek");
         assert_eq!(display_name("ÅSA ÖBERG"), "Åsa Öberg");
+    }
+
+    fn report(timestamp: Option<u64>) -> Report {
+        Report {
+            field: "Signature1".into(),
+            page: None,
+            status: Status::Valid,
+            signer: "Anna Ek".into(),
+            cert: None,
+            issuer: None,
+            claimed_time: None,
+            timestamp,
+            timestamp_problem: None,
+            anchor: None,
+            problem: None,
+            after: After::Nothing,
+            kind: "PAdES B-LT".into(),
+            digest: "SHA-256".into(),
+            reason: None,
+            location: None,
+            revocation: None,
+            doc_timestamp: false,
+        }
+    }
+
+    #[test]
+    fn revocation_words() {
+        let t = 1_795_182_310; // 2026-11-20 13:45 UTC
+        let good = |source| Revocation {
+            state: State::Good,
+            source: Some(source),
+            at: Some(t),
+            ca: None,
+        };
+        assert_eq!(
+            revocation_line(&report(None), &good(Source::File)),
+            "not revoked (from the file, 2026-11-20 13:45 UTC)"
+        );
+        assert_eq!(
+            revocation_line(&report(None), &good(Source::Online)),
+            "not revoked (checked online, 2026-11-20 13:45 UTC)"
+        );
+        let revoked = Revocation {
+            state: State::Revoked {
+                at: t,
+                reason: Some("the key was compromised".into()),
+            },
+            source: Some(Source::Online),
+            at: Some(t),
+            ca: None,
+        };
+        assert_eq!(
+            revocation_line(&report(Some(t - 10)), &revoked),
+            "revoked 2026-11-20 13:45 UTC (the key was compromised), after it was timestamped"
+        );
+        assert_eq!(
+            revocation_line(&report(None), &Revocation::unknown("offline")),
+            "revocation not checked: offline"
+        );
+    }
+
+    #[test]
+    fn status_notes_for_long_term_validation() {
+        assert_eq!(ltv_note(None), " Timestamped.");
+        assert!(ltv_note(Some((Level::Lta, None))).contains("PAdES B-LTA"));
+        let n = ltv_note(Some((Level::T, Some("offline".into()))));
+        assert!(n.contains("PAdES B-T") && n.contains("offline"), "{n}");
+    }
+
+    #[test]
+    fn document_timestamps_are_not_counted_as_signers() {
+        let mut stamp = report(Some(1));
+        stamp.doc_timestamp = true;
+        stamp.signer = "Some TSA".into();
+        let s = summary(&[report(None), stamp]);
+        assert!(s.starts_with("Digitally signed by Anna Ek: valid"), "{s}");
     }
 }

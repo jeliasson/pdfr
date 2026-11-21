@@ -8,7 +8,9 @@
 
 pub mod cades;
 pub mod cert;
+pub mod ltv;
 pub mod oids;
+pub mod revocation;
 pub mod signer;
 pub mod trust;
 pub mod tsa;

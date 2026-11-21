@@ -100,7 +100,7 @@ impl Cert {
             .collect()
     }
 
-    fn ext<'a, T: Decode<'a>>(&'a self, oid: const_oid::ObjectIdentifier) -> Option<T> {
+    pub(crate) fn ext<'a, T: Decode<'a>>(&'a self, oid: const_oid::ObjectIdentifier) -> Option<T> {
         self.x
             .tbs_certificate
             .extensions

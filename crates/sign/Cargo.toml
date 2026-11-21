@@ -22,6 +22,8 @@ spki = "0.7"
 const-oid = { version = "0.9", features = ["db"] }
 sha1 = { version = "0.10", features = ["oid"] }
 x509-tsp = "0.1"
+# OCSP (RFC 6960) requests and responses, for revocation checks.
+x509-ocsp = { version = "0.2", features = ["std"] }
 cmpv2 = { version = "0.2", features = ["alloc"] }
 base64 = "0.23"
 sha2 = { version = "0.10", features = ["oid"] }
@@ -39,3 +41,4 @@ getrandom = "0.3"
 lopdf = "0.47"
 x509-cert = { version = "0.2", features = ["std", "builder"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
+x509-ocsp = { version = "0.2", features = ["std", "builder"] }

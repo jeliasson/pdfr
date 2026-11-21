@@ -365,7 +365,7 @@ pub fn sign(
             }
         }
         None => {
-            let name = unique_name(&cur, form);
+            let name = unique_name(&cur, form, "Signature");
             let mut w = dictionary! {
                 "Type" => "Annot",
                 "Subtype" => "Widget",
@@ -385,13 +385,23 @@ pub fn sign(
         }
     }
 
-    let mut out = append_update(&prev_bytes, &prev, &cur)?;
-    let start = prev_bytes.len();
+    let out = append_update(&prev_bytes, &prev, &cur)?;
+    fill_placeholder(out, prev_bytes.len(), req.reserve, cms)
+}
 
+/// Patches `/ByteRange` in the update starting at `start` of `out`, hands
+/// the covered bytes to `cms` and writes what it returns into the
+/// `/Contents` placeholder of `reserve` bytes.
+fn fill_placeholder(
+    mut out: Vec<u8>,
+    start: usize,
+    reserve: usize,
+    cms: impl FnOnce(&[u8]) -> Result<Vec<u8>, String>,
+) -> Result<Vec<u8>, SignError> {
     // Find the placeholders in the update.
     let hole = {
         let mut n = vec![b'<'];
-        n.extend(std::iter::repeat_n(b'0', req.reserve * 2));
+        n.extend(std::iter::repeat_n(b'0', reserve * 2));
         n.push(b'>');
         find(&out[start..], &n).map(|i| (start + i, start + i + n.len()))
     };
@@ -410,15 +420,116 @@ pub fn sign(
     signed.extend_from_slice(&out[..a]);
     signed.extend_from_slice(&out[b..]);
     let der = cms(&signed).map_err(SignError::Signer)?;
-    if der.len() > req.reserve {
+    if der.len() > reserve {
         return Err(SignError::TooLarge {
             needed: der.len(),
-            reserved: req.reserve,
+            reserved: reserve,
         });
     }
     let hex: String = der.iter().map(|x| format!("{x:02X}")).collect();
     out[a + 1..a + 1 + hex.len()].copy_from_slice(hex.as_bytes());
     Ok(out)
+}
+
+// --- Long-term validation ------------------------------------------------------
+
+/// Bytes reserved for a document timestamp's token.
+pub const TIMESTAMP_RESERVE: usize = 16 * 1024;
+
+/// Validation data for the Document Security Store: DER certificates,
+/// OCSP responses and CRLs.
+#[derive(Clone, Debug, Default)]
+pub struct DssData {
+    pub certs: Vec<Vec<u8>>,
+    pub ocsps: Vec<Vec<u8>>,
+    pub crls: Vec<Vec<u8>>,
+}
+
+/// Appends an update to the signed file `bytes` adding `data` to its
+/// Document Security Store (`/DSS`, PAdES), keeping what is there.
+pub fn add_dss(bytes: &[u8], data: &DssData) -> Result<Vec<u8>, SaveError> {
+    let prev = Document::load_mem(bytes).map_err(|e| SaveError::Write(e.to_string()))?;
+    let mut cur = prev.clone();
+    let existing = cur.catalog().ok().and_then(|c| c.get(b"DSS").ok()).cloned();
+    let dss_id = existing.as_ref().and_then(|o| o.as_reference().ok());
+    let mut dss = existing
+        .as_ref()
+        .and_then(|o| deref(&cur, o))
+        .and_then(|o| o.as_dict().ok())
+        .cloned()
+        .unwrap_or_default();
+    for (key, items) in [
+        (&b"Certs"[..], &data.certs),
+        (b"OCSPs", &data.ocsps),
+        (b"CRLs", &data.crls),
+    ] {
+        let mut arr: Vec<Object> = dss
+            .get(key)
+            .ok()
+            .and_then(|o| deref(&cur, o))
+            .and_then(|o| o.as_array().ok())
+            .cloned()
+            .unwrap_or_default();
+        let mut have: Vec<Vec<u8>> = arr
+            .iter()
+            .filter_map(|o| deref(&cur, o)?.as_stream().ok()?.get_plain_content().ok())
+            .collect();
+        for item in items {
+            if !have.contains(item) {
+                have.push(item.clone());
+                let id = cur.add_object(Stream::new(Dictionary::new(), item.clone()));
+                arr.push(Object::Reference(id));
+            }
+        }
+        if !arr.is_empty() {
+            dss.set(key, arr);
+        }
+    }
+    dss.set("Type", "DSS");
+    let id = match dss_id {
+        Some(id) => {
+            cur.objects.insert(id, Object::Dictionary(dss));
+            id
+        }
+        None => cur.add_object(dss),
+    };
+    cur.catalog_mut()
+        .map_err(|e| SaveError::Write(e.to_string()))?
+        .set("DSS", Object::Reference(id));
+    append_update(bytes, &prev, &cur)
+}
+
+/// Appends a document timestamp (PAdES, `ETSI.RFC3161`) to `bytes`: an
+/// invisible signature field whose `/Contents` is the RFC 3161 token
+/// `tst` returns for the bytes it covers.
+pub fn doc_timestamp(
+    bytes: &[u8],
+    reserve: usize,
+    tst: impl FnOnce(&[u8]) -> Result<Vec<u8>, String>,
+) -> Result<Vec<u8>, SignError> {
+    let prev = Document::load_mem(bytes).map_err(|e| SaveError::Write(e.to_string()))?;
+    let mut cur = prev.clone();
+    let sig_id = cur.add_object(dictionary! {
+        "Type" => "DocTimeStamp",
+        "Filter" => "Adobe.PPKLite",
+        "SubFilter" => "ETSI.RFC3161",
+        "ByteRange" => vec![0.into(), PH.into(), PH.into(), PH.into()],
+        "Contents" => Object::String(vec![0; reserve], StringFormat::Hexadecimal),
+    });
+    let form = form_id(&mut cur)?;
+    let name = unique_name(&cur, form, "Timestamp");
+    let wid = cur.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Widget",
+        "FT" => "Sig",
+        "T" => text_string(&name),
+        "Rect" => vec![0.into(), 0.into(), 0.into(), 0.into()],
+        "F" => 132,
+        "V" => Object::Reference(sig_id),
+    });
+    push_ref(&mut cur, form, b"Fields", wid);
+    let out = append_update(bytes, &prev, &cur)?;
+    fill_placeholder(out, bytes.len(), reserve, tst)
 }
 
 fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
@@ -461,8 +572,8 @@ fn push_ref(d: &mut Document, owner: ObjId, key: &[u8], id: ObjId) {
     }
 }
 
-/// `SignatureN`, not yet a top-level field name.
-fn unique_name(d: &Document, form: ObjId) -> String {
+/// `<prefix>N`, not yet a top-level field name.
+fn unique_name(d: &Document, form: ObjId, prefix: &str) -> String {
     let taken: Vec<String> = d
         .get_dictionary(form)
         .ok()
@@ -477,7 +588,7 @@ fn unique_name(d: &Document, form: ObjId) -> String {
         })
         .unwrap_or_default();
     (1..)
-        .map(|n| format!("Signature{n}"))
+        .map(|n| format!("{prefix}{n}"))
         .find(|n| !taken.contains(n))
         .unwrap()
 }

@@ -433,6 +433,20 @@ impl AssistState {
                 );
             }
             row_divider(ui, c);
+            let mut on = st.check_revocation;
+            setting_row(
+                ui,
+                c,
+                "Check whether certificates were revoked (contacts the issuer)",
+                "When a file doesn't include the answer, pdfr asks the certificate's issuer, which tells it which certificate is being checked. Files you sign also get that answer added, so their signatures stay checkable for years.",
+                |ui| {
+                    if toggle(ui, c, &mut on).changed() {
+                        st.check_revocation = on;
+                        changed = true;
+                    }
+                },
+            );
+            row_divider(ui, c);
             let nss = pdfr_sign::signer::pkcs11::nss_dir();
             let where_ = match &nss {
                 Some(d) => format!(

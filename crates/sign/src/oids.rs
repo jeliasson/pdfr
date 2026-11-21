@@ -34,6 +34,17 @@ pub const KEY_USAGE: Oid = Oid::new_unwrap("2.5.29.15");
 pub const BASIC_CONSTRAINTS: Oid = Oid::new_unwrap("2.5.29.19");
 pub const CN: Oid = Oid::new_unwrap("2.5.4.3");
 pub const ORG: Oid = Oid::new_unwrap("2.5.4.10");
+pub const AUTHORITY_INFO_ACCESS: Oid = Oid::new_unwrap("1.3.6.1.5.5.7.1.1");
+pub const AD_OCSP: Oid = Oid::new_unwrap("1.3.6.1.5.5.7.48.1");
+pub const OCSP_BASIC: Oid = Oid::new_unwrap("1.3.6.1.5.5.7.48.1.1");
+pub const CRL_DISTRIBUTION_POINTS: Oid = Oid::new_unwrap("2.5.29.31");
+pub const EXT_KEY_USAGE: Oid = Oid::new_unwrap("2.5.29.37");
+pub const KP_OCSP_SIGNING: Oid = Oid::new_unwrap("1.3.6.1.5.5.7.3.9");
+pub const CRL_REASON: Oid = Oid::new_unwrap("2.5.29.21");
+/// Adobe's revocation data inside a CMS signed attribute.
+pub const ADBE_REVOCATION: Oid = Oid::new_unwrap("1.2.840.113583.1.1.8");
+/// An OCSP response among a CMS's `crls` (RFC 5940).
+pub const RI_OCSP_RESPONSE: Oid = Oid::new_unwrap("1.3.6.1.5.5.7.16.2");
 pub const SERIAL_NUMBER_ATTR: Oid = Oid::new_unwrap("2.5.4.5");
 
 /// The named curve of an elliptic-curve public key.
