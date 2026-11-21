@@ -6,7 +6,7 @@ How pdfr is put together, and where new features go.
 
 | Crate | Owns | Never |
 |---|---|---|
-| `crates/core` (`pdfr-core`) | PDF reading (`forms`), saving (`save`, `pdf_font`), field model (`field`), the one text layout used on screen *and* in saved files (`layout`), the caret editor (`edit`), field detection (`detect`), text extraction (`text`), rendering wrapper (`render`) | UI, network, user data |
+| `crates/core` (`pdfr-core`) | PDF reading (`forms`), saving (`save`, `pdf_font`), field model (`field`), the one text layout used on screen *and* in saved files (`layout`), the caret editor (`edit`), field detection (`detect`), text extraction (`text`), redaction (`redact`: rewrites page content so text, pixels and drawings under boxes are gone), rendering wrapper (`render`) | UI, network, user data |
 | `crates/assist` (`pdfr-assist`) | Labels, meanings, value memory and profiles, suggestions, the AI backend | UI, PDF writing |
 | `crates/license` (`pdfr-license`) | Licence keys: offline Ed25519 verification, the key/state files, the `pdfr-license` tool (format: `docs/license-keys.md`) | UI, network |
 | `crates/app` (`pdfr`) | The window, input, rendering threads, theming, dialogs | PDF structure details |
@@ -27,6 +27,7 @@ How pdfr is put together, and where new features go.
 | `app/history.rs` | Undo/redo snapshots |
 | `app/editing.rs` | Focused field: keys, typing, Tab order, ghost text, value writes |
 | `app/canvas.rs` | Drawing pages and fields, pointer input, context menu, popups |
+| `app/redact.rs` | The redact tool: marks (dragged, from the selection or search), the apply dialog, writing the redacted copy |
 | `app/automation.rs` | Hidden `--demo/--save/--screenshot` flags for tests |
 | `worker.rs` | Render/detect thread pool (newest request per page wins) |
 | `assist_ui.rs` | Ghost text, suggestion list, consent and remember dialogs, settings |

@@ -157,6 +157,8 @@ impl App {
         let printed = self.printed_at_menu();
         let mut copy = false;
         let mut find = false;
+        let mut redact = false;
+        let editable = self.doc.as_ref().is_some_and(|d| d.form.editable());
         let mut edit = false;
         let shown = resp.context_menu(|ui| {
             if printed.is_some() {
@@ -177,6 +179,16 @@ impl App {
                 copy = true;
                 ui.close();
             }
+            if text.is_some()
+                && editable
+                && ui
+                    .button("Redact")
+                    .on_hover_text("Mark it to be blacked out for good")
+                    .clicked()
+            {
+                redact = true;
+                ui.close();
+            }
             if let Some(t) = text.as_ref().filter(|t| t.chars().count() <= 60) {
                 let short: String = t.split_whitespace().collect::<Vec<_>>().join(" ");
                 if ui
@@ -194,12 +206,15 @@ impl App {
         if edit && let Some((page, run)) = printed {
             self.edit_printed(page, run, ctx);
         }
+        if redact && self.redact_selection() > 0 {
+            self.tool = Tool::Redact;
+        }
         if find && let Some(t) = text {
             let q = t.split_whitespace().collect::<Vec<_>>().join(" ");
             self.update_search(&q);
             self.open_palette(super::palette::Scope::Find);
         }
-        if shown.is_none() || copy || find || edit {
+        if shown.is_none() || copy || find || edit || redact {
             self.page_menu_open = false;
         }
     }

@@ -8,6 +8,8 @@ rust-version.workspace = true
 
 [dependencies]
 hayro = "0.9"
+# Glyph widths of every PDF font kind, for redaction (already in hayro).
+hayro-font = "0.5"
 lopdf = "0.47"
 ttf-parser = "0.25"
 # Signature pictures: PNG and JPEG import, PNG in the stored encoding.

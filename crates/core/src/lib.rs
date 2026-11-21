@@ -15,6 +15,7 @@ pub mod links;
 pub mod outline;
 pub mod pdf_font;
 pub mod pipeline;
+pub mod redact;
 pub mod render;
 pub mod save;
 pub mod search;
