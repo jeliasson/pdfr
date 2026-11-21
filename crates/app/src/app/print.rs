@@ -14,10 +14,10 @@ pub(super) const AVAILABLE: bool = cfg!(any(target_os = "linux", windows, target
 
 impl App {
     pub(super) fn print(&mut self) {
-        let Some(doc) = &self.doc else { return };
-        if self.dialog_open() {
+        if self.doc.is_none() || self.dialog_open() || self.agent_hold_print() {
             return;
         }
+        let Some(doc) = &self.doc else { return };
         // What is printed is what would be saved, flattened: the values are
         // drawn into the pages, because many printers that read PDFs
         // themselves skip form fields. A read-only file prints as it is.

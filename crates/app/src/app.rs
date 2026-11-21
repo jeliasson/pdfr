@@ -581,6 +581,7 @@ impl App {
         ui.horizontal(|ui| {
             ui.label(&self.status);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                self.agent_banner(ui);
                 if !self.license.registered() {
                     let r = ui
                         .add(
@@ -653,8 +654,9 @@ impl eframe::App for App {
         }
     }
 
-    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         self.record_input(raw_input);
+        self.agent_input(ctx, raw_input);
     }
 
     /// Runs before every frame, and also while the window is hidden (when
@@ -872,6 +874,7 @@ impl eframe::App for App {
 }
 
 mod agent;
+mod agent_input;
 mod automation;
 pub(crate) mod canvas;
 mod check;

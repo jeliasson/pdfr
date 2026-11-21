@@ -452,6 +452,10 @@ impl App {
 
     /// Acts on what a file or print dialog answered.
     pub(super) fn handle_dialog(&mut self, res: DialogResult) {
+        // An agent's dialog that would replace a file waits for the user.
+        let Some(res) = self.agent_hold_dialog(res) else {
+            return;
+        };
         match res {
             DialogResult::Open(Some(p), false) => self.request_open(p),
             DialogResult::Open(Some(p), true) => self.open_in_new_window(p),

@@ -32,8 +32,18 @@ pub(super) struct AgentState {
     /// A question to the user about something an agent wants to do.
     pub(super) ask: Option<Ask>,
     next_ask: u64,
+    /// How the last question ended: its id and what came of it.
+    asked: Option<(u64, Result<Value, Failure>)>,
+    /// The user just said yes: what follows is not asked about again.
+    allowed: bool,
     /// The user took over: requests are refused until they resume.
     pub(super) paused: bool,
+    /// When an agent last asked for something.
+    pub(super) last_request: Option<Instant>,
+    /// Pointer and keyboard input an agent is feeding in.
+    pub(super) input: super::agent_input::Input,
+    /// The window's widgets as last drawn (toolbar, dialogs), for read_ui.
+    widgets: Option<Arc<std::sync::Mutex<Vec<Widget>>>>,
 }
 
 /// A question only the user can answer (agents' input is not let through
@@ -43,6 +53,8 @@ pub(super) struct Ask {
     pub title: String,
     pub detail: String,
     pub answer: Option<bool>,
+    /// What happens on "allow".
+    action: Option<Action>,
 }
 
 struct Waiting {
@@ -60,8 +72,13 @@ pub(super) enum Wait {
     Drawn { from: u64 },
     /// The screenshot is on its way from the renderer.
     Shot(Receiver<Arc<egui::ColorImage>>),
-    /// The user's answer to question `id`, and what to do on "allow".
-    Answer(u64, Action),
+    /// The user's answer to question `id`.
+    Answer(u64),
+    /// The pointer and keyboard input has all been fed in and has taken
+    /// effect.
+    Input,
+    /// The widgets have been drawn (and described) since pass `from`.
+    Widgets { from: u64 },
 }
 
 pub(super) enum Then {
@@ -72,8 +89,61 @@ pub(super) enum Then {
 
 pub(super) enum Action {
     SaveOver(PathBuf),
-    SignDigitally,
     Print,
+    /// A file dialog's answer that would replace a file.
+    Dialog(files::DialogResult),
+    /// Signing with a certificate, into this file.
+    SignedSave(PathBuf, u64),
+}
+
+/// A widget of the window (not of the page) as the accessibility tree
+/// describes it: positions in physical pixels.
+struct Widget {
+    role: String,
+    label: String,
+    value: String,
+    rect: [f32; 4],
+    disabled: bool,
+    checked: Option<bool>,
+}
+
+/// Copies each frame's accessibility tree, so `read_ui` can describe the
+/// toolbar and dialogs.
+struct WidgetTap(Arc<std::sync::Mutex<Vec<Widget>>>);
+
+impl egui::Plugin for WidgetTap {
+    fn debug_name(&self) -> &'static str {
+        "pdfr-agent-widgets"
+    }
+
+    fn output_hook(&mut self, _ctx: &egui::Context, output: &mut egui::FullOutput) {
+        let Some(update) = &output.platform_output.accesskit_update else {
+            return;
+        };
+        let list = update
+            .nodes
+            .iter()
+            .filter_map(|(_, n)| {
+                let b = n.bounds()?;
+                let label = n.label().unwrap_or_default().trim().to_string();
+                let value = n.value().unwrap_or_default().trim().to_string();
+                if label.is_empty() && value.is_empty() {
+                    return None;
+                }
+                Some(Widget {
+                    role: format!("{:?}", n.role()).to_lowercase(),
+                    label,
+                    value,
+                    rect: [b.x0 as f32, b.y0 as f32, b.x1 as f32, b.y1 as f32],
+                    disabled: n.is_disabled(),
+                    checked: n.toggled().map(|t| t == egui::accesskit::Toggled::True),
+                })
+            })
+            .collect();
+        if let Ok(mut w) = self.0.lock() {
+            *w = list;
+        }
+    }
 }
 
 /// What a request comes to: an answer now, or something to wait for.
@@ -82,11 +152,11 @@ pub(super) enum Outcome {
     Wait(Wait, Duration),
 }
 
-fn fail(code: &str, message: impl Into<String>) -> Outcome {
+pub(super) fn fail(code: &str, message: impl Into<String>) -> Outcome {
     Outcome::Done(Err(Failure::new(code, message)))
 }
 
-fn ok(v: Value) -> Outcome {
+pub(super) fn ok(v: Value) -> Outcome {
     Outcome::Done(Ok(v))
 }
 
@@ -131,10 +201,22 @@ impl App {
                 }),
             }
         }
+        self.agent_settle_ask();
         for w in std::mem::take(&mut self.agent.waiting) {
             if let Some(w) = self.agent_progress(w, ctx) {
                 self.agent.waiting.push(w);
             }
+        }
+        if self.agent_recent() {
+            // The toolbar and dialogs are described for read_ui only while
+            // an agent is at work.
+            let tap = self.agent.widgets.get_or_insert_with(|| {
+                let shared = Arc::new(std::sync::Mutex::new(vec![]));
+                ctx.add_plugin(WidgetTap(shared.clone()));
+                shared
+            });
+            let _ = tap;
+            ctx.enable_accesskit();
         }
         if !self.agent.waiting.is_empty() || self.agent.ask.is_some() {
             // Keep going until they are answered, drawing even a hidden
@@ -241,46 +323,145 @@ impl App {
                 }
                 Err(_) => Some(w),
             },
-            Wait::Answer(id, _) => {
-                let answer = match &self.agent.ask {
-                    Some(a) if a.id == *id => a.answer,
-                    // The question is gone (another took its place): no.
-                    _ => Some(false),
-                };
-                match answer {
-                    None if late => {
-                        self.agent.ask = None;
-                        self.agent_reply(
-                            &w.reply,
-                            Err(Failure::new(
-                                "declined",
-                                "The user did not answer in time. Ask them before trying again.",
-                            )),
-                        );
-                        None
-                    }
-                    None => Some(w),
-                    Some(allowed) => {
-                        if self.agent.ask.as_ref().is_some_and(|a| a.id == *id) {
-                            self.agent.ask = None;
-                        }
-                        let Wait::Answer(_, action) = w.what else {
-                            unreachable!()
-                        };
-                        let res = if allowed {
-                            self.agent_do(action)
-                        } else {
-                            Err(Failure::new(
-                                "declined",
-                                "The user did not allow this. Do not try again unless they ask.",
-                            ))
-                        };
-                        self.agent_reply(&w.reply, res);
-                        None
-                    }
+            Wait::Answer(id) => {
+                if self
+                    .agent
+                    .asked
+                    .as_ref()
+                    .is_some_and(|(done, _)| done == id)
+                {
+                    let (_, res) = self.agent.asked.take().unwrap();
+                    self.agent_reply(&w.reply, res);
+                    return None;
                 }
+                let showing = self.agent.ask.as_ref().is_some_and(|a| a.id == *id);
+                if showing && !late {
+                    return Some(w);
+                }
+                if showing {
+                    self.agent.ask = None;
+                }
+                self.agent_reply(
+                    &w.reply,
+                    Err(Failure::new(
+                        "declined",
+                        "The user did not answer. Ask them before trying again.",
+                    )),
+                );
+                None
+            }
+            Wait::Input => {
+                if self.agent.paused {
+                    self.agent_reply(&w.reply, Err(paused()));
+                    return None;
+                }
+                if self.agent_input_done(ctx) {
+                    self.agent_reply(&w.reply, Ok(json!({})));
+                    return None;
+                }
+                if late {
+                    self.agent.input.clear();
+                    let why = if self.agent.ask.is_some() {
+                        Failure::new(
+                            "busy",
+                            "pdfr is waiting for the user to answer a question; nothing was typed or clicked meanwhile.",
+                        )
+                    } else {
+                        not_drawing()
+                    };
+                    self.agent_reply(&w.reply, Err(why));
+                    return None;
+                }
+                Some(w)
+            }
+            Wait::Widgets { from } => {
+                if ctx.cumulative_pass_nr() >= *from + SETTLE_PASSES {
+                    let res = self.agent_widgets(ctx);
+                    self.agent_reply(&w.reply, Ok(res));
+                    return None;
+                }
+                if late {
+                    self.agent_reply(&w.reply, Err(not_drawing()));
+                    return None;
+                }
+                Some(w)
             }
         }
+    }
+
+    /// Whether an agent has been at work in the last two minutes: what it
+    /// sets going through the window (a dialog it clicks through) is then
+    /// held to the same rules as what it asks for directly.
+    pub(super) fn agent_recent(&self) -> bool {
+        self.agent
+            .last_request
+            .is_some_and(|t| t.elapsed() < Duration::from_secs(120))
+    }
+
+    /// Acts on the user's answer to the question on screen.
+    fn agent_settle_ask(&mut self) {
+        if !self.agent.ask.as_ref().is_some_and(|a| a.answer.is_some()) {
+            return;
+        }
+        let ask = self.agent.ask.take().unwrap();
+        let res = match (ask.answer, ask.action) {
+            (Some(true), Some(action)) => {
+                self.agent.allowed = true;
+                let res = self.agent_do(action);
+                self.agent.allowed = false;
+                res
+            }
+            _ => Err(Failure::new(
+                "declined",
+                "The user did not allow this. Do not try again unless they ask.",
+            )),
+        };
+        self.agent.asked = Some((ask.id, res));
+    }
+
+    /// The toolbar and dialogs as last drawn: what each widget is, what it
+    /// says and where it is in a screenshot.
+    fn agent_widgets(&self, ctx: &egui::Context) -> Value {
+        // Widget positions are physical pixels; screenshots may be smaller.
+        let k = self.agent_px(ctx) / ctx.pixels_per_point();
+        let rows: Vec<Value> = self
+            .agent
+            .widgets
+            .as_ref()
+            .and_then(|w| w.lock().ok())
+            .map(|list| {
+                list.iter()
+                    .filter(|w| w.rect[2] > w.rect[0] && w.rect[3] > w.rect[1])
+                    .take(400)
+                    .map(|w| {
+                        let mut v = json!({
+                            "role": w.role,
+                            "at": [
+                                ((w.rect[0] + w.rect[2]) / 2.0 * k).round(),
+                                ((w.rect[1] + w.rect[3]) / 2.0 * k).round(),
+                            ],
+                        });
+                        if !w.label.is_empty() {
+                            v["label"] = json!(w.label);
+                        }
+                        if !w.value.is_empty() {
+                            v["value"] = json!(w.value);
+                        }
+                        if w.disabled {
+                            v["disabled"] = json!(true);
+                        }
+                        if let Some(c) = w.checked {
+                            v["checked"] = json!(c);
+                        }
+                        v
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        json!({
+            "widgets": rows,
+            "note": "Buttons, labels and text boxes of the window and its dialogs. The boxes on the page are in read_form.",
+        })
     }
 
     /// The window as an agent needs to know it, sent with every answer.
@@ -351,13 +532,17 @@ impl App {
             return ok(json!({}));
         }
         if self.agent.paused {
-            return fail(
-                "paused_by_user",
-                "The user has taken over pdfr and paused agent control. Stop, and ask them to \
-                 press Resume in pdfr when they want you to go on.",
-            );
+            return Outcome::Done(Err(paused()));
         }
+        self.agent.last_request = Some(Instant::now());
         match op {
+            "computer" => self.agent_computer(args, ctx),
+            "read_ui" => Outcome::Wait(
+                Wait::Widgets {
+                    from: ctx.cumulative_pass_nr(),
+                },
+                DRAW_WAIT,
+            ),
             "open" => self.agent_open(args),
             "close" => {
                 if self.doc.as_ref().is_some_and(|d| d.dirty)
@@ -462,7 +647,7 @@ impl App {
     }
 
     /// The factor from window points to screenshot pixels.
-    fn agent_px(&self, ctx: &egui::Context) -> f32 {
+    pub(super) fn agent_px(&self, ctx: &egui::Context) -> f32 {
         let ppp = ctx.pixels_per_point();
         let size = ctx.viewport_rect().size() * ppp;
         ppp * crate::agent::shot::scale_for(size.x, size.y)
@@ -883,15 +1068,6 @@ impl App {
         match c {
             // These have rules of their own for agents.
             Command::Print => return self.agent_print(),
-            Command::SignDigitally if self.assist.a.store.settings.agent_ask_sign => {
-                return self.agent_ask(
-                    "Let the AI agent sign this document digitally?",
-                    "A digital signature is made with your certificate or ID card and counts \
-                     as yours."
-                        .into(),
-                    Action::SignDigitally,
-                );
-            }
             Command::Save => {
                 return self.agent_handle("save", &json!({}), &self.egui_ctx.clone());
             }
@@ -902,13 +1078,10 @@ impl App {
         ok(json!({"ran": name(c)}))
     }
 
-    /// Puts a question to the user; the request waits for the answer.
-    fn agent_ask(&mut self, title: &str, detail: String, action: Action) -> Outcome {
+    /// Puts a question to the user. `None`: another one is still showing.
+    fn agent_put_ask(&mut self, title: &str, detail: String, action: Action) -> Option<u64> {
         if self.agent.ask.is_some() {
-            return fail(
-                "busy",
-                "pdfr is waiting for the user to answer an earlier question.",
-            );
+            return None;
         }
         self.agent.next_ask += 1;
         let id = self.agent.next_ask;
@@ -917,28 +1090,124 @@ impl App {
             title: title.into(),
             detail,
             answer: None,
+            action: Some(action),
         });
         // The user may be looking elsewhere.
         self.egui_ctx
             .send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(
                 egui::UserAttentionType::Informational,
             ));
-        Outcome::Wait(Wait::Answer(id, action), ANSWER_WAIT)
+        self.egui_ctx.request_repaint();
+        Some(id)
+    }
+
+    /// Puts a question to the user; the request waits for the answer.
+    fn agent_ask(&mut self, title: &str, detail: String, action: Action) -> Outcome {
+        match self.agent_put_ask(title, detail, action) {
+            Some(id) => Outcome::Wait(Wait::Answer(id), ANSWER_WAIT),
+            None => fail(
+                "busy",
+                "pdfr is waiting for the user to answer an earlier question.",
+            ),
+        }
     }
 
     /// Does what the user allowed.
     fn agent_do(&mut self, action: Action) -> Result<Value, Failure> {
         match action {
             Action::SaveOver(p) => self.agent_save_to(p),
-            Action::SignDigitally => {
-                self.run(Command::SignDigitally);
-                Ok(json!({"ran": "SignDigitally"}))
-            }
             Action::Print => {
                 self.print();
                 Ok(json!({"printing": self.status}))
             }
+            Action::Dialog(res) => {
+                self.handle_dialog(res);
+                Ok(json!({"done": self.status}))
+            }
+            Action::SignedSave(path, generation) => {
+                self.digital_save(Some(path), generation);
+                Ok(json!({"signing": self.status}))
+            }
         }
+    }
+
+    /// A file dialog answered with a file that is already there, while an
+    /// agent is at work: the user is asked before it is replaced. Gives the
+    /// answer back when it may go ahead now.
+    pub(super) fn agent_hold_dialog(
+        &mut self,
+        res: files::DialogResult,
+    ) -> Option<files::DialogResult> {
+        use files::DialogResult as D;
+        if self.agent.allowed
+            || !self.agent_recent()
+            || !self.assist.a.store.settings.agent_ask_overwrite
+        {
+            return Some(res);
+        }
+        let target = match &res {
+            D::Save(Some(p), ..)
+            | D::SignedSave(Some(p), _)
+            | D::RedactedSave(Some(p), _)
+            | D::Extract(Some(p), ..) => p.clone(),
+            _ => return Some(res),
+        };
+        let ours = self.doc.as_ref().and_then(|d| d.save_path.as_deref()) == Some(target.as_path());
+        if !target.exists() || ours {
+            return Some(res);
+        }
+        let detail = format!("{} will be replaced.", target.display());
+        if self
+            .agent_put_ask(
+                "Let the AI agent save over this file?",
+                detail,
+                Action::Dialog(res),
+            )
+            .is_none()
+        {
+            self.status = "Not saved: pdfr is waiting for your answer to another question.".into();
+        }
+        None
+    }
+
+    /// Signing with a certificate while an agent is at work: the user is
+    /// asked first (unless they turned that off). True: wait for the answer.
+    pub(super) fn agent_hold_signing(&mut self, target: &std::path::Path, generation: u64) -> bool {
+        if self.agent.allowed
+            || !self.agent_recent()
+            || !self.assist.a.store.settings.agent_ask_sign
+        {
+            return false;
+        }
+        if self
+            .agent_put_ask(
+                "Let the AI agent sign this document digitally?",
+                "A digital signature is made with your certificate or ID card and counts as yours."
+                    .into(),
+                Action::SignedSave(target.to_path_buf(), generation),
+            )
+            .is_none()
+        {
+            self.status = "Not signed: pdfr is waiting for your answer to another question.".into();
+        }
+        true
+    }
+
+    /// Printing while an agent is at work, when the user wants to be asked.
+    /// True: wait for the answer.
+    pub(super) fn agent_hold_print(&mut self) -> bool {
+        if self.agent.allowed
+            || !self.agent_recent()
+            || !self.assist.a.store.settings.agent_ask_print
+        {
+            return false;
+        }
+        self.agent_put_ask(
+            "Let the AI agent print this document?",
+            "The print dialog opens next.".into(),
+            Action::Print,
+        );
+        true
     }
 
     fn agent_save_as(&mut self, args: &Value) -> Outcome {
@@ -1011,11 +1280,57 @@ impl App {
                 Action::Print,
             );
         }
-        Outcome::Done(self.agent_do(Action::Print))
+        self.print();
+        ok(json!({"printing": self.status}))
+    }
+
+    /// The user takes over: what the agent was typing and clicking stops,
+    /// and its requests are refused until the user resumes.
+    pub(super) fn agent_pause(&mut self) {
+        self.agent.paused = true;
+        self.agent.input.clear();
+        self.status = "AI agent paused. Press Resume in the status bar to let it go on.".into();
+    }
+
+    /// The status bar's word on agents: connected, at work (with Stop), or
+    /// paused (with Resume).
+    pub(super) fn agent_banner(&mut self, ui: &mut egui::Ui) {
+        let connected = crate::agent::active();
+        if !connected && !self.agent.paused {
+            return;
+        }
+        let accent = self.palette.accent;
+        let link = |ui: &mut egui::Ui, text: &str| {
+            ui.add(
+                egui::Label::new(egui::RichText::new(text).color(accent).underline())
+                    .sense(egui::Sense::click()),
+            )
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked()
+        };
+        if self.agent.paused {
+            if link(ui, "Resume") {
+                self.agent.paused = false;
+                self.status = "The AI agent may go on.".into();
+            }
+            ui.label(egui::RichText::new("AI agent paused").color(accent));
+        } else {
+            if link(ui, "Stop") {
+                self.agent_pause();
+            }
+            let text = if self.agent_recent() {
+                "AI agent at work"
+            } else {
+                "AI agent connected"
+            };
+            ui.label(egui::RichText::new(text).color(accent));
+        }
+        ui.separator();
     }
 
     /// The question an agent's request raised, for the user to answer.
     pub(super) fn agent_windows(&mut self, ctx: &egui::Context) {
+        self.agent_pointer(ctx);
         let Some(ask) = &mut self.agent.ask else {
             return;
         };
@@ -1084,6 +1399,14 @@ impl App {
             }
         }
     }
+}
+
+fn paused() -> Failure {
+    Failure::new(
+        "paused_by_user",
+        "The user has taken over pdfr and paused agent control. Stop, and ask them to press \
+         Resume in pdfr when they want you to go on.",
+    )
 }
 
 fn not_drawing() -> Failure {

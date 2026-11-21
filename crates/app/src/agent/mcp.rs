@@ -328,6 +328,36 @@ pub fn tools() -> Vec<Value> {
             &[],
         ),
         tool(
+            "computer",
+            "Use the pointer and keyboard in the pdfr window, as a person would. x and y are \
+             pixels of the latest screenshot. Actions: click, double_click, move (x, y); \
+             drag (x, y, to); scroll (dy, positive = down; optional x, y); type (text, into \
+             whatever has the caret); key (keys, e.g. \"Enter\", \"Tab\", \"ctrl+z\", or several \
+             separated by spaces). The user sees the pointer move. Take a screenshot afterwards \
+             to see the result.",
+            json!({
+                "action": {"type": "string", "enum": ["click", "double_click", "move", "drag", "scroll", "type", "key"]},
+                "x": {"type": "number"},
+                "y": {"type": "number"},
+                "to": {"type": "array", "items": {"type": "number"}, "description": "Where a drag ends: [x, y]."},
+                "dx": {"type": "number"},
+                "dy": {"type": "number"},
+                "text": {"type": "string"},
+                "keys": {"type": "string"},
+                "button": {"type": "string", "enum": ["left", "right", "middle"]},
+                "modifiers": {"type": "string", "description": "Held during a click or drag, e.g. \"shift\"."},
+            }),
+            &["action"],
+        ),
+        tool(
+            "read_ui",
+            "The buttons, labels and text boxes of the pdfr window and any dialog in it, each \
+             with its text and its position in screenshot pixels (`at`), ready to click. The \
+             boxes on the page itself are in read_form.",
+            json!({}),
+            &[],
+        ),
+        tool(
             "read_form",
             "List the form's boxes in reading order: ref, page, kind (text, line, multiline, \
              boxes = one character per square, checkbox, radio, choice, signature), label, \

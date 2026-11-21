@@ -261,7 +261,7 @@ impl App {
 }
 
 /// An arrow pointer like the system's, with a white outline.
-fn draw_pointer(ctx: &egui::Context, p: Pos2) {
+pub(super) fn draw_pointer(ctx: &egui::Context, p: Pos2) {
     let painter = ctx.layer_painter(egui::LayerId::new(
         egui::Order::Tooltip,
         Id::unique("pdfr-record-pointer"),

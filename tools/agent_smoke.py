@@ -87,7 +87,7 @@ def main():
     assert hello["serverInfo"]["name"] == "pdfr", hello
     m.notify("notifications/initialized")
     names = [t["name"] for t in m.request("tools/list")["tools"]]
-    for t in ("open", "read_form", "fill", "screenshot", "save_as", "close"):
+    for t in ("open", "read_form", "fill", "computer", "read_ui", "screenshot", "save_as", "close"):
         assert t in names, f"tool {t} is missing"
 
     opened, _ = m.must("open", path=form, new_window=True)
@@ -104,6 +104,18 @@ def main():
     if checks:
         ticked, _ = m.must("set_checked", ref=checks[0]["ref"], checked=True)
         assert ticked["box"]["checked"] is True, ticked
+
+    # As a person would: click another box and type into it.
+    typed = None
+    target = next((b for b in texts[1:] if "at" in b and not b.get("value")), None)
+    if target:
+        x, y = target["at"]
+        m.must("computer", action="click", x=x, y=y)
+        m.must("computer", action="type", text="Storgatan 12")
+        m.must("computer", action="key", keys="Escape")
+        typed = next(b for b in m.must("read_form")[0]["boxes"] if b["ref"] == target["ref"])
+        assert typed["value"] == "Storgatan 12", typed
+    widgets = m.must("read_ui")[0]["widgets"]
 
     info, png = m.must("screenshot")
     assert png and png[:8] == b"\x89PNG\r\n\x1a\n", "the screenshot is not a PNG"
@@ -125,7 +137,11 @@ def main():
     m.must("close")
     m.p.stdin.close()
     m.p.wait(timeout=10)
-    print(f"AGENT_SMOKE ok: {len(boxes)} boxes, screenshot {info['width']}x{info['height']}")
+    print(
+        f"AGENT_SMOKE ok: {len(boxes)} boxes, {len(widgets)} widgets, "
+        f"clicked and typed: {'yes' if typed else 'no box in view'}, "
+        f"screenshot {info['width']}x{info['height']}"
+    )
     print(f"AGENT_SCREENSHOT {shot}")
     print(f"AGENT_SAVED {saved}")
 

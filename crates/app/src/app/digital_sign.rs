@@ -650,6 +650,12 @@ impl App {
     /// The file for the signed copy was chosen (or not): sign and save on
     /// a background thread.
     pub(super) fn digital_save(&mut self, target: Option<PathBuf>, generation: u64) {
+        // Set going by an agent: the user says yes first.
+        if let Some(t) = &target
+            && self.agent_hold_signing(t, generation)
+        {
+            return;
+        }
         let Some(mut pending) = self.digital.pending.take() else {
             return;
         };

@@ -1993,7 +1993,26 @@ fn agent_opens_reads_and_saves() {
 #[test]
 fn agent_runs_commands_and_moves_the_view() {
     use serde_json::json;
-    let mut h = harness("big_300.pdf", data_dir("agent-view", None));
+    // A long document, without waiting for all its pages to be searched
+    // for boxes: moving about needs none of that.
+    let cli = CliOptions {
+        file: Some(sample("big_300.pdf")),
+        no_ai: true,
+        data_dir: Some(data_dir("agent-view", None)),
+        zoom: Some(1.0),
+        ..Default::default()
+    };
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 900.0))
+        .with_step_dt(1.0 / 60.0)
+        .build_eframe(move |cc| App::new(cc, cli));
+    let start = Instant::now();
+    while h.state().doc.is_none() {
+        h.run_steps(1);
+        assert!(start.elapsed() < BG_WAIT, "timed out opening the document");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    h.run_steps(3);
     let a = agent(&mut h, "view", json!({"page": 7}));
     assert_eq!(a["ok"], true, "{a}");
     h.run_steps(2);
@@ -2018,4 +2037,204 @@ fn agent_runs_commands_and_moves_the_view() {
     assert_eq!(a["error"]["code"], "not_now");
     let a = agent(&mut h, "run_command", json!({"name": "Frobnicate"}));
     assert_eq!(a["error"]["code"], "no_such_command");
+    // The wheel: scrolling down moves on through the document, and back.
+    let before = h.state().scroll.y;
+    let a = agent_computer(&mut h, json!({"action": "scroll", "dy": 300}));
+    assert_eq!(a["ok"], true, "{a}");
+    let down = h.state().scroll.y;
+    assert!(down > before + 200.0, "scrolled down: {before} -> {down}");
+    agent_computer(&mut h, json!({"action": "scroll", "dy": -300}));
+    assert!(h.state().scroll.y < down - 200.0, "and back up");
+}
+
+/// The `computer` tool: the agent's steps are fed in as input events, a
+/// frame at a time, as the window does before each of its frames.
+fn agent_computer(h: &mut Harness<'_, App>, args: serde_json::Value) -> serde_json::Value {
+    let ctx = h.ctx.clone();
+    let rx = match h.state_mut().agent_request("computer", &args, &ctx) {
+        Ok(v) => return v,
+        Err(rx) => rx,
+    };
+    let start = Instant::now();
+    loop {
+        let mut raw = egui::RawInput::default();
+        h.state_mut().agent_input(&ctx, &mut raw);
+        for e in raw.events {
+            h.event(e);
+        }
+        h.run_steps(1);
+        if let Ok(v) = rx.try_recv() {
+            return v;
+        }
+        assert!(start.elapsed() < BG_WAIT, "computer {args} never answered");
+    }
+}
+
+/// Where an agent would click for the box at a display position.
+fn agent_at(h: &mut Harness<'_, App>, x0: f32, y0: f32) -> (f64, f64) {
+    let r = agent_ref(h, x0, y0);
+    let a = agent(h, "read_form", serde_json::json!({}));
+    let row = a["result"]["boxes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["ref"] == r)
+        .unwrap()
+        .clone();
+    (
+        row["at"][0].as_f64().unwrap(),
+        row["at"][1].as_f64().unwrap(),
+    )
+}
+
+#[test]
+fn agent_clicks_types_and_presses_keys() {
+    use serde_json::json;
+    let mut h = harness("flat_form.pdf", data_dir("agent-computer", None));
+    let full = entry_at(&h, 150.0, 168.0).id;
+    let (x, y) = agent_at(&mut h, 150.0, 168.0);
+    let a = agent_computer(&mut h, json!({"action": "click", "x": x, "y": y}));
+    assert_eq!(a["ok"], true, "{a}");
+    assert_eq!(
+        focused_id(&h),
+        Some(full),
+        "a click puts the caret in the box"
+    );
+    let a = agent_computer(
+        &mut h,
+        json!({"action": "type", "text": "Anna-Maria Lindqvist Andersson"}),
+    );
+    assert_eq!(a["ok"], true, "{a}");
+    assert_eq!(
+        entry_at(&h, 150.0, 168.0).f.value,
+        "Anna-Maria Lindqvist Andersson"
+    );
+    // Tab goes on to the row of squares; typing fills one square each.
+    agent_computer(&mut h, json!({"action": "key", "keys": "Tab"}));
+    assert_eq!(focused_id(&h), Some(entry_at(&h, 150.0, 200.0).id));
+    agent_computer(&mut h, json!({"action": "type", "text": "8501011234"}));
+    assert_eq!(entry_at(&h, 150.0, 200.0).f.value, "8501011234");
+    // A click ticks the checkbox; Ctrl+Z takes it back.
+    let (x, y) = agent_at(&mut h, 240.0, 268.0);
+    agent_computer(&mut h, json!({"action": "click", "x": x, "y": y}));
+    assert!(entry_at(&h, 240.0, 268.0).f.checked);
+    agent_computer(&mut h, json!({"action": "key", "keys": "Escape ctrl+z"}));
+    assert!(!entry_at(&h, 240.0, 268.0).f.checked);
+    // What cannot be done says why.
+    let a = agent_computer(&mut h, json!({"action": "click"}));
+    assert_eq!(a["error"]["code"], "bad_request");
+    let a = agent_computer(&mut h, json!({"action": "key", "keys": "frobnicate"}));
+    assert_eq!(a["error"]["code"], "bad_request");
+}
+
+#[test]
+fn agent_reads_a_dialog_and_clicks_its_button() {
+    use serde_json::json;
+    let mut h = harness("flat_form.pdf", data_dir("agent-ui", None));
+    let name = agent_ref(&h, 150.0, 168.0);
+    agent(&mut h, "fill", json!({"ref": name, "value": "Anna"}));
+    h.state_mut().request_open(sample("real_form.pdf"));
+    h.run_steps(3);
+    let a = agent(&mut h, "read_ui", json!({}));
+    assert_eq!(a["ok"], true, "{a}");
+    assert_eq!(a["state"]["dialog"], "unsaved_changes");
+    let widgets = a["result"]["widgets"].as_array().unwrap();
+    let dont = widgets
+        .iter()
+        .find(|w| w["label"] == "Don't save")
+        .unwrap_or_else(|| panic!("the dialog's buttons are listed: {widgets:?}"));
+    let (x, y) = (
+        dont["at"][0].as_f64().unwrap(),
+        dont["at"][1].as_f64().unwrap(),
+    );
+    agent_computer(&mut h, json!({"action": "click", "x": x, "y": y}));
+    h.run_steps(2);
+    assert!(h.state().confirm.is_none(), "the click answered the dialog");
+}
+
+#[test]
+fn the_user_takes_over_from_an_agent() {
+    use serde_json::json;
+    let mut h = harness("flat_form.pdf", data_dir("agent-takeover", None));
+    let ctx = h.ctx.clone();
+    let (x, y) = agent_at(&mut h, 150.0, 168.0);
+    agent_computer(&mut h, json!({"action": "click", "x": x, "y": y}));
+    // The agent is typing; the user presses a key of their own.
+    let rx = h
+        .state_mut()
+        .agent_request(
+            "computer",
+            &json!({"action": "type", "text": "a long text that takes several frames to type in"}),
+            &ctx,
+        )
+        .expect_err("typing takes frames");
+    let mut raw = egui::RawInput::default();
+    h.state_mut().agent_input(&ctx, &mut raw);
+    for e in raw.events {
+        h.event(e);
+    }
+    h.run_steps(1);
+    let mut raw = egui::RawInput::default();
+    raw.events.push(Event::Key {
+        key: Key::A,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: Modifiers::NONE,
+    });
+    h.state_mut().agent_input(&ctx, &mut raw);
+    assert_eq!(
+        raw.events.len(),
+        1,
+        "nothing of the agent's is added any more"
+    );
+    h.run_steps(2);
+    assert_eq!(rx.try_recv().unwrap()["error"]["code"], "paused_by_user");
+    let typed = entry_at(&h, 150.0, 168.0).f.value.clone();
+    assert!(typed.len() < 30, "the typing stopped: {typed}");
+    // Everything is refused until the user resumes; the state says why.
+    let name = agent_ref(&h, 150.0, 168.0);
+    let a = agent(&mut h, "fill", json!({"ref": name, "value": "x"}));
+    assert_eq!(a["error"]["code"], "paused_by_user");
+    assert_eq!(a["state"]["paused_by_user"], true);
+    assert_eq!(entry_at(&h, 150.0, 168.0).f.value, typed);
+    // The pointer merely passing over is not taking over.
+    h.state_mut().agent.paused = false;
+    let a = agent(&mut h, "fill", json!({"ref": name, "value": "Anna"}));
+    assert_eq!(a["ok"], true, "{a}");
+    h.run_steps(1);
+    let mut raw = egui::RawInput::default();
+    raw.events.push(Event::PointerMoved(pos2(10.0, 10.0)));
+    h.state_mut().agent_input(&ctx, &mut raw);
+    assert!(!h.state().agent.paused);
+}
+
+#[test]
+fn what_an_agent_clicks_through_is_asked_about_too() {
+    use serde_json::json;
+    let dir = data_dir("agent-gates", None);
+    let mut h = harness("flat_form.pdf", dir.clone());
+    let name = agent_ref(&h, 150.0, 168.0);
+    agent(&mut h, "fill", json!({"ref": name, "value": "Anna"}));
+    let other = dir.join("existing.pdf");
+    std::fs::write(&other, b"someone else's file").unwrap();
+    let generation = h.state().doc.as_ref().unwrap().generation;
+    // The agent got a save dialog to name a file that is already there.
+    h.state_mut().handle_dialog(files::DialogResult::Save(
+        Some(other.clone()),
+        generation,
+        files::AfterSave::Nothing,
+    ));
+    h.run_steps(2);
+    assert_eq!(std::fs::read(&other).unwrap(), b"someone else's file");
+    assert_eq!(h.state().agent_state()["dialog"], "asking_the_user");
+    // The question cannot be clicked away by the agent.
+    let a = agent_computer(&mut h, json!({"action": "key", "keys": "Enter"}));
+    assert_eq!(a["error"]["code"], "busy");
+    assert_eq!(std::fs::read(&other).unwrap(), b"someone else's file");
+    // The user allows it: the save goes ahead.
+    h.state_mut().agent_answer_ask(true);
+    h.run_steps(2);
+    assert!(std::fs::read(&other).unwrap().starts_with(b"%PDF"));
+    assert!(h.state().agent.ask.is_none());
 }
