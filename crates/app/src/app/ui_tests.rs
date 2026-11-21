@@ -1986,7 +1986,9 @@ fn agent_opens_reads_and_saves() {
     );
     assert_eq!(a["error"]["code"], "password_required");
     assert!(h.state().password.is_none());
-    let a = agent(&mut h, "open", json!({"path": "/no/such/file.pdf"}));
+    // An absolute path on every system (on Windows "/no/such" is not).
+    let missing = std::env::temp_dir().join("pdfr-no-such-file.pdf");
+    let a = agent(&mut h, "open", json!({"path": missing}));
     assert_eq!(a["error"]["code"], "not_found");
 }
 
