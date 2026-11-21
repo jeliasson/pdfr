@@ -66,6 +66,7 @@
     <display_length compare="ge">480</display_length>
   </requires>
   <releases>
+    <release version="0.5.0" date="2026-11-21"/>
     <release version="0.4.0" date="2026-11-20"/>
     <release version="0.3.0" date="2026-11-20"/>
     <release version="0.2.0" date="2026-11-19"/>

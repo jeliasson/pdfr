@@ -5,6 +5,13 @@ version's section into its GitHub release notes.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-21
+
+More than forms: pdfr reads scanned text on your computer, checks your
+answers before you save, adds comments and highlights, organises and
+merges pages, and redacts for real. Signatures get revocation checks and
+proof that lasts for years, ID cards work better, and pdfr updates itself.
+
 ### Added
 
 - **macOS: sign with the certificates in your Keychain.** Certificates you
