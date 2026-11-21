@@ -1,8 +1,8 @@
 //! The opt-in "a new version is available" check. Once a day at most, while
 //! the user has it switched on, pdfr asks GitHub for the latest release's
 //! version number. Nothing about the user or their files is sent (the only
-//! header is `User-Agent: pdfr/<version>`), and nothing is downloaded or
-//! installed: the notice says how to update.
+//! header is `User-Agent: pdfr/<version>`). Nothing is downloaded or
+//! installed until the user presses "Update now" (`self_update`).
 //!
 //! TLS is rustls with the pure-Rust RustCrypto provider, so no C code is
 //! added to pdfr.
@@ -50,6 +50,11 @@ impl Checker {
 
 pub(crate) fn agent() -> ureq::Agent {
     agent_with_timeout(15)
+}
+
+/// For downloading a release: tens of megabytes on a slow line.
+pub(crate) fn download_agent() -> ureq::Agent {
+    agent_with_timeout(15 * 60)
 }
 
 /// Like `agent`, giving up on a request after `secs` seconds.

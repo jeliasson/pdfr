@@ -11,6 +11,7 @@ mod draw;
 mod icons;
 mod ink;
 mod license_ui;
+mod self_update;
 mod system;
 mod theme;
 mod updates;

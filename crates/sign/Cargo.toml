@@ -37,6 +37,10 @@ p12-keystore = "0.2"
 zeroize = "1"
 getrandom = "0.3"
 
+# macOS: signing with Keychain identities (Apple's Security.framework).
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { version = "3", default-features = false }
+
 [dev-dependencies]
 lopdf = "0.47"
 x509-cert = { version = "0.2", features = ["std", "builder"] }

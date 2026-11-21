@@ -16,12 +16,19 @@ use pdfr_core::signature::Ink;
 use pdfr_sign::Signer;
 use pdfr_sign::ltv::Level;
 use pdfr_sign::revocation::{Cache, Fetch, Online, Revocation, Source, State};
-use pdfr_sign::signer::CertChoice;
+use pdfr_sign::signer::{CertChoice, PinTries};
 use pdfr_sign::trust::TrustStore;
 use pdfr_sign::verify::{After, Report, Status};
 use std::sync::OnceLock;
 use std::sync::mpsc::Receiver;
 use zeroize::Zeroizing;
+
+#[cfg(target_os = "macos")]
+const NO_CERTS: &str = "No certificates found. Add yours to the Keychain (double-click the .p12 file), \
+     insert your ID card, or choose a certificate file.";
+#[cfg(not(target_os = "macos"))]
+const NO_CERTS: &str = "No certificates found. Install yours in Chrome, Chromium or Firefox, \
+     insert your ID card or token, or choose a certificate file.";
 
 /// The roots signatures are checked against, loaded once.
 fn trust() -> &'static TrustStore {
@@ -94,7 +101,9 @@ enum CertItem {
 }
 
 pub(super) struct DigitalDialog {
-    found_rx: Option<Receiver<Vec<CertChoice>>>,
+    found_rx: Option<Receiver<(Vec<CertChoice>, Option<String>)>>,
+    /// Why no ID card shows up, when no card certificate was found.
+    no_card: Option<String>,
     items: Vec<CertItem>,
     selected: Option<usize>,
     look: Look,
@@ -122,6 +131,8 @@ pub(super) struct DigitalState {
     /// Checked signatures for the document opened as `.0`.
     pub reports: Option<(u64, Vec<Report>)>,
     verify_rx: Option<(u64, Receiver<Vec<Report>>)>,
+    /// A PIN error from the last signing, shown when the dialog reopens.
+    retry_error: Option<String>,
 }
 
 impl DigitalState {
@@ -139,7 +150,18 @@ impl App {
         let ctx = self.egui_ctx.clone();
         let (tx, rx) = channel();
         std::thread::spawn(move || {
-            let _ = tx.send(pdfr_sign::signer::discover());
+            let found = pdfr_sign::signer::discover();
+            let any_card = found
+                .iter()
+                .any(|c| matches!(c.source, pdfr_sign::signer::Source::Token(_)));
+            #[cfg(not(target_os = "macos"))]
+            let no_card = (!any_card).then(pdfr_sign::signer::diagnose).flatten();
+            #[cfg(target_os = "macos")]
+            let no_card = {
+                let _ = any_card;
+                None
+            };
+            let _ = tx.send((found, no_card));
             ctx.request_repaint();
         });
         let st = &self.assist.a.store.settings;
@@ -155,6 +177,7 @@ impl App {
         self.digital.pending = None;
         self.digital.dialog = Some(DigitalDialog {
             found_rx: Some(rx),
+            no_card: None,
             items,
             selected: None,
             look: if saved.is_empty() {
@@ -165,7 +188,9 @@ impl App {
             reason: st.sign_reason.clone(),
             location: st.sign_location.clone(),
             pin: Zeroizing::new(String::new()),
-            error: None,
+            // After a wrong PIN: the same certificate comes back selected
+            // (it was remembered as the last one), with why.
+            error: self.digital.retry_error.take(),
             target,
         });
     }
@@ -222,9 +247,10 @@ impl App {
         let mut cancel = ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape));
         let dlg = self.digital.dialog.as_mut().unwrap();
         if let Some(rx) = &dlg.found_rx
-            && let Ok(found) = rx.try_recv()
+            && let Ok((found, no_card)) = rx.try_recv()
         {
             dlg.found_rx = None;
+            dlg.no_card = no_card;
             let mut found: Vec<CertItem> = found
                 .into_iter()
                 .map(|c| CertItem::Found(Box::new(c)))
@@ -278,21 +304,27 @@ impl App {
                     .id_salt("pdfr-certs")
                     .show(ui, |ui| {
                         if dlg.items.is_empty() && dlg.found_rx.is_none() {
-                            ui.label(
-                                RichText::new(
-                                    "No certificates found. Install yours in Chrome, Chromium or Firefox, \
-                                     insert your ID card or token, or choose a certificate file.",
-                                )
-                                .color(c.weak),
-                            );
+                            ui.label(RichText::new(NO_CERTS).color(c.weak));
                         }
+                        let found: Vec<&CertChoice> = dlg
+                            .items
+                            .iter()
+                            .filter_map(|i| match i {
+                                CertItem::Found(c) => Some(&**c),
+                                CertItem::File(_) => None,
+                            })
+                            .collect();
                         for (i, it) in dlg.items.iter().enumerate() {
                             if i > 0 {
                                 row_divider(ui, &c);
                             }
                             let (title, sub, problem) = match it {
                                 CertItem::Found(ch) => (
-                                    ch.cert.name(),
+                                    if ch.login_only(&found) {
+                                        format!("{} (for logging in)", ch.cert.name())
+                                    } else {
+                                        ch.cert.name()
+                                    },
                                     format!(
                                         "Issued by {} · valid until {} · {}",
                                         ch.cert.issuer_name(),
@@ -336,6 +368,13 @@ impl App {
                             });
                         }
                     });
+                if let Some(why) = &dlg.no_card {
+                    ui.label(RichText::new(format!("No ID card or token found. {why}")).size(12.0).color(c.weak));
+                    ui.hyperlink_to(
+                        RichText::new("How to check your card").size(12.0),
+                        "https://pdfr.app/sign-pdf-with-id-card",
+                    );
+                }
                 if secondary_button(ui, &c, "Use a certificate file (.p12, .pfx)…").clicked() {
                     pick_file = true;
                 }
@@ -399,11 +438,36 @@ impl App {
                             .color(c.weak),
                     );
                 }
+                // What the card says about wrong PINs so far, before the
+                // next try rather than after the card has locked.
+                let tries = match dlg.selected.and_then(|i| dlg.items.get(i)) {
+                    Some(CertItem::Found(ch)) if ch.needs_pin => ch.pin_tries,
+                    _ => PinTries::Ok,
+                };
+                let warn = Color32::from_rgb(200, 60, 60);
+                match tries {
+                    PinTries::Ok => {}
+                    PinTries::Low => {
+                        ui.label(RichText::new("A wrong PIN was entered before: only a few tries are left.").color(warn));
+                    }
+                    PinTries::FinalTry => {
+                        ui.label(
+                            RichText::new("Last try: one more wrong PIN locks the card.")
+                                .strong()
+                                .color(warn),
+                        );
+                    }
+                    PinTries::Locked => {
+                        ui.label(RichText::new(
+                            "This card's PIN is locked. Unlock it with your PUK, using the tool from whoever issued the card.",
+                        ).color(warn));
+                    }
+                }
                 if let Some(e) = &dlg.error {
                     ui.label(RichText::new(e).color(Color32::from_rgb(200, 60, 60)));
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let ok = dlg.selected.is_some();
+                    let ok = dlg.selected.is_some() && tries != PinTries::Locked;
                     let label = match (dlg.look, dlg.target.is_some()) {
                         (Look::Invisible, _) | (_, true) => "Sign and save…",
                         _ => "Sign…",
@@ -645,6 +709,13 @@ impl App {
                         .map(|n| n.to_string_lossy().into_owned())
                         .unwrap_or_default();
                     self.status = format!("Signed and saved as {name}.{note}");
+                }
+                Err(e) if pdfr_sign::signer::pkcs11::is_pin_error(&e) => {
+                    // Back to the dialog, same certificate, the PIN asked
+                    // again by the person — never retried by pdfr.
+                    self.digital.retry_error = Some(format!("Not signed: {}", capitalise(&e)));
+                    self.status = "Not signed: the PIN was not accepted.".into();
+                    self.open_digital(None);
                 }
                 Err(e) => self.status = format!("Not signed: {e}"),
             }
