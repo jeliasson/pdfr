@@ -212,6 +212,16 @@ pub struct App {
     side_follow: Option<usize>,
     /// Thumbnails last asked of the workers.
     thumbs_asked: Vec<usize>,
+    /// Pages selected in the sidebar (Ctrl/Shift+click), and where a Shift
+    /// range starts.
+    side_sel: Vec<usize>,
+    side_anchor: Option<usize>,
+    /// Pages being dragged in the sidebar.
+    side_drag: Option<Vec<usize>>,
+    /// Thumbnail rows drawn last frame, by page (tests drag them).
+    side_rows: Vec<(usize, Rect)>,
+    /// A page change waiting for "remove the digital signatures?".
+    page_confirm: Option<pages::PageOp>,
     /// Outline entries opened or closed by the user.
     outline_open: HashMap<usize, bool>,
     /// Where to return to in a reopened file: page, offset, zoom.
@@ -322,6 +332,11 @@ impl App {
             side_tab: Default::default(),
             side_follow: None,
             thumbs_asked: vec![],
+            side_sel: vec![],
+            side_anchor: None,
+            side_drag: None,
+            side_rows: vec![],
+            page_confirm: None,
             outline_open: HashMap::new(),
             restore: None,
             dark_applied: false,
@@ -469,10 +484,21 @@ impl App {
                             let id = doc.add(f);
                             // Found fields are not an edit: every undo/redo
                             // state gets them too, so undo never removes them.
+                            // A state with pages in another order gets it on
+                            // the same page; one without that page, not at all.
                             let e = doc.entries.last().cloned().unwrap();
+                            let pid = doc.form.page_ids.get(page).copied();
                             for snap in self.undo.iter_mut().chain(self.redo.iter_mut()) {
-                                if !snap.entries.iter().any(|x| x.id == id) {
-                                    snap.entries.push(e.clone());
+                                let at = match pid {
+                                    Some(p) => snap.form.page_ids.iter().position(|x| *x == p),
+                                    None => Some(page),
+                                };
+                                if let Some(at) = at
+                                    && !snap.entries.iter().any(|x| x.id == id)
+                                {
+                                    let mut e = e.clone();
+                                    e.f.page = at;
+                                    snap.entries.push(e);
                                 }
                             }
                         }
@@ -668,6 +694,7 @@ impl eframe::App for App {
         self.sign_window(&ctx);
         self.digital_window(&ctx);
         self.password_window(&ctx);
+        self.page_confirm_window(&ctx);
         // The reminder waits while anything else asks for attention.
         let busy = self.confirm.is_some()
             || self.assist.modal_open()
@@ -676,6 +703,7 @@ impl eframe::App for App {
             || self.sign.is_some()
             || self.digital.dialog.is_some()
             || self.password.is_some()
+            || self.page_confirm.is_some()
             || self.dialog_open();
         self.license.tick(&ctx, busy);
         self.license.windows(&ctx, &self.palette);
@@ -788,6 +816,7 @@ mod files;
 mod hints;
 mod history;
 mod links;
+mod pages;
 mod palette;
 mod present;
 mod print;

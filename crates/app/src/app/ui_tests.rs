@@ -1303,3 +1303,108 @@ fn edit_printed_text() {
     assert_eq!(f.value, "Portals");
     assert!(f.covers_print());
 }
+
+/// Fields per page, by id.
+fn ids_on(h: &Harness<'_, App>, page: usize) -> Vec<u64> {
+    let d = h.state().doc.as_ref().unwrap();
+    let mut v: Vec<u64> = d
+        .entries
+        .iter()
+        .filter(|e| e.f.page == page)
+        .map(|e| e.id)
+        .collect();
+    v.sort_unstable();
+    v
+}
+
+#[test]
+fn delete_and_insert_pages_undo() {
+    let mut h = harness("links.pdf", data_dir("pages-delete", None));
+    let ids = h.state().doc.as_ref().unwrap().form.page_ids.clone();
+    let (on1, on2) = (ids_on(&h, 1), ids_on(&h, 2));
+    ctrl_shift(&mut h, Key::J);
+    assert_eq!(h.state().current_page(), 1);
+    h.state_mut().run(commands::Command::DeletePage);
+    h.run_steps(3);
+    {
+        let d = h.state().doc.as_ref().unwrap();
+        assert_eq!(d.sizes.len(), 2);
+        assert_eq!(d.form.page_ids, vec![ids[0], ids[2]]);
+        assert!(d.dirty);
+        assert!(
+            d.entries.iter().all(|e| !on1.contains(&e.id)),
+            "its boxes went too"
+        );
+    }
+    assert_eq!(ids_on(&h, 1), on2, "page 3's boxes are on page 2 now");
+    ctrl(&mut h, Key::Z);
+    {
+        let d = h.state().doc.as_ref().unwrap();
+        assert_eq!(d.sizes.len(), 3, "undo brings it back");
+        assert_eq!(d.form.page_ids, ids);
+    }
+    assert_eq!((ids_on(&h, 1), ids_on(&h, 2)), (on1.clone(), on2.clone()));
+    // A blank page after page 1, then undo.
+    h.state_mut().scroll_to_page(0);
+    h.run_steps(2);
+    h.state_mut().run(commands::Command::InsertBlankPage);
+    h.run_steps(3);
+    {
+        let d = h.state().doc.as_ref().unwrap();
+        assert_eq!(d.sizes.len(), 4);
+        assert_eq!(d.form.page_ids[0], ids[0]);
+        assert_eq!(d.form.page_ids[2..], ids[1..]);
+    }
+    assert_eq!(ids_on(&h, 2), on1);
+    ctrl(&mut h, Key::Z);
+    assert_eq!(h.state().doc.as_ref().unwrap().form.page_ids, ids);
+}
+
+#[test]
+fn drag_a_thumbnail_to_move_a_page() {
+    let mut h = harness("links.pdf", data_dir("pages-drag", None));
+    ctrl(&mut h, Key::B);
+    h.run_steps(3);
+    let ids = h.state().doc.as_ref().unwrap().form.page_ids.clone();
+    let on0 = ids_on(&h, 0);
+    let row = |h: &Harness<'_, App>, i: usize| {
+        h.state()
+            .side_rows
+            .iter()
+            .find(|(p, _)| *p == i)
+            .map(|(_, r)| *r)
+            .expect("thumbnail row shown")
+    };
+    // Page 1 dragged into the lower half of page 2: it goes after page 2.
+    let from = row(&h, 0).center();
+    let to = row(&h, 1).center() + vec2(0.0, row(&h, 1).height() * 0.3);
+    h.event(Event::PointerMoved(from));
+    h.event(Event::PointerButton {
+        pos: from,
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    h.run_steps(2);
+    for k in 1..=10 {
+        h.event(Event::PointerMoved(from + (to - from) * (k as f32 / 10.0)));
+        h.run_steps(1);
+    }
+    assert!(h.state().side_drag.is_some(), "dragging");
+    h.event(Event::PointerButton {
+        pos: to,
+        button: PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    h.run_steps(3);
+    assert!(h.state().side_drag.is_none());
+    assert_eq!(
+        h.state().doc.as_ref().unwrap().form.page_ids,
+        vec![ids[1], ids[0], ids[2]]
+    );
+    assert_eq!(ids_on(&h, 1), on0, "its boxes moved with it");
+    ctrl(&mut h, Key::Z);
+    assert_eq!(h.state().doc.as_ref().unwrap().form.page_ids, ids);
+    assert_eq!(ids_on(&h, 0), on0);
+}

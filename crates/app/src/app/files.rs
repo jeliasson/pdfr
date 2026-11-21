@@ -53,6 +53,10 @@ pub(super) enum DialogResult {
     PickCert(Option<PathBuf>),
     /// A picture of a signature.
     PickImage(Option<PathBuf>),
+    /// A PDF or picture to insert at a page.
+    InsertFile(Option<PathBuf>, usize),
+    /// Where extracted pages go, for the document `generation`.
+    Extract(Option<PathBuf>, Vec<usize>, u64),
 }
 
 /// What to do once a save has succeeded.
@@ -271,6 +275,10 @@ impl App {
         self.back.clear();
         self.side_follow = None;
         self.thumbs_asked.clear();
+        self.side_sel.clear();
+        self.side_anchor = None;
+        self.side_drag = None;
+        self.page_confirm = None;
         self.outline_open.clear();
         if let Some(s) = &mut self.search {
             let q = std::mem::take(&mut s.query);
@@ -329,6 +337,8 @@ impl App {
             builtin::Purpose::SignedSave(g) => DialogResult::SignedSave(picked, g),
             builtin::Purpose::PickCert => DialogResult::PickCert(picked),
             builtin::Purpose::PickImage => DialogResult::PickImage(picked),
+            builtin::Purpose::InsertFile(at) => DialogResult::InsertFile(picked, at),
+            builtin::Purpose::Extract(pages, g) => DialogResult::Extract(picked, pages, g),
         };
         self.handle_dialog(res);
     }
@@ -445,10 +455,17 @@ impl App {
             DialogResult::SignedSave(p, generation) => self.digital_save(p, generation),
             DialogResult::PickCert(Some(p)) => self.digital_file_picked(p),
             DialogResult::PickImage(Some(p)) => self.signature_image_picked(p),
+            DialogResult::InsertFile(Some(p), at) => {
+                let at = at.min(self.page_count());
+                self.page_op(super::pages::PageOp::File { at, path: p });
+            }
+            DialogResult::Extract(Some(p), pages, g) => self.extract_to(p, &pages, g),
             DialogResult::Open(None, _)
             | DialogResult::Save(None, ..)
             | DialogResult::PickCert(None)
-            | DialogResult::PickImage(None) => {}
+            | DialogResult::PickImage(None)
+            | DialogResult::InsertFile(None, _)
+            | DialogResult::Extract(None, ..) => {}
         }
     }
 
@@ -628,6 +645,10 @@ pub(super) mod builtin {
         SignedSave(u64),
         PickCert,
         PickImage,
+        /// A file to insert at a page.
+        InsertFile(usize),
+        /// Where these pages of document `generation` are extracted to.
+        Extract(Vec<usize>, u64),
     }
 
     /// A dialog picking a file of another kind (certificates, pictures).

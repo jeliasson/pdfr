@@ -37,6 +37,8 @@ pub enum Icon {
     Rotate,
     Moon,
     Highlight,
+    /// Pages: two sheets, one behind the other.
+    Pages,
 }
 
 /// Maps the 24×24 design grid into a rectangle.
@@ -280,6 +282,19 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
         Icon::Close => {
             line(&[(6.0, 6.0), (18.0, 18.0)]);
             line(&[(6.0, 18.0), (18.0, 6.0)]);
+        }
+        Icon::Pages => {
+            // The front sheet with a folded corner; the back one peeks out.
+            line(&smooth_corners_open(&[
+                (13.0, 4.0),
+                (6.0, 4.0),
+                (6.0, 19.0),
+                (17.0, 19.0),
+                (17.0, 8.0),
+            ]));
+            line(&[(13.0, 4.0), (17.0, 8.0)]);
+            line(&[(13.0, 4.0), (13.0, 8.0), (17.0, 8.0)]);
+            line(&[(9.0, 22.0), (20.0, 22.0), (20.0, 11.0)]);
         }
         Icon::Trash => {
             line(&[(4.0, 6.5), (20.0, 6.5)]);

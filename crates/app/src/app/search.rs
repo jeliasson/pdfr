@@ -20,6 +20,15 @@ pub(super) struct Search {
     pages_read: usize,
 }
 
+impl Search {
+    /// Forgets the hits (pages moved): they are found again.
+    pub fn reset_hits(&mut self) {
+        self.hits.clear();
+        self.current = None;
+        self.pages_read = usize::MAX;
+    }
+}
+
 impl App {
     /// Brings the hits up to date with `query` and the pages read so far.
     pub(super) fn update_search(&mut self, query: &str) {

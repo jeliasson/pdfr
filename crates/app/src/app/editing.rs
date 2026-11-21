@@ -31,6 +31,7 @@ impl App {
             || self.hints.is_some()
             || self.sign.is_some()
             || self.password.is_some()
+            || self.page_confirm.is_some()
     }
 
     pub fn focus_field(&mut self, id: u64, caret_end: bool, ctx: &egui::Context) {

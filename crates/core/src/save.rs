@@ -340,7 +340,7 @@ fn has_on_appearance(d: &Document, widget: ObjId, on: &str) -> bool {
 }
 
 /// The `/AcroForm` dictionary id, creating it (as an indirect object) if needed.
-fn acroform_id(d: &mut Document) -> Result<ObjId, SaveError> {
+pub(crate) fn acroform_id(d: &mut Document) -> Result<ObjId, SaveError> {
     let cat = d.catalog().map_err(|e| SaveError::Write(e.to_string()))?;
     match cat.get(b"AcroForm") {
         Ok(Object::Reference(id)) => Ok(*id),
@@ -741,7 +741,7 @@ pub(crate) fn build(fd: &FormDoc, fields: &[Field]) -> Result<Document, SaveErro
 }
 
 /// Top-level field names (`/T`) in `/AcroForm /Fields`.
-fn field_names(d: &Document, form: ObjId) -> HashSet<String> {
+pub(crate) fn field_names(d: &Document, form: ObjId) -> HashSet<String> {
     let mut out = HashSet::new();
     let fields = d
         .get_dictionary(form)

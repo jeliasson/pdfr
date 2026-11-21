@@ -77,7 +77,7 @@ impl App {
             e.f.rect = moved;
         }
         doc.dirty = true;
-        self.apply_form(form, &pages);
+        self.apply_form(form);
         self.assist.invalidate();
         let n = pages.len();
         self.status = if n == 1 {
@@ -87,37 +87,90 @@ impl App {
         };
     }
 
-    /// Shows `form` (the same document with `changed` pages turned):
-    /// those pages are drawn, detected and read again.
-    pub(super) fn apply_form(&mut self, form: Arc<FormDoc>, changed: &[usize]) {
+    /// Shows `form`, a changed version of the open document (pages turned,
+    /// moved, deleted or added). Pages are matched by their PDF objects:
+    /// what was made for a page that is still there (pictures, text, found
+    /// boxes) follows it to its new place; new and turned pages are drawn,
+    /// detected and read again. Fields are the caller's to update.
+    pub(super) fn apply_form(&mut self, form: Arc<FormDoc>) {
         let Some(doc) = &mut self.doc else { return };
+        let map = page_map(&doc.form, &form);
+        let changed: Vec<usize> = (0..form.pages.len())
+            .filter(|&i| map[i].is_none_or(|o| doc.form.pages[o] != form.pages[i]))
+            .collect();
+        let mut old_to_new = vec![None; doc.form.pages.len()];
+        for (i, o) in map.iter().enumerate() {
+            if let Some(o) = *o
+                && !changed.contains(&i)
+            {
+                old_to_new[o] = Some(i);
+            }
+        }
+        let moved =
+            map.len() != old_to_new.len() || map.iter().enumerate().any(|(i, o)| *o != Some(i));
         let render = form.render_bytes();
         let editable = form.editable();
         doc.sizes = form.pages.iter().map(|g| g.display_size()).collect();
+        doc.detected = (0..form.pages.len())
+            .map(|i| match map[i] {
+                Some(o) if !changed.contains(&i) => {
+                    doc.detected.get(o).copied().unwrap_or(!editable)
+                }
+                _ => !editable,
+            })
+            .collect();
         doc.form = form;
-        doc.generation = self.worker.replace_document(render, changed, editable);
+        doc.generation = self
+            .worker
+            .replace_document(render, &changed, editable, &old_to_new);
         doc.pending.clear();
-        for &p in changed {
-            doc.tex.remove(&p);
-            doc.thumbs.remove(&p);
-            doc.text.remove(&p);
-            doc.text_links.remove(&p);
-            if let Some(d) = doc.detected.get_mut(p) {
-                *d = !editable;
+        remap_keys(&mut doc.tex, &old_to_new);
+        remap_keys(&mut doc.thumbs, &old_to_new);
+        remap_keys(&mut doc.text, &old_to_new);
+        remap_keys(&mut doc.text_links, &old_to_new);
+        for links in doc.text_links.values_mut() {
+            for l in links.iter_mut() {
+                if let Some(Some(n)) = old_to_new.get(l.page) {
+                    l.page = *n;
+                }
             }
         }
         doc.reorder();
         self.thumbs_asked.clear();
+        self.side_follow = None;
         if self
             .text_sel
             .as_ref()
-            .is_some_and(|s| changed.contains(&s.page))
+            .is_some_and(|s| moved || changed.contains(&s.page))
         {
             self.text_sel = None;
         }
         if let Some(s) = &mut self.search {
             s.shown = false;
+            if moved {
+                s.reset_hits();
+            }
         }
         self.clamp_scroll();
     }
+}
+
+/// Where each page of `new` was in `old` (pages matched by object; a
+/// read-only document, which cannot change, maps to itself).
+fn page_map(old: &FormDoc, new: &FormDoc) -> Vec<Option<usize>> {
+    if new.page_ids.is_empty() {
+        return (0..new.pages.len())
+            .map(|i| (i < old.pages.len()).then_some(i))
+            .collect();
+    }
+    pdfr_core::pages::page_map(old, new)
+}
+
+/// Moves values keyed by old page index to their new index, dropping those
+/// whose page is gone or changed.
+fn remap_keys<T>(m: &mut HashMap<usize, T>, old_to_new: &[Option<usize>]) {
+    *m = std::mem::take(m)
+        .into_iter()
+        .filter_map(|(k, v)| Some((old_to_new.get(k).copied().flatten()?, v)))
+        .collect();
 }

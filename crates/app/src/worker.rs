@@ -121,10 +121,17 @@ impl Worker {
         s.generation
     }
 
-    /// Switches to a changed version of the same document (pages turned):
-    /// only `pages` are detected (or read for text) again. Returns the new
-    /// generation number.
-    pub fn replace_document(&self, bytes: Arc<Vec<u8>>, pages: &[usize], detect: bool) -> u64 {
+    /// Switches to a changed version of the same document (pages turned,
+    /// moved, added or deleted): only `pages` are detected (or read for
+    /// text) again; pages still waiting keep waiting at their new index
+    /// (`old_to_new`). Returns the new generation number.
+    pub fn replace_document(
+        &self,
+        bytes: Arc<Vec<u8>>,
+        pages: &[usize],
+        detect: bool,
+        old_to_new: &[Option<usize>],
+    ) -> u64 {
         let mut s = self.shared.state.lock().unwrap();
         s.generation += 1;
         s.bytes = Some(bytes);
@@ -135,6 +142,7 @@ impl Worker {
         let waiting: Vec<usize> = std::mem::take(&mut s.detect)
             .into_iter()
             .chain(std::mem::take(&mut s.text))
+            .filter_map(|p| old_to_new.get(p).copied().flatten())
             .collect();
         for p in waiting {
             if !redo.contains(&p) {

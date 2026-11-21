@@ -35,6 +35,10 @@ pub enum Command {
     RotatePage,
     RotatePageBack,
     RotateAll,
+    InsertPages,
+    InsertBlankPage,
+    DeletePage,
+    ExtractPage,
     Sidebar,
     AddTextField,
     AddCheckbox,
@@ -102,6 +106,7 @@ const FIT_PAGE: &[KeyboardShortcut] = &[ctrl(Key::Num3)];
 const DARK_PAGES: &[KeyboardShortcut] = &[ctrl(Key::M)];
 const ROTATE: &[KeyboardShortcut] = &[ctrl(Key::R)];
 const ROTATE_ALL: &[KeyboardShortcut] = &[ctrl_shift(Key::R)];
+const INSERT_PAGES: &[KeyboardShortcut] = &[ctrl_shift(Key::M)];
 const SETTINGS: &[KeyboardShortcut] = &[ctrl(Key::Comma)];
 const SCROLL_DOWN: &[KeyboardShortcut] = &[ctrl(Key::J)];
 const SCROLL_UP: &[KeyboardShortcut] = &[ctrl(Key::K)];
@@ -148,6 +153,10 @@ impl Command {
         Command::RotatePage,
         Command::RotatePageBack,
         Command::RotateAll,
+        Command::InsertPages,
+        Command::InsertBlankPage,
+        Command::DeletePage,
+        Command::ExtractPage,
         Command::Sidebar,
         Command::AddTextField,
         Command::AddCheckbox,
@@ -271,6 +280,30 @@ impl Command {
                 "Turn every page a quarter turn",
                 Icon::Rotate,
                 ROTATE_ALL,
+            ),
+            InsertPages => (
+                "Insert pages from a file…",
+                "Add a PDF's pages, or a picture as a page, after this page",
+                Icon::Pages,
+                INSERT_PAGES,
+            ),
+            InsertBlankPage => (
+                "Insert blank page",
+                "Add an empty page after this one, the same size",
+                Icon::Pages,
+                NONE,
+            ),
+            DeletePage => (
+                "Delete this page",
+                "Remove this page from the document (Ctrl+Z brings it back)",
+                Icon::Trash,
+                NONE,
+            ),
+            ExtractPage => (
+                "Extract this page…",
+                "Save this page as a new PDF",
+                Icon::SaveAs,
+                NONE,
             ),
             Sidebar => (
                 "Page sidebar",
@@ -453,7 +486,9 @@ impl App {
             ZoomOut | ZoomIn | ActualSize | FitWidth | FitPage | Sidebar => doc.is_some(),
             DarkPages => true,
             TwoPages | Present | FieldMarks => doc.is_some(),
-            RotatePage | RotatePageBack | RotateAll => editable,
+            RotatePage | RotatePageBack | RotateAll | InsertBlankPage => editable,
+            InsertPages | ExtractPage => editable && !self.dialog_open(),
+            DeletePage => editable && self.page_count() > 1,
             ScrollDown | ScrollUp | HalfPageDown | HalfPageUp | NextPage | PrevPage | GoToPage
             | Find | FindBox | JumpHints => doc.is_some(),
             Copy => self.focus.is_none() && self.text_sel.is_some(),
@@ -576,6 +611,13 @@ impl App {
                 let n = self.doc.as_ref().map_or(0, |d| d.sizes.len());
                 self.rotate_pages((0..n).collect(), 1);
             }
+            InsertPages => self.pick_insert_file(self.current_page() + 1),
+            InsertBlankPage => {
+                let p = self.current_page();
+                self.page_op(super::pages::PageOp::Blank { at: p + 1, like: p });
+            }
+            DeletePage => self.delete_pages(&[self.current_page()]),
+            ExtractPage => self.pick_extract(vec![self.current_page()]),
             Sidebar => self.toggle_sidebar(),
             SignDigitally => {
                 if self.digital.pending.is_some() {

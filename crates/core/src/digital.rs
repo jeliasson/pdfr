@@ -149,7 +149,7 @@ pub(crate) fn read(d: &Document, page_ids: &[ObjId], geoms: &[PageGeom]) -> Vec<
 
 /// Widgets of signature fields: from `/AcroForm /Fields` (so invisible ones
 /// count too), with the page each sits on.
-fn sig_widgets(d: &Document, page_ids: &[ObjId]) -> Vec<(ObjId, Option<usize>)> {
+pub(crate) fn sig_widgets(d: &Document, page_ids: &[ObjId]) -> Vec<(ObjId, Option<usize>)> {
     let mut on_page = std::collections::HashMap::new();
     for (pi, &pid) in page_ids.iter().enumerate() {
         if let Some(Object::Array(a)) = d
