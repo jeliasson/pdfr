@@ -97,6 +97,58 @@ pub fn render_page<'a>(page: &'a Page<'a>, cache: &RenderCache<'a>, scale: f32) 
     }
 }
 
+/// The paper colour just around `r` (display points) on page `page` of
+/// the PDF `bytes`: the most common colour in a thin ring outside it, so
+/// covering printed text matches a shaded or tinted page. White when the
+/// page can't be read.
+pub fn paper_around(bytes: Arc<Vec<u8>>, page: usize, r: &crate::geom::Rect) -> [u8; 3] {
+    const S: f32 = 2.0;
+    let Ok(pdf) = Pdf::new(bytes) else {
+        return [255; 3];
+    };
+    let pages = pdf.pages();
+    let Some(p) = pages.get(page) else {
+        return [255; 3];
+    };
+    let cache = RenderCache::new();
+    let img = render_page(p, &cache, S);
+    let (w, h) = (img.width as i64, img.height as i64);
+    let px = |v: f32| (v * S).round() as i64;
+    let (inner, outer) = (1.0, 4.0);
+    let (ox0, oy0, ox1, oy1) = (
+        px(r.x0 - outer).max(0),
+        px(r.y0 - outer).max(0),
+        px(r.x1 + outer).min(w),
+        px(r.y1 + outer).min(h),
+    );
+    let (ix0, iy0, ix1, iy1) = (
+        px(r.x0 - inner),
+        px(r.y0 - inner),
+        px(r.x1 + inner),
+        px(r.y1 + inner),
+    );
+    // Colours binned to 4 bits a channel; the fullest bin's average wins.
+    let mut bins: std::collections::HashMap<[u8; 3], ([u64; 3], u64)> = Default::default();
+    for y in oy0..oy1 {
+        for x in ox0..ox1 {
+            if (ix0..ix1).contains(&x) && (iy0..iy1).contains(&y) {
+                continue;
+            }
+            let i = ((y * w + x) * 4) as usize;
+            let c = [img.rgba[i], img.rgba[i + 1], img.rgba[i + 2]];
+            let e = bins.entry([c[0] >> 4, c[1] >> 4, c[2] >> 4]).or_default();
+            for (sum, v) in e.0.iter_mut().zip(c) {
+                *sum += v as u64;
+            }
+            e.1 += 1;
+        }
+    }
+    bins.values()
+        .max_by_key(|(_, n)| *n)
+        .map(|(sum, n)| [(sum[0] / n) as u8, (sum[1] / n) as u8, (sum[2] / n) as u8])
+        .unwrap_or([255; 3])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

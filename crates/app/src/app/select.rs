@@ -275,8 +275,11 @@ impl App {
         let rect = PRect::new(r.x0 - 1.5, r.y0 - 1.5, r.x1 + 1.5, r.y1 + 1.5);
         let mut f = Field::new_text(page, rect, TextMode::Single, Origin::Manual);
         let text = run.text.trim().to_string();
+        // Cover the old print in the page's own colour (a shaded or tinted
+        // page stays shaded), not always white.
+        let color = pdfr_core::render::paper_around(doc.form.render_bytes(), page, &r);
         f.backdrop = Some(pdfr_core::field::Backdrop {
-            color: [255, 255, 255],
+            color,
             printed: text.clone(),
         });
         f.value = text;

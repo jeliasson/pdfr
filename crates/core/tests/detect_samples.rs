@@ -272,3 +272,30 @@ fn shaded_panels_and_printed_answers() {
         "field at the footer: {fields:#?}"
     );
 }
+
+/// Covering printed text uses the page's own colour: the panel's grey
+/// inside a shaded panel, white on plain paper.
+#[test]
+fn paper_colour_around_text() {
+    let bytes = sample("panels.pdf");
+    let loaded = pdfr_core::pipeline::load(bytes.clone()).unwrap();
+    let panel = loaded
+        .fields
+        .iter()
+        .find_map(|f| f.backdrop.as_ref().map(|b| (f, b.color)))
+        .expect("a shaded panel");
+    let (f, want) = panel;
+    let r = f.rect;
+    let inner = pdfr_core::geom::Rect::new(r.x0 + 8.0, r.y0 + 6.0, r.x1 - 8.0, r.y1 - 6.0);
+    let got = pdfr_core::render::paper_around(std::sync::Arc::new(bytes), f.page, &inner);
+    for k in 0..3 {
+        assert!(got[k].abs_diff(want[k]) <= 6, "{got:?} vs panel {want:?}");
+    }
+    let flat = sample("flat_form.pdf");
+    let white = pdfr_core::render::paper_around(
+        std::sync::Arc::new(flat),
+        0,
+        &pdfr_core::geom::Rect::new(400.0, 20.0, 500.0, 30.0),
+    );
+    assert_eq!(white, [255, 255, 255]);
+}
