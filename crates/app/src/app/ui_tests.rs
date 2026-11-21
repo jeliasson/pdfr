@@ -1637,6 +1637,27 @@ fn marks(h: &Harness<'_, App>) -> Vec<pdfr_core::markup::Markup> {
     h.state().doc.as_ref().unwrap().mark_list()
 }
 
+/// Comments are signed with the name of the person filled in most often;
+/// a profile without a name never signs.
+#[test]
+fn comments_carry_your_profile_name() {
+    use pdfr_assist::profiles::Profile;
+    let person = |id: u64, count: u32, k: &str, v: &str| Profile {
+        id,
+        values: [(k.to_string(), v.to_string())].into(),
+        count,
+        ..Default::default()
+    };
+    let mut store = Store::default();
+    store.profiles.push(person(1, 3, "full_name", "Erik Lindqvist"));
+    store.profiles.push(person(2, 9, "full_name", "Anna Lindqvist"));
+    store.profiles.push(person(3, 20, "email", "info@example.com"));
+    let mut h = harness("flat_form.pdf", data_dir("author", Some(store)));
+    ctrl_shift(&mut h, Key::A);
+    click_doc(&mut h, 450.0, 90.0);
+    assert_eq!(marks(&h)[0].author, "Anna Lindqvist");
+}
+
 #[test]
 fn place_a_note_type_it_and_undo() {
     use egui_kittest::kittest::Queryable;

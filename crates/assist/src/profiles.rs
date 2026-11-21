@@ -66,15 +66,25 @@ pub struct Profile {
 }
 
 impl Profile {
-    /// A short name for lists: the person's name, else e-mail, else ID.
-    pub fn title(&self) -> String {
-        if let Some(n) = self.values.get("full_name") {
-            return n.clone();
+    /// The person's name, if pdfr knows it (full name, else given and
+    /// family name).
+    pub fn name(&self) -> Option<String> {
+        if let Some(n) = self
+            .values
+            .get("full_name")
+            .filter(|n| !n.trim().is_empty())
+        {
+            return Some(n.trim().to_string());
         }
         let g = self.values.get("given_name").cloned().unwrap_or_default();
         let f = self.values.get("family_name").cloned().unwrap_or_default();
         let n = format!("{g} {f}").trim().to_string();
-        if !n.is_empty() {
+        (!n.is_empty()).then_some(n)
+    }
+
+    /// A short name for lists: the person's name, else e-mail, else ID.
+    pub fn title(&self) -> String {
+        if let Some(n) = self.name() {
             return n;
         }
         for k in ["email", "national_id", "passport_number", "phone"] {

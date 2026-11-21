@@ -27,6 +27,9 @@ version's section into its GitHub release notes.
   of a third-party server (the same files, checked the same way).
 - **The Sign dialog stays put** near the top of the window when you switch
   tabs, instead of jumping as its size changes.
+- **Comments carry your name.** New comments, highlights and text boxes are
+  signed with the name of the person pdfr has filled in most often (you),
+  instead of the computer's login name.
 
 ### Fixed
 

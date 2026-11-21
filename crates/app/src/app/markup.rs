@@ -106,13 +106,6 @@ impl Doc {
     }
 }
 
-/// Who writes comments: the account's name.
-fn author() -> String {
-    std::env::var("USER")
-        .or_else(|_| std::env::var("USERNAME"))
-        .unwrap_or_default()
-}
-
 fn seg_dist(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> f32 {
     let (dx, dy) = (b.0 - a.0, b.1 - a.1);
     let l2 = dx * dx + dy * dy;
@@ -193,6 +186,23 @@ impl App {
         (!rects.is_empty()).then_some((sel.page, rects))
     }
 
+    /// Who writes comments: the person pdfr has filled in most often (on
+    /// your own computer, that's you), by name. Without a remembered name,
+    /// the computer account's name.
+    pub(super) fn author(&self) -> String {
+        let profiles = &self.assist.a.store.profiles;
+        profiles
+            .iter()
+            .filter_map(|p| Some((p.count, p.last_used, p.name()?)))
+            .max_by_key(|(count, last, _)| (*count, *last))
+            .map(|(_, _, n)| n)
+            .unwrap_or_else(|| {
+                std::env::var("USER")
+                    .or_else(|_| std::env::var("USERNAME"))
+                    .unwrap_or_default()
+            })
+    }
+
     /// Highlights, underlines or strikes through the selected text; with
     /// `comment`, opens the comment for typing.
     pub(super) fn mark_selection(&mut self, kind: MarkKind, comment: bool) {
@@ -202,7 +212,7 @@ impl App {
         };
         let Some(g) = self.geom(page) else { return };
         let mut m = Markup::over_text(kind, page, &g, &rects, self.colour_for(kind));
-        m.author = author();
+        m.author = self.author();
         let Some(id) = self.add_mark(m) else { return };
         if comment {
             self.open_mark_edit(id, true);
@@ -214,7 +224,7 @@ impl App {
         let Some(g) = self.geom(page) else { return };
         let h = pm::NOTE_SIZE / 2.0;
         let mut m = Markup::note(page, &g, x - h, y - h, self.colour_for(MarkKind::Note));
-        m.author = author();
+        m.author = self.author();
         if let Some(id) = self.add_mark(m) {
             self.open_mark_edit(id, true);
         }
@@ -230,7 +240,7 @@ impl App {
             PRect::new(x, y, x + 200.0, y + one_line)
         });
         let mut m = Markup::text_box(page, &g, r, self.colour_for(MarkKind::FreeText));
-        m.author = author();
+        m.author = self.author();
         if let Some(id) = self.add_mark(m) {
             self.open_mark_edit(id, true);
         }
@@ -239,7 +249,7 @@ impl App {
     fn place_shape(&mut self, kind: MarkKind, page: usize, a: (f32, f32), b: (f32, f32)) {
         let Some(g) = self.geom(page) else { return };
         let mut m = Markup::shape(kind, page, &g, a, b, self.colour_for(kind));
-        m.author = author();
+        m.author = self.author();
         self.add_mark(m);
         self.status = format!(
             "{} drawn. Drag to move it; Delete removes it.",
