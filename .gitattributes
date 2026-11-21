@@ -1,0 +1,2 @@
+# Built into the app with include_str!: the same bytes on every platform.
+crates/app/src/agent/SKILL.md text eol=lf
