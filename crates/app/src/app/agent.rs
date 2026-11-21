@@ -131,6 +131,10 @@ impl egui::Plugin for WidgetTap {
             .nodes
             .iter()
             .filter_map(|(_, n)| {
+                // A label's text runs repeat the label itself.
+                if n.role() == egui::accesskit::Role::TextRun {
+                    return None;
+                }
                 let b = n.bounds()?;
                 let label = n.label().unwrap_or_default().trim().to_string();
                 let value = n.value().unwrap_or_default().trim().to_string();
