@@ -283,8 +283,15 @@ impl App {
             .cli
             .zoom
             .unwrap_or_else(|| self.fit_width_zoom().clamp(0.5, 1.6));
+        let xfa_only = form.doc.as_ref().is_some_and(pdfr_core::xfa::is_xfa_only);
         self.status = match &form.read_only_reason {
             Some(r) => format!("Read-only: {r}."),
+            // Said plainly instead of leaving a "Please wait…" page to puzzle over.
+            None if xfa_only => {
+                "This form was made only for Adobe Reader (XFA), and no other PDF app \
+                 can show it. Ask the sender for a regular PDF, or for the form on their website."
+                    .into()
+            }
             None => format!("{} page{}.", n, if n == 1 { "" } else { "s" }),
         };
         self.restore = None;

@@ -20,3 +20,4 @@ pub mod save;
 pub mod search;
 pub mod signature;
 pub mod text;
+pub mod xfa;

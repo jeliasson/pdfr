@@ -16,6 +16,9 @@ version's section into its GitHub release notes.
 - **Explain this form.** With AI on, the check can explain in plain words
   what the form is for and what each part asks. Only headings and box
   labels are sent, never your answers.
+- **XFA forms are explained.** Forms made only for Adobe Reader (XFA),
+  which no other PDF app can show, now say so when opened instead of
+  showing a "Please wait…" page.
 
 ### Changed
 
