@@ -12,7 +12,7 @@
 //! Every window listens on its own socket, `agent-<pid>.sock`, in a folder
 //! only the user can enter.
 
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -61,6 +61,8 @@ pub fn all_dirs() -> Vec<PathBuf> {
     dirs
 }
 
+/// A window's socket file name (windows listen only on Unix for now).
+#[cfg(unix)]
 pub fn socket_name(pid: u32) -> String {
     format!("agent-{pid}.sock")
 }
@@ -159,7 +161,7 @@ impl Client {
         };
         let id = self.next_id;
         self.next_id += 1;
-        let mut line = json!({"id": id, "op": op, "args": args}).to_string();
+        let mut line = serde_json::json!({"id": id, "op": op, "args": args}).to_string();
         line.push('\n');
         self.stream.write_all(line.as_bytes()).map_err(gone)?;
         self.stream.set_read_timeout(Some(timeout)).map_err(gone)?;
@@ -234,7 +236,7 @@ pub fn connect_or_clean(socket: &Path) -> Option<Client> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 

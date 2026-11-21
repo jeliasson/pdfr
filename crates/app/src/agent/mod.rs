@@ -30,10 +30,12 @@ pub fn active() -> bool {
     CLIENTS.load(Ordering::SeqCst) > 0
 }
 
+#[cfg(unix)]
 pub(crate) fn client_joined() {
     CLIENTS.fetch_add(1, Ordering::SeqCst);
 }
 
+#[cfg(unix)]
 pub(crate) fn client_left() {
     CLIENTS.fetch_sub(1, Ordering::SeqCst);
 }

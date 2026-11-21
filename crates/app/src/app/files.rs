@@ -649,9 +649,11 @@ impl App {
 pub(super) fn native_dialogs() -> bool {
     // With an agent connected, pdfr's own dialog is used: it is inside the
     // window, where the agent can see and use it. The system's is not.
-    if crate::agent::active() {
-        return false;
-    }
+    !crate::agent::active() && system_dialogs()
+}
+
+/// Whether the system offers file dialogs at all.
+fn system_dialogs() -> bool {
     #[cfg(target_os = "linux")]
     {
         crate::system::portal::has("FileChooser")

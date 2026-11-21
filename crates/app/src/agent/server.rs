@@ -129,6 +129,7 @@ fn serve(stream: std::os::unix::net::UnixStream, tx: Sender<Request>, ctx: egui:
     ctx.request_repaint();
 }
 
+#[cfg(unix)]
 pub fn failure(code: &str, message: &str) -> Value {
     json!({"ok": false, "error": {"code": code, "message": message}})
 }
