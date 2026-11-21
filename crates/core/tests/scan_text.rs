@@ -95,3 +95,33 @@ fn boxes_drawn_by_hand_are_kept() {
     drop_text_boxes(&mut fields, &[word("Printed", 54.0, 103.0, 190.0, 113.0)]);
     assert_eq!(fields.len(), 1);
 }
+
+/// One char box per letter, 6 pt apart, from `x0`.
+fn spaced(text: &str, x0: f32, y0: f32, h: f32) -> TextRun {
+    let n = text.chars().count();
+    let mut w = word(text, x0, y0, x0 + 6.0 * n as f32, y0 + h);
+    w.size = h;
+    w.xs = (0..n).map(|i| x0 + 6.0 * i as f32).collect();
+    w.ws = vec![6.0; n];
+    w
+}
+
+#[test]
+fn a_letter_closing_into_a_box_is_no_checkbox() {
+    let check =
+        |x: f32| Field::new_checkbox(0, Rect::new(x, 100.0, x + 6.0, 107.0), Origin::Detected);
+    // The "C" of "CORRECT" (the fourth word) closes into a box: dropped.
+    let line = spaced("THE CORRECT DETAILS", 100.0, 100.0, 7.0);
+    let mut fields = vec![check(124.0)];
+    let mut words = vec![line.clone()];
+    fit_scan_words(&mut fields, &mut words);
+    assert!(fields.is_empty(), "a letter of a word");
+    // A real box read as "L" before its label stays, as does one read as
+    // "O" glued to the label.
+    for text in ["L Male", "OYes"] {
+        let mut fields = vec![check(100.0)];
+        let mut words = vec![spaced(text, 100.0, 100.0, 7.0)];
+        fit_scan_words(&mut fields, &mut words);
+        assert_eq!(fields.len(), 1, "{text}");
+    }
+}

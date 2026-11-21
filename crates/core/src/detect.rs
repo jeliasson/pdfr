@@ -3,7 +3,7 @@
 //! Input is a grayscale render of the page (display orientation). All
 //! thresholds are given in points and converted with the render scale.
 
-use crate::field::{Field, Origin, TextMode};
+use crate::field::{Field, FieldKind, Origin, TextMode};
 use crate::geom::Rect;
 
 /// Render scale used for detection (pixels per point).
@@ -1754,6 +1754,7 @@ pub fn drop_text_boxes(fields: &mut Vec<Field>, words: &[crate::text::TextRun]) 
 /// letter ("[ Other", "L Male") are cut from the words.
 pub fn fit_scan_words(fields: &mut Vec<Field>, words: &mut Vec<crate::text::TextRun>) {
     drop_text_boxes(fields, words);
+    drop_letter_boxes(fields, words);
     let boxes: Vec<Rect> = fields
         .iter()
         .filter(|f| f.kind.is_toggle())
@@ -1763,6 +1764,60 @@ pub fn fit_scan_words(fields: &mut Vec<Field>, words: &mut Vec<crate::text::Text
         trim_marks(w, &boxes);
     }
     words.retain(|w| !w.text.is_empty());
+}
+
+/// Drops found checkboxes that are a letter of a printed word: a "C" or
+/// "D" whose curve closes into a box in a scan ("the CORRECT details").
+/// The word read there must run on past the box (at least four letters or
+/// digits), the box must be about letter-sized, and what was read on it
+/// must not be one of the shapes an empty box is often read as ("L Male",
+/// "[ Other", "O Yes"), so real checkboxes stay.
+pub fn drop_letter_boxes(fields: &mut Vec<Field>, words: &[crate::text::TextRun]) {
+    const BOX_LIKE: &[char] = &['O', 'o', 'L', 'l', 'I', 'i', 'D', '0', 'Q'];
+    fields.retain(|f| {
+        if !matches!(f.kind, FieldKind::Checkbox { .. }) || f.origin != Origin::Detected {
+            return true;
+        }
+        let r = f.rect;
+        let (cx, cy) = r.center();
+        let Some(w) = words.iter().find(|w| w.rect.inset(-1.0).contains(cx, cy)) else {
+            return true;
+        };
+        let chars: Vec<char> = w.text.chars().collect();
+        if chars.len() != w.xs.len() || w.size <= 0.0 || r.height() > 1.4 * w.size {
+            return true;
+        }
+        let on: Vec<usize> = (0..chars.len())
+            .filter(|&k| {
+                let c = w.xs[k] + w.ws[k] / 2.0;
+                r.x0 - 1.0 <= c && c <= r.x1 + 1.0
+            })
+            .collect();
+        let (Some(&first), Some(&last)) = (on.first(), on.last()) else {
+            return true;
+        };
+        if on.len() > 2
+            || on
+                .iter()
+                .any(|&k| !chars[k].is_alphanumeric() || BOX_LIKE.contains(&chars[k]))
+        {
+            return true;
+        }
+        // The word around the box: from the space before to the space after.
+        let start = chars[..first]
+            .iter()
+            .rposition(|c| c.is_whitespace())
+            .map_or(0, |i| i + 1);
+        let end = chars[last..]
+            .iter()
+            .position(|c| c.is_whitespace())
+            .map_or(chars.len(), |i| last + i);
+        let letters = chars[start..end]
+            .iter()
+            .filter(|c| c.is_alphanumeric())
+            .count();
+        letters < 4
+    });
 }
 
 /// Cuts the first and last word of a phrase when they lie on a checkbox.
