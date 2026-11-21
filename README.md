@@ -119,12 +119,19 @@ and offer them on the next form, in any language.
 
 ### Works with your AI agent
 
-Hand the form to Claude (or Cursor, or any agent that speaks MCP) and watch
-it get filled in. Connect it once:
+Hand the form to Claude (or Codex, Cursor, or any agent that speaks MCP) and
+watch it get filled in. Connect it once: open **Settings → AI agents** and
+press **Install** next to your agent. Or, for Claude Code, in a terminal:
 
 ```sh
 claude mcp add pdfr -- pdfr mcp
 ```
+
+Install knows Claude Code, Claude Desktop, Codex and ChatGPT Desktop, Cursor,
+OpenCode, Antigravity, GitHub Copilot, Amp, Crush, Kiro, Devin, MiniMax Code,
+DeepSeek Harness, Grok, Hermes, OpenClaw, Pi, Oh My Pi, Kimi Code, Qwen Code,
+Kilo and LM Studio, and shows the ones on your computer. It also gives the
+agent a short guide (a skill) on using pdfr.
 
 Then ask: *"Fill in ~/Downloads/application.pdf with my details and save it
 next to the original."* The agent opens pdfr, reads the boxes, fills them in

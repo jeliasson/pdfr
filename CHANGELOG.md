@@ -13,6 +13,10 @@ version's section into its GitHub release notes.
   opens pdfr, reads the form's boxes, fills them in and saves, in a window
   you can watch. It can also look at the window and use the pointer and
   keyboard the way you do.
+  - **Install** in Settings → AI agents adds pdfr to the agents on your
+    computer for you (Claude Code, Codex and ChatGPT Desktop, Cursor,
+    OpenCode, Antigravity, GitHub Copilot, Grok, Hermes, Pi, Kilo and a dozen
+    more), with a short guide for the agent on using pdfr.
   - Click or type yourself and the agent pauses until you press Resume.
   - Signing digitally and saving over a file that is already there ask you
     first. Printing and using remembered details are allowed. Each of these

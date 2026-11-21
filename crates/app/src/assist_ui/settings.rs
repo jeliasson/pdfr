@@ -3,7 +3,7 @@
 
 use super::AssistState;
 use super::widgets::*;
-use crate::agent::install::{Client, Launch};
+use crate::agent::install::{CLIENTS, Client, Launch};
 use crate::icons::{self, Icon};
 use crate::theme::{Palette, mix};
 use eframe::egui::{
@@ -120,10 +120,13 @@ pub struct SettingsUi {
 #[derive(Default)]
 struct Installs {
     /// Each agent found and whether pdfr is in it. `None`: not looked yet.
-    found: Option<Vec<(Client, bool)>>,
-    running: Option<(Client, std::sync::mpsc::Receiver<Result<(), String>>)>,
+    found: Option<Vec<(&'static Client, bool)>>,
+    running: Option<(
+        &'static Client,
+        std::sync::mpsc::Receiver<Result<(), String>>,
+    )>,
     /// The agent whose install failed, and why.
-    error: Option<(Client, String)>,
+    error: Option<(&'static Client, String)>,
 }
 
 /// What the user asked for this frame, applied after drawing.
@@ -427,8 +430,8 @@ impl AssistState {
         }
         if let (None, Some(home)) = (&ins.found, &home) {
             ins.found = Some(
-                Client::ALL
-                    .into_iter()
+                CLIENTS
+                    .iter()
                     .filter(|cl| cl.found(home))
                     .map(|cl| (cl, cl.installed(home)))
                     .collect(),
@@ -456,7 +459,7 @@ impl AssistState {
                     (false, Some(_)) => "Adds pdfr and a short guide on using it.",
                     (false, None) => "Adds pdfr to its MCP settings.",
                 };
-                setting_row(ui, c, client.name(), sub, |ui| {
+                setting_row(ui, c, client.name, sub, |ui| {
                     if *installed {
                         ui.add_enabled_ui(false, |ui| secondary_button(ui, c, "Installed"));
                     } else if running {

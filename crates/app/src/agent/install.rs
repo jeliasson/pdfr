@@ -3,10 +3,14 @@
 //!
 //! For each agent this registers the `pdfr mcp` server in the agent's own
 //! settings and, where the agent reads skills, writes a short guide on using
-//! pdfr (`SKILL.md`) next to its other skills. Nothing else in the agent's
+//! pdfr (`SKILL.md`) where it looks for them. Nothing else in the agent's
 //! settings is touched, and a settings file that cannot be read is left alone.
+//!
+//! The settings files are edited directly: an agent's own command may be a
+//! launcher that installs the agent when first run. Claude Code is the one
+//! exception: it rewrites its file while it runs, so it is asked itself.
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};
 
 /// The guide written for agents that read skills.
@@ -15,14 +19,8 @@ pub const SKILL: &str = include_str!("SKILL.md");
 /// The name pdfr is registered under, and its skill's folder.
 const NAME: &str = "pdfr";
 
-/// An agent pdfr can add itself to.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Client {
-    ClaudeCode,
-    Codex,
-    Cursor,
-    ClaudeDesktop,
-}
+/// The skills folder most agents share.
+const SHARED_SKILLS: &str = ".agents/skills";
 
 /// The command an agent runs to reach pdfr: the program and its arguments
 /// (ending in `mcp`).
@@ -32,82 +30,307 @@ pub struct Launch {
     pub args: Vec<String>,
 }
 
+/// How an agent's entry for a server is written in a JSON settings file.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Entry {
+    /// `{"command": …, "args": […]}`
+    Plain,
+    /// The same with `"type": "stdio"`.
+    Stdio,
+    /// GitHub Copilot: `"type": "local"` and every tool allowed.
+    Local,
+    /// Kilo: `"type": "local"`, the command and its arguments as one list.
+    List,
+}
+
+/// How pdfr is added to an agent.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum How {
+    /// `claude mcp add --scope user …`; the servers are read from
+    /// `.claude.json`.
+    ClaudeCode,
+    /// A JSON file with the servers under `keys`.
+    Json {
+        keys: &'static [&'static str],
+        entry: Entry,
+    },
+    /// opencode: `mcp.servers.<name>` (or `mcp.<name>` in a file written
+    /// for version 1), the command and its arguments as one list.
+    Opencode,
+    /// Codex, Grok: a `[mcp_servers.<name>]` table in `config.toml`.
+    Toml,
+    /// Hermes: an entry under `mcp_servers:` in `config.yaml`.
+    HermesYaml,
+    /// Crush: an `mcp add` line in its `crushrc`.
+    Crushrc,
+    /// DeepSeek Harness: an item in its YAML list of patches.
+    DshYaml,
+}
+
+/// An agent pdfr can add itself to. All paths are under the home folder.
+#[derive(Debug, PartialEq)]
+pub struct Client {
+    pub name: &'static str,
+    /// The agent is on this computer if one of these folders is there.
+    dirs: &'static [&'static str],
+    /// The settings file that lists its MCP servers: the first one that is
+    /// there, else the first whose folder is.
+    files: &'static [&'static str],
+    how: How,
+    /// The folder it reads skills from, if it reads them.
+    skills: Option<&'static str>,
+}
+
+const fn json(
+    name: &'static str,
+    dir: &'static [&'static str],
+    files: &'static [&'static str],
+    entry: Entry,
+    skills: Option<&'static str>,
+) -> Client {
+    Client {
+        name,
+        dirs: dir,
+        files,
+        how: How::Json {
+            keys: &["mcpServers"],
+            entry,
+        },
+        skills,
+    }
+}
+
+/// Every agent pdfr knows how to add itself to, as listed in Settings.
+pub static CLIENTS: &[Client] = &[
+    Client {
+        name: "Claude Code",
+        dirs: &[".claude"],
+        files: &[".claude.json"],
+        how: How::ClaudeCode,
+        skills: Some(".claude/skills"),
+    },
+    json(
+        "Claude Desktop",
+        &[".config/Claude", "Library/Application Support/Claude"],
+        &[
+            ".config/Claude/claude_desktop_config.json",
+            "Library/Application Support/Claude/claude_desktop_config.json",
+        ],
+        Entry::Plain,
+        None,
+    ),
+    // ChatGPT Desktop and T3 Code read Codex's settings.
+    Client {
+        name: "Codex and ChatGPT Desktop",
+        dirs: &[".codex"],
+        files: &[".codex/config.toml"],
+        how: How::Toml,
+        skills: Some(SHARED_SKILLS),
+    },
+    json(
+        "Cursor",
+        &[".cursor"],
+        &[".cursor/mcp.json"],
+        Entry::Stdio,
+        Some(SHARED_SKILLS),
+    ),
+    Client {
+        name: "OpenCode",
+        dirs: &[".config/opencode"],
+        files: &[
+            ".config/opencode/opencode.json",
+            ".config/opencode/opencode.jsonc",
+        ],
+        how: How::Opencode,
+        skills: Some(SHARED_SKILLS),
+    },
+    json(
+        "Antigravity",
+        &[".gemini/config"],
+        &[".gemini/config/mcp_config.json"],
+        Entry::Plain,
+        Some(".gemini/config/skills"),
+    ),
+    json(
+        "GitHub Copilot",
+        &[".copilot"],
+        &[".copilot/mcp-config.json"],
+        Entry::Local,
+        Some(SHARED_SKILLS),
+    ),
+    Client {
+        name: "Amp",
+        dirs: &[".config/amp"],
+        files: &[".config/amp/settings.json", ".config/amp/settings.jsonc"],
+        how: How::Json {
+            keys: &["amp.mcpServers"],
+            entry: Entry::Plain,
+        },
+        skills: Some(SHARED_SKILLS),
+    },
+    Client {
+        name: "Crush",
+        dirs: &[".config/crush"],
+        files: &[".config/crush/crushrc"],
+        how: How::Crushrc,
+        skills: Some(SHARED_SKILLS),
+    },
+    json(
+        "Kiro",
+        &[".kiro"],
+        &[".kiro/settings/mcp.json"],
+        Entry::Plain,
+        Some(".kiro/skills"),
+    ),
+    json(
+        "Devin",
+        &[".config/devin"],
+        &[".config/devin/mcp_config.json"],
+        Entry::Plain,
+        Some(SHARED_SKILLS),
+    ),
+    json(
+        "MiniMax Code",
+        &[".minimax"],
+        &[".minimax/mcp.json"],
+        Entry::Plain,
+        Some(SHARED_SKILLS),
+    ),
+    Client {
+        name: "DeepSeek Harness",
+        dirs: &[".dsh"],
+        files: &[".dsh/cordis.patch.yml"],
+        how: How::DshYaml,
+        skills: Some(SHARED_SKILLS),
+    },
+    Client {
+        name: "Grok",
+        dirs: &[".grok"],
+        files: &[".grok/config.toml"],
+        how: How::Toml,
+        skills: Some(SHARED_SKILLS),
+    },
+    // Hermes Desktop reads the same settings.
+    Client {
+        name: "Hermes",
+        dirs: &[".hermes"],
+        files: &[".hermes/config.yaml"],
+        how: How::HermesYaml,
+        skills: Some(".hermes/skills"),
+    },
+    Client {
+        name: "OpenClaw",
+        dirs: &[".openclaw"],
+        files: &[".openclaw/openclaw.json"],
+        how: How::Json {
+            keys: &["mcp", "servers"],
+            entry: Entry::Plain,
+        },
+        skills: Some(SHARED_SKILLS),
+    },
+    json(
+        "Pi",
+        &[".pi/agent"],
+        &[".pi/agent/mcp.json"],
+        Entry::Plain,
+        Some(SHARED_SKILLS),
+    ),
+    json(
+        "Oh My Pi",
+        &[".omp/agent"],
+        &[".omp/agent/mcp.json"],
+        Entry::Stdio,
+        None,
+    ),
+    json(
+        "Kimi Code",
+        &[".kimi-code"],
+        &[".kimi-code/mcp.json"],
+        Entry::Plain,
+        Some(SHARED_SKILLS),
+    ),
+    json(
+        "Qwen Code",
+        &[".qwen"],
+        &[".qwen/settings.json"],
+        Entry::Plain,
+        Some(SHARED_SKILLS),
+    ),
+    Client {
+        name: "Kilo",
+        dirs: &[".config/kilo"],
+        files: &[".config/kilo/kilo.json", ".config/kilo/kilo.jsonc"],
+        how: How::Json {
+            keys: &["mcp"],
+            entry: Entry::List,
+        },
+        skills: Some(SHARED_SKILLS),
+    },
+    json(
+        "LM Studio",
+        &[".lmstudio", ".cache/lm-studio"],
+        &[".lmstudio/mcp.json", ".cache/lm-studio/mcp.json"],
+        Entry::Plain,
+        None,
+    ),
+];
+
 impl Client {
-    pub const ALL: [Client; 4] = [
-        Client::ClaudeCode,
-        Client::Codex,
-        Client::Cursor,
-        Client::ClaudeDesktop,
-    ];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Client::ClaudeCode => "Claude Code",
-            Client::Codex => "Codex",
-            Client::Cursor => "Cursor",
-            Client::ClaudeDesktop => "Claude Desktop",
-        }
-    }
-
-    /// The agent's own folder under the home folder: there if it is
-    /// installed.
-    fn dir(self, home: &Path) -> PathBuf {
-        match self {
-            Client::ClaudeCode => home.join(".claude"),
-            Client::Codex => home.join(".codex"),
-            Client::Cursor => home.join(".cursor"),
-            Client::ClaudeDesktop if cfg!(target_os = "macos") => {
-                home.join("Library/Application Support/Claude")
-            }
-            Client::ClaudeDesktop => home.join(".config/Claude"),
-        }
-    }
-
     /// The settings file that lists the agent's MCP servers.
-    fn config(self, home: &Path) -> PathBuf {
-        match self {
-            Client::ClaudeCode => home.join(".claude.json"),
-            Client::Codex => self.dir(home).join("config.toml"),
-            Client::Cursor => self.dir(home).join("mcp.json"),
-            Client::ClaudeDesktop => self.dir(home).join("claude_desktop_config.json"),
-        }
+    fn config(&self, home: &Path) -> PathBuf {
+        let all = || self.files.iter().map(|f| home.join(f));
+        all()
+            .find(|f| f.is_file())
+            .or_else(|| all().find(|f| f.parent().is_some_and(Path::is_dir)))
+            .unwrap_or_else(|| home.join(self.files[0]))
     }
 
     /// Where the guide goes, for the agents that read skills.
-    pub fn skill_path(self, home: &Path) -> Option<PathBuf> {
-        match self {
-            Client::ClaudeCode | Client::Codex => {
-                Some(self.dir(home).join("skills").join(NAME).join("SKILL.md"))
-            }
-            Client::Cursor | Client::ClaudeDesktop => None,
-        }
+    pub fn skill_path(&self, home: &Path) -> Option<PathBuf> {
+        Some(home.join(self.skills?).join(NAME).join("SKILL.md"))
     }
 
     /// Whether this agent is on the computer.
-    pub fn found(self, home: &Path) -> bool {
-        self.dir(home).is_dir()
+    pub fn found(&self, home: &Path) -> bool {
+        self.dirs.iter().any(|d| home.join(d).is_dir())
     }
 
     /// Whether pdfr is already in this agent's settings.
-    pub fn installed(self, home: &Path) -> bool {
+    pub fn installed(&self, home: &Path) -> bool {
         let Ok(text) = std::fs::read_to_string(self.config(home)) else {
             return false;
         };
-        match self {
-            Client::Codex => toml_has_server(&text),
-            _ => serde_json::from_str::<Value>(&text)
-                .is_ok_and(|v| v["mcpServers"].get(NAME).is_some()),
+        let in_json = |keys: &[&str]| {
+            serde_json::from_str::<Value>(&text).is_ok_and(|v| {
+                keys.iter()
+                    .try_fold(&v, |v, k| v.get(k))
+                    .is_some_and(|servers| servers.get(NAME).is_some())
+            })
+        };
+        match self.how {
+            How::ClaudeCode => in_json(&["mcpServers"]),
+            How::Json { keys, .. } => in_json(keys),
+            How::Opencode => in_json(&["mcp", "servers"]) || in_json(&["mcp"]),
+            How::Toml => toml_has_server(&text),
+            How::HermesYaml => hermes_has_server(&text),
+            How::Crushrc => crushrc_has_server(&text),
+            How::DshYaml => dsh_has_server(&text),
         }
     }
 
     /// Adds pdfr to this agent. May take a moment (Claude Code is asked
     /// through its own command), so call it off the UI thread.
-    pub fn install(self, home: &Path, launch: &Launch) -> Result<(), String> {
+    pub fn install(&self, home: &Path, launch: &Launch) -> Result<(), String> {
         if !self.installed(home) {
-            match self {
-                Client::ClaudeCode => claude_code_add(home, launch)?,
-                Client::Codex => toml_add(&self.config(home), launch)?,
-                Client::Cursor | Client::ClaudeDesktop => json_add(&self.config(home), launch)?,
+            let file = self.config(home);
+            match self.how {
+                How::ClaudeCode => claude_code_add(home, launch)?,
+                How::Json { keys, entry } => json_add(&file, keys, entry_value(entry, launch))?,
+                How::Opencode => opencode_add(&file, launch)?,
+                How::Toml => append(&file, toml_has_server, &toml_table(launch))?,
+                How::HermesYaml => hermes_add(&file, launch)?,
+                How::Crushrc => append(&file, crushrc_has_server, &crushrc_line(launch))?,
+                How::DshYaml => append(&file, dsh_has_server, &dsh_patch(launch))?,
             }
         }
         if let Some(path) = self.skill_path(home) {
@@ -154,51 +377,111 @@ fn replace_file(path: &Path, text: &str) -> Result<(), String> {
     })
 }
 
-/// Adds pdfr under `mcpServers` in a JSON settings file (Cursor, Claude
-/// Desktop), keeping everything else in it.
-fn json_add(path: &Path, launch: &Launch) -> Result<(), String> {
-    let mut root = match std::fs::read_to_string(path) {
-        Ok(text) if !text.trim().is_empty() => {
-            serde_json::from_str::<Value>(&text).map_err(|e| said("read", path, e))?
-        }
-        Ok(_) => json!({}),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({}),
-        Err(e) => return Err(said("read", path, e)),
-    };
-    let not_settings = || said("read", path, "it is not a settings file pdfr understands");
-    let servers = root
-        .as_object_mut()
-        .ok_or_else(not_settings)?
-        .entry("mcpServers")
-        .or_insert_with(|| json!({}))
-        .as_object_mut()
-        .ok_or_else(not_settings)?;
-    servers.insert(
-        NAME.into(),
-        json!({"command": launch.cmd, "args": launch.args}),
-    );
-    let mut text = serde_json::to_string_pretty(&root).map_err(|e| said("write", path, e))?;
+/// A text settings file, empty if it is not there yet.
+fn read_or_empty(path: &Path) -> Result<String, String> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(said("read", path, e)),
+    }
+}
+
+/// A JSON settings file as an object, empty if it is not there yet. A file
+/// that is not plain JSON (comments, say) is an error: it is left alone.
+fn read_json(path: &Path) -> Result<Map<String, Value>, String> {
+    let text = read_or_empty(path)?;
+    if text.trim().is_empty() {
+        return Ok(Map::new());
+    }
+    match serde_json::from_str::<Value>(&text) {
+        Ok(Value::Object(root)) => Ok(root),
+        Ok(_) => Err(said("read", path, "it is not a settings file")),
+        Err(e) => Err(said(
+            "read",
+            path,
+            format!("{e} (a file with comments has to be edited by hand)"),
+        )),
+    }
+}
+
+fn write_json(path: &Path, root: Map<String, Value>) -> Result<(), String> {
+    let mut text =
+        serde_json::to_string_pretty(&Value::Object(root)).map_err(|e| said("write", path, e))?;
     text.push('\n');
     replace_file(path, &text)
 }
 
-/// Whether a Codex `config.toml` already has pdfr's table.
-fn toml_has_server(text: &str) -> bool {
-    text.lines().any(|l| {
-        let l = l.trim();
-        l == "[mcp_servers.pdfr]" || l == "[mcp_servers.\"pdfr\"]"
-    })
+/// The object at `keys` under `root`, made where it is missing.
+fn object_at<'a>(
+    mut at: &'a mut Map<String, Value>,
+    keys: &[&str],
+    path: &Path,
+) -> Result<&'a mut Map<String, Value>, String> {
+    for key in keys {
+        at = at
+            .entry(*key)
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+            .ok_or_else(|| {
+                said(
+                    "read",
+                    path,
+                    format!("its \"{key}\" is not a list of servers"),
+                )
+            })?;
+    }
+    Ok(at)
 }
 
-/// Adds pdfr's table at the end of a Codex `config.toml`. A new table at the
-/// end is valid whatever comes before it, so the file need not be parsed.
-fn toml_add(path: &Path, launch: &Launch) -> Result<(), String> {
-    let mut text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(said("read", path, e)),
-    };
-    if toml_has_server(&text) {
+fn entry_value(entry: Entry, launch: &Launch) -> Value {
+    match entry {
+        Entry::Plain => json!({"command": launch.cmd, "args": launch.args}),
+        Entry::Stdio => json!({"type": "stdio", "command": launch.cmd, "args": launch.args}),
+        Entry::Local => json!({
+            "type": "local", "command": launch.cmd, "args": launch.args, "tools": ["*"],
+        }),
+        Entry::List => json!({"type": "local", "command": command_list(launch), "enabled": true}),
+    }
+}
+
+/// Adds pdfr to the servers at `keys` in a JSON settings file, keeping
+/// everything else in it.
+fn json_add(path: &Path, keys: &[&str], entry: Value) -> Result<(), String> {
+    let mut root = read_json(path)?;
+    object_at(&mut root, keys, path)?.insert(NAME.into(), entry);
+    write_json(path, root)
+}
+
+/// opencode lists a server's command and arguments as one list. Version 2
+/// keeps servers under `mcp.servers`; a file that already has servers right
+/// under `mcp` was written for version 1 and gets pdfr there too.
+fn opencode_add(path: &Path, launch: &Launch) -> Result<(), String> {
+    let mut root = read_json(path)?;
+    let old = root.get("mcp").and_then(Value::as_object).is_some_and(|m| {
+        !m.contains_key("servers")
+            && m.values()
+                .any(|s| s.get("type").is_some() || s.get("command").is_some())
+    });
+    let keys: &[&str] = if old { &["mcp"] } else { &["mcp", "servers"] };
+    object_at(&mut root, keys, path)?.insert(
+        NAME.into(),
+        json!({"type": "local", "command": command_list(launch)}),
+    );
+    write_json(path, root)
+}
+
+/// The program and its arguments as one list.
+fn command_list(launch: &Launch) -> Vec<String> {
+    let mut command = vec![launch.cmd.clone()];
+    command.extend(launch.args.iter().cloned());
+    command
+}
+
+/// Adds a block of text at the end of a settings file, unless `has` finds
+/// pdfr in it already.
+fn append(path: &Path, has: fn(&str) -> bool, block: &str) -> Result<(), String> {
+    let mut text = read_or_empty(path)?;
+    if has(&text) {
         return Ok(());
     }
     if !text.is_empty() && !text.ends_with('\n') {
@@ -207,14 +490,136 @@ fn toml_add(path: &Path, launch: &Launch) -> Result<(), String> {
     if !text.is_empty() {
         text.push('\n');
     }
-    // A JSON string is a valid TOML basic string, and so is a JSON list of
-    // strings a TOML array.
-    text.push_str(&format!(
+    text.push_str(block);
+    replace_file(path, &text)
+}
+
+fn toml_has_server(text: &str) -> bool {
+    text.lines().any(|l| {
+        let l = l.trim();
+        l == "[mcp_servers.pdfr]" || l == "[mcp_servers.\"pdfr\"]"
+    })
+}
+
+/// The lines of pdfr's entry under Hermes's `mcp_servers:`, indented by
+/// `indent`. JSON strings and lists are valid YAML.
+fn hermes_entry(indent: &str, launch: &Launch) -> String {
+    format!(
+        "{indent}{NAME}:\n{indent}{indent}command: {}\n{indent}{indent}args: {}\n",
+        json!(launch.cmd),
+        json!(launch.args),
+    )
+}
+
+/// Where a YAML file's top-level `mcp_servers:` list starts (the line after
+/// the key), and how its entries are indented.
+fn hermes_servers(text: &str) -> Option<(usize, String)> {
+    let mut at = 0;
+    for line in text.split_inclusive('\n') {
+        at += line.len();
+        if line.trim_end() == "mcp_servers:" {
+            let next = text[at..].lines().find(|l| !l.trim().is_empty());
+            let indent: String = next
+                .map(|l| l.chars().take_while(|c| *c == ' ').collect())
+                .unwrap_or_default();
+            let indent = if indent.is_empty() {
+                "  ".into()
+            } else {
+                indent
+            };
+            return Some((at, indent));
+        }
+    }
+    None
+}
+
+fn hermes_has_server(text: &str) -> bool {
+    hermes_servers(text).is_some_and(|(at, indent)| {
+        text[at..]
+            .lines()
+            .take_while(|l| l.trim().is_empty() || l.starts_with(' ') || l.starts_with('#'))
+            .any(|l| l.trim_end() == format!("{indent}{NAME}:"))
+    })
+}
+
+/// Adds pdfr under `mcp_servers:` in Hermes's `config.yaml`: as the first
+/// entry of the list that is there, or as a new list at the end. A list
+/// written on one line (`mcp_servers: {…}`) is left for the user.
+fn hermes_add(path: &Path, launch: &Launch) -> Result<(), String> {
+    let text = read_or_empty(path)?;
+    if hermes_has_server(&text) {
+        return Ok(());
+    }
+    if let Some((at, indent)) = hermes_servers(&text) {
+        let mut out = text[..at].to_string();
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str(&hermes_entry(&indent, launch));
+        out.push_str(&text[at..]);
+        return replace_file(path, &out);
+    }
+    if text.lines().any(|l| l.starts_with("mcp_servers:")) {
+        return Err(said(
+            "change",
+            path,
+            "its mcp_servers are written on one line; add pdfr there by hand",
+        ));
+    }
+    let block = format!("mcp_servers:\n{}", hermes_entry("  ", launch));
+    append(path, |_| false, &block)
+}
+
+/// A table for Codex's `config.toml`. A new table at the end is valid
+/// whatever comes before it, so the file need not be parsed. A JSON string
+/// is a valid TOML string, and a JSON list of strings a TOML array.
+fn toml_table(launch: &Launch) -> String {
+    format!(
         "[mcp_servers.{NAME}]\ncommand = {}\nargs = {}\n",
         json!(launch.cmd),
         json!(launch.args),
-    ));
-    replace_file(path, &text)
+    )
+}
+
+fn crushrc_has_server(text: &str) -> bool {
+    text.lines()
+        .any(|l| l.trim_start().starts_with("mcp add pdfr "))
+}
+
+/// A word for a shell-like file: quoted unless it is plainly safe.
+fn shell_word(s: &str) -> String {
+    let plain = |c: char| c.is_ascii_alphanumeric() || "-_./=:@".contains(c);
+    if !s.is_empty() && s.chars().all(plain) {
+        s.to_string()
+    } else {
+        format!("'{}'", s.replace('\'', "'\\''"))
+    }
+}
+
+/// Crush's `crushrc` is a list of commands: `mcp add` registers a server.
+fn crushrc_line(launch: &Launch) -> String {
+    let mut line = format!("mcp add {NAME} --command {}", shell_word(&launch.cmd));
+    for a in &launch.args {
+        line.push_str(&format!(" --args {}", shell_word(a)));
+    }
+    line.push('\n');
+    line
+}
+
+fn dsh_has_server(text: &str) -> bool {
+    text.lines().any(|l| l.trim() == "serverName: pdfr")
+}
+
+/// DeepSeek Harness reads a YAML list of patches; one more item at the end
+/// adds an MCP client for pdfr. JSON strings and lists are valid YAML.
+fn dsh_patch(launch: &Launch) -> String {
+    format!(
+        "- insert:\n    - id: {NAME}\n      name: '@deepseek-ai/dsh-mcp-client'\n      config:\n        \
+         serverName: {NAME}\n        transport: stdio\n        command: {}\n        args: {}\n        \
+         env: {{}}\n        cwd: !!js process.cwd()\n",
+        json!(launch.cmd),
+        json!(launch.args),
+    )
 }
 
 /// The `claude` command: on the PATH, or where its installers put it (a
@@ -266,7 +671,10 @@ mod tests {
 
     /// An empty home folder of its own for a test.
     fn home_for(test: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("pdfr-install-{}-{test}", std::process::id()));
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let dir =
+            std::env::temp_dir().join(format!("pdfr-install-{}-{n}-{test}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -279,87 +687,229 @@ mod tests {
         }
     }
 
+    fn client(name: &str) -> &'static Client {
+        CLIENTS.iter().find(|c| c.name == name).unwrap()
+    }
+
+    /// A home folder where `name` is installed, with `text` as its settings
+    /// (`None`: no settings file yet). Gives the home and the file.
+    fn with(name: &str, text: Option<&str>) -> (PathBuf, PathBuf) {
+        let c = client(name);
+        let home = home_for(&name.replace(' ', "-"));
+        std::fs::create_dir_all(home.join(c.dirs[0])).unwrap();
+        let file = home.join(c.files[0]);
+        if let Some(text) = text {
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(&file, text).unwrap();
+        }
+        (home, file)
+    }
+
+    fn read_json_file(file: &Path) -> Value {
+        serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap()
+    }
+
     #[test]
     fn only_agents_on_the_computer_are_found() {
         let home = home_for("found");
-        assert!(Client::ALL.iter().all(|c| !c.found(&home)));
+        assert!(CLIENTS.iter().all(|c| !c.found(&home)));
         std::fs::create_dir_all(home.join(".cursor")).unwrap();
-        assert!(Client::Cursor.found(&home));
-        assert!(!Client::Codex.found(&home));
+        assert!(client("Cursor").found(&home));
+        assert!(!client("Codex and ChatGPT Desktop").found(&home));
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// Every agent but Claude Code (asked through its own command) can be
+    /// installed into an empty settings folder, is then seen as installed,
+    /// and a second install changes nothing.
+    #[test]
+    fn every_agent_installs_once() {
+        for c in CLIENTS.iter().filter(|c| c.how != How::ClaudeCode) {
+            let (home, _) = with(c.name, None);
+            assert!(c.found(&home) && !c.installed(&home), "{}", c.name);
+            c.install(&home, &launch()).unwrap();
+            assert!(c.installed(&home), "{}", c.name);
+            let file = c.config(&home);
+            let first = std::fs::read_to_string(&file).unwrap();
+            assert!(first.contains("/opt/My Apps/pdfr"), "{}", c.name);
+            c.install(&home, &launch()).unwrap();
+            assert_eq!(std::fs::read_to_string(&file).unwrap(), first, "{}", c.name);
+            // The guide is where the agent reads skills.
+            if let Some(skill) = c.skill_path(&home) {
+                assert_eq!(std::fs::read_to_string(skill).unwrap(), SKILL, "{}", c.name);
+            }
+            let _ = std::fs::remove_dir_all(&home);
+        }
     }
 
     #[test]
     fn cursor_keeps_its_other_servers() {
-        let home = home_for("cursor");
-        let dir = home.join(".cursor");
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join("mcp.json"),
-            r#"{"mcpServers": {"other": {"command": "x"}}, "theme": "dark"}"#,
-        )
-        .unwrap();
-        assert!(!Client::Cursor.installed(&home));
-        Client::Cursor.install(&home, &launch()).unwrap();
-        assert!(Client::Cursor.installed(&home));
-        let v: Value =
-            serde_json::from_str(&std::fs::read_to_string(dir.join("mcp.json")).unwrap()).unwrap();
+        let (home, file) = with(
+            "Cursor",
+            Some(r#"{"mcpServers": {"other": {"command": "x"}}, "theme": "dark"}"#),
+        );
+        client("Cursor").install(&home, &launch()).unwrap();
+        let v = read_json_file(&file);
         assert_eq!(v["mcpServers"]["other"]["command"], "x");
         assert_eq!(v["theme"], "dark");
-        assert_eq!(v["mcpServers"]["pdfr"]["command"], "/opt/My Apps/pdfr");
-        assert_eq!(v["mcpServers"]["pdfr"]["args"], json!(["mcp"]));
-        // No guide: Cursor is told how by the server itself.
-        assert_eq!(Client::Cursor.skill_path(&home), None);
+        assert_eq!(
+            v["mcpServers"]["pdfr"],
+            json!({"type": "stdio", "command": "/opt/My Apps/pdfr", "args": ["mcp"]})
+        );
+        // The guide goes to the folder most agents share.
+        assert!(home.join(".agents/skills/pdfr/SKILL.md").is_file());
         let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
     fn a_settings_file_that_cannot_be_read_is_left_alone() {
-        let home = home_for("broken");
-        let dir = home.join(".cursor");
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("mcp.json"), "{ not json").unwrap();
-        assert!(Client::Cursor.install(&home, &launch()).is_err());
+        for text in ["{ not json", "// mine\n{\"mcpServers\": {}}", "[1, 2]"] {
+            let (home, file) = with("Cursor", Some(text));
+            assert!(client("Cursor").install(&home, &launch()).is_err());
+            assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
+            let _ = std::fs::remove_dir_all(&home);
+        }
+    }
+
+    #[test]
+    fn each_agent_gets_its_own_shape() {
+        let (home, file) = with("GitHub Copilot", None);
+        client("GitHub Copilot").install(&home, &launch()).unwrap();
+        let v = read_json_file(&file);
+        assert_eq!(v["mcpServers"]["pdfr"]["type"], "local");
+        assert_eq!(v["mcpServers"]["pdfr"]["tools"], json!(["*"]));
+        let _ = std::fs::remove_dir_all(&home);
+
+        let (home, file) = with("Kilo", None);
+        client("Kilo").install(&home, &launch()).unwrap();
         assert_eq!(
-            std::fs::read_to_string(dir.join("mcp.json")).unwrap(),
-            "{ not json"
+            read_json_file(&file)["mcp"]["pdfr"],
+            json!({"type": "local", "command": ["/opt/My Apps/pdfr", "mcp"], "enabled": true})
         );
         let _ = std::fs::remove_dir_all(&home);
-    }
 
-    #[test]
-    fn claude_desktop_gets_a_settings_file_if_it_has_none() {
-        let home = home_for("desktop");
-        let dir = Client::ClaudeDesktop.dir(&home);
-        std::fs::create_dir_all(&dir).unwrap();
-        Client::ClaudeDesktop.install(&home, &launch()).unwrap();
-        assert!(Client::ClaudeDesktop.installed(&home));
+        let (home, file) = with("OpenClaw", None);
+        client("OpenClaw").install(&home, &launch()).unwrap();
+        assert_eq!(
+            read_json_file(&file)["mcp"]["servers"]["pdfr"]["args"],
+            json!(["mcp"])
+        );
+        let _ = std::fs::remove_dir_all(&home);
+
+        // Amp's servers are under one dotted key, next to its other settings.
+        let (home, file) = with("Amp", Some(r#"{"amp.notifications.enabled": true}"#));
+        client("Amp").install(&home, &launch()).unwrap();
+        let v = read_json_file(&file);
+        assert_eq!(v["amp.notifications.enabled"], true);
+        assert_eq!(v["amp.mcpServers"]["pdfr"]["args"], json!(["mcp"]));
+        let _ = std::fs::remove_dir_all(&home);
+
+        let (home, file) = with("Crush", Some("permissions allow view"));
+        client("Crush").install(&home, &launch()).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "permissions allow view\n\nmcp add pdfr --command '/opt/My Apps/pdfr' --args mcp\n"
+        );
+        let _ = std::fs::remove_dir_all(&home);
+
+        let (home, file) = with("DeepSeek Harness", None);
+        client("DeepSeek Harness")
+            .install(&home, &launch())
+            .unwrap();
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.starts_with("- insert:\n    - id: pdfr\n"));
+        assert!(text.contains("        command: \"/opt/My Apps/pdfr\"\n        args: [\"mcp\"]\n"));
         let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
-    fn codex_gets_a_table_and_the_guide() {
-        let home = home_for("codex");
-        let dir = home.join(".codex");
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join("config.toml"),
-            "model = \"x\"\n\n[mcp_servers.other]\ncommand = \"y\"",
-        )
-        .unwrap();
-        assert!(!Client::Codex.installed(&home));
-        Client::Codex.install(&home, &launch()).unwrap();
-        // A second time changes nothing.
-        Client::Codex.install(&home, &launch()).unwrap();
-        let text = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    fn hermes_joins_the_servers_that_are_there() {
+        // No servers yet: a new list at the end.
+        let (home, file) = with("Hermes", Some("model: x\n"));
+        client("Hermes").install(&home, &launch()).unwrap();
         assert_eq!(
-            text,
+            std::fs::read_to_string(&file).unwrap(),
+            "model: x\n\nmcp_servers:\n  pdfr:\n    command: \"/opt/My Apps/pdfr\"\n    args: [\"mcp\"]\n"
+        );
+        let _ = std::fs::remove_dir_all(&home);
+        // A list is there: pdfr goes first in it, indented like the rest.
+        let before = "mcp_servers:\n    other:\n        command: y\nmodel: x\n";
+        let (home, file) = with("Hermes", Some(before));
+        assert!(!client("Hermes").installed(&home));
+        client("Hermes").install(&home, &launch()).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "mcp_servers:\n    pdfr:\n        command: \"/opt/My Apps/pdfr\"\n        \
+             args: [\"mcp\"]\n    other:\n        command: y\nmodel: x\n"
+        );
+        assert!(client("Hermes").installed(&home));
+        let _ = std::fs::remove_dir_all(&home);
+        // Written on one line: left alone.
+        let (home, file) = with("Hermes", Some("mcp_servers: {}\n"));
+        assert!(client("Hermes").install(&home, &launch()).is_err());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "mcp_servers: {}\n");
+        let _ = std::fs::remove_dir_all(&home);
+        // Another tool's "pdfr:" key elsewhere is not ours.
+        let (home, _) = with(
+            "Hermes",
+            Some("mcp_servers:\n  a:\n    command: y\ntools:\n  pdfr:\n"),
+        );
+        assert!(!client("Hermes").installed(&home));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn opencode_gets_the_shape_its_file_already_uses() {
+        // Nothing there yet: version 2's `mcp.servers`.
+        let (home, file) = with("OpenCode", Some(r#"{"theme": "x"}"#));
+        client("OpenCode").install(&home, &launch()).unwrap();
+        let v = read_json_file(&file);
+        assert_eq!(
+            v["mcp"]["servers"]["pdfr"],
+            json!({"type": "local", "command": ["/opt/My Apps/pdfr", "mcp"]})
+        );
+        assert_eq!(v["theme"], "x");
+        let _ = std::fs::remove_dir_all(&home);
+        // Servers right under `mcp`: a version 1 file, and pdfr joins them.
+        let (home, file) = with(
+            "OpenCode",
+            Some(r#"{"mcp": {"other": {"type": "local", "command": ["x"]}}}"#),
+        );
+        client("OpenCode").install(&home, &launch()).unwrap();
+        let v = read_json_file(&file);
+        assert_eq!(v["mcp"]["pdfr"]["command"][1], "mcp");
+        assert!(v["mcp"].get("servers").is_none());
+        assert!(client("OpenCode").installed(&home));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn the_settings_file_that_is_there_is_the_one_used() {
+        // LM Studio keeps its file in one of two places.
+        let c = client("LM Studio");
+        let home = home_for("lmstudio-cache");
+        std::fs::create_dir_all(home.join(".cache/lm-studio")).unwrap();
+        assert!(c.found(&home));
+        c.install(&home, &launch()).unwrap();
+        assert!(home.join(".cache/lm-studio/mcp.json").is_file());
+        assert!(!home.join(".lmstudio").exists());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn codex_gets_a_table() {
+        let (home, file) = with(
+            "Codex and ChatGPT Desktop",
+            Some("model = \"x\"\n\n[mcp_servers.other]\ncommand = \"y\""),
+        );
+        client("Codex and ChatGPT Desktop")
+            .install(&home, &launch())
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
             "model = \"x\"\n\n[mcp_servers.other]\ncommand = \"y\"\n\n\
              [mcp_servers.pdfr]\ncommand = \"/opt/My Apps/pdfr\"\nargs = [\"mcp\"]\n"
         );
-        assert!(Client::Codex.installed(&home));
-        let skill = std::fs::read_to_string(dir.join("skills/pdfr/SKILL.md")).unwrap();
-        assert_eq!(skill, SKILL);
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -396,14 +946,12 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_symlinked_settings_file_stays_a_symlink() {
-        let home = home_for("symlink");
-        let dir = home.join(".cursor");
-        std::fs::create_dir_all(&dir).unwrap();
+        let (home, file) = with("Cursor", None);
         let real = home.join("dotfiles-mcp.json");
         std::fs::write(&real, "{}").unwrap();
-        std::os::unix::fs::symlink(&real, dir.join("mcp.json")).unwrap();
-        Client::Cursor.install(&home, &launch()).unwrap();
-        assert!(dir.join("mcp.json").is_symlink());
+        std::os::unix::fs::symlink(&real, &file).unwrap();
+        client("Cursor").install(&home, &launch()).unwrap();
+        assert!(file.is_symlink());
         assert!(std::fs::read_to_string(&real).unwrap().contains("pdfr"));
         let _ = std::fs::remove_dir_all(&home);
     }
