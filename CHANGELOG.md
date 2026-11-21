@@ -5,6 +5,15 @@ version's section into its GitHub release notes.
 
 ## [Unreleased]
 
+### Changed
+
+- **Signing with a certificate is a tab of the signing dialog.** Draw,
+  Type, Image and Certificate sit side by side, so you can find it without
+  knowing Ctrl+Shift+C.
+- **The Signatures sidebar matches the rest of pdfr:** one card per
+  signature, with who signed and the verdict on top and the details below.
+  The sidebar's tabs are a segmented control.
+
 ## [0.4.0] - 2026-11-20
 
 Real signatures: sign with the certificate already on your computer (the

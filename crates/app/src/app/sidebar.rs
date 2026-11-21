@@ -65,14 +65,10 @@ impl App {
             if signed {
                 tabs.push((SideTab::Signatures, "Signatures"));
             }
-            ui.horizontal(|ui| {
-                for (t, label) in tabs {
-                    if ui.selectable_label(self.side_tab == t, label).clicked() {
-                        self.side_tab = t;
-                    }
-                }
-            });
-            ui.add_space(4.0);
+            if let Some(t) = crate::assist_ui::widgets::segmented(ui, &c, &tabs, self.side_tab) {
+                self.side_tab = t;
+            }
+            ui.add_space(8.0);
         }
         match self.side_tab {
             SideTab::Pages => self.thumbnails(ui, &c),

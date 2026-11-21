@@ -773,6 +773,26 @@ fn signatures(h: &Harness<'_, App>) -> Vec<Entry> {
         .collect()
 }
 
+/// Signing with a certificate is a tab of the signing dialog, and back.
+#[test]
+fn certificate_is_a_tab_of_the_signing_dialog() {
+    use egui_kittest::kittest::Queryable;
+    let mut h = harness("flat_form.pdf", data_dir("sign-tabs", None));
+    ctrl(&mut h, Key::I);
+    h.run_steps(2);
+    h.get_by_label("Certificate").click();
+    h.run_steps(2);
+    assert!(h.state().sign.is_none());
+    assert!(h.state().digital.dialog.is_some(), "the certificate tab");
+    h.get_by_label("Type").click();
+    h.run_steps(2);
+    assert!(h.state().digital.dialog.is_none());
+    assert!(h.state().sign.is_some(), "back to the signing dialog");
+    h.get_by_label("Place on the page");
+    key(&mut h, Key::Escape);
+    assert!(h.state().sign.is_none());
+}
+
 #[test]
 fn sign_place_move_remove_and_undo() {
     use egui_kittest::kittest::Queryable;

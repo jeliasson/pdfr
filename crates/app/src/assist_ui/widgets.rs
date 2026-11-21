@@ -363,6 +363,63 @@ pub(crate) fn link(ui: &mut Ui, c: &Colors, label: &str) -> egui::Response {
         .on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
+/// A row of tabs as one rounded, segmented control, as wide as the space
+/// it is given. Returns the tab clicked, if it is not the current one.
+pub(crate) fn segmented<T: Copy + PartialEq>(
+    ui: &mut Ui,
+    c: &Colors,
+    tabs: &[(T, &str)],
+    current: T,
+) -> Option<T> {
+    let (outer, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
+    ui.painter().rect(
+        outer,
+        8.0,
+        c.card,
+        Stroke::new(1.0, c.border),
+        egui::StrokeKind::Inside,
+    );
+    let inner = outer.shrink(3.0);
+    let w = inner.width() / tabs.len().max(1) as f32;
+    let mut picked = None;
+    for (i, &(t, label)) in tabs.iter().enumerate() {
+        let r = egui::Rect::from_min_size(
+            egui::pos2(inner.left() + i as f32 * w, inner.top()),
+            vec2(w, inner.height()),
+        );
+        let selected = t == current;
+        let resp = ui.interact(r, ui.scope_id().with(("segment", label)), Sense::click());
+        resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Tab, true, selected, label));
+        let fill = if selected {
+            c.accent.gamma_multiply(0.22)
+        } else if resp.hovered() {
+            c.hover
+        } else {
+            Color32::TRANSPARENT
+        };
+        ui.painter().rect_filled(r, 6.0, fill);
+        ui.painter().text(
+            r.center(),
+            egui::Align2::CENTER_CENTER,
+            label,
+            egui::FontId::proportional(12.5),
+            if selected {
+                c.text
+            } else {
+                mix(c.weak, c.text, 0.4)
+            },
+        );
+        if resp
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked()
+            && !selected
+        {
+            picked = Some(t);
+        }
+    }
+    picked
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

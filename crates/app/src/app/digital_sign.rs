@@ -5,10 +5,10 @@
 //! pdfr never stores a PIN or password; it remembers only which
 //! certificate was used (its fingerprint) and the paths of .p12 files.
 
-use super::signature::Target;
+use super::signature::{SignTab, Target};
 use super::*;
 use crate::assist_ui::widgets::{
-    Colors, panel_frame, primary_button, row_divider, secondary_button,
+    Colors, panel_frame, primary_button, row_divider, secondary_button, segmented,
 };
 use egui::{Align, Layout, RichText};
 use pdfr_core::digital::{DEFAULT_RESERVE, SignRequest};
@@ -171,6 +171,7 @@ impl App {
         let now = pdfr_sign::now();
         let mut pick_file = false;
         let mut sign = false;
+        let mut to_ink: Option<SignTab> = None;
         let mut cancel = ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape));
         let dlg = self.digital.dialog.as_mut().unwrap();
         if let Some(rx) = &dlg.found_rx
@@ -201,12 +202,23 @@ impl App {
                 dlg.selected = dlg.selected.map(|s| s + shift);
             }
         }
-        egui::Modal::new(Id::unique("pdfr-digital-sign"))
+        // The Certificate tab of the signing dialog: the same window (same
+        // id, so switching tabs doesn't fade it in again) and size.
+        egui::Modal::new(Id::unique("pdfr-sign"))
             .frame(panel_frame(ctx, &pal, &c, 20))
             .show(ctx, |ui| {
-                ui.set_width(520.0);
+                ui.set_width(super::signature::PAD_W);
                 ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
-                ui.label(RichText::new("Sign with a certificate").size(20.0).strong().color(c.text));
+                ui.label(RichText::new("Sign").size(20.0).strong().color(c.text));
+                let tabs = [
+                    (Some(SignTab::Draw), "Draw"),
+                    (Some(SignTab::Type), "Type"),
+                    (Some(SignTab::Image), "Image"),
+                    (None, "Certificate"),
+                ];
+                if let Some(Some(t)) = segmented(ui, &c, &tabs, None) {
+                    to_ink = Some(t);
+                }
                 ui.label(
                     RichText::new(
                         "A digital signature shows who signed, and that the document has not changed since.",
@@ -363,6 +375,14 @@ impl App {
             });
         if cancel {
             self.digital.dialog = None;
+            return;
+        }
+        if let Some(t) = to_ink {
+            let target = self.digital.dialog.take().and_then(|d| d.target);
+            self.open_sign(false, target);
+            if let Some(d) = self.sign.as_mut() {
+                d.show_tab(t);
+            }
             return;
         }
         if pick_file {
@@ -626,12 +646,17 @@ impl App {
             .map(|(_, r)| r.as_slice())
     }
 
-    /// The sidebar's Signatures tab.
+    /// The sidebar's Signatures tab: one card per signature, in the style
+    /// of pdfr's dialogs.
     pub(super) fn signatures_panel(&mut self, ui: &mut egui::Ui, c: &Colors) {
         let Some(reports) = self.signature_reports().map(<[Report]>::to_vec) else {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label(RichText::new("Checking signatures…").color(c.weak));
+                ui.label(
+                    RichText::new("Checking signatures…")
+                        .size(12.0)
+                        .color(c.weak),
+                );
             });
             return;
         };
@@ -640,66 +665,10 @@ impl App {
             .id_salt("pdfr-sig-list")
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                for (i, r) in reports.iter().enumerate() {
-                    if i > 0 {
-                        row_divider(ui, c);
-                    }
-                    let (mark, color, verdict) = verdict(r);
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(mark).size(16.0).color(color));
-                        ui.label(RichText::new(&r.signer).strong().color(c.text));
-                    });
-                    ui.label(RichText::new(verdict).color(color));
-                    let mut lines = Vec::new();
-                    if let Some(t) = r.timestamp {
-                        lines.push(format!(
-                            "Timestamped {}",
-                            pdfr_core::digital::display_date(t)
-                        ));
-                    } else if let Some(t) = r.claimed_time {
-                        lines.push(format!(
-                            "Signed {} (time from the signer's computer)",
-                            pdfr_core::digital::display_date(t)
-                        ));
-                    }
-                    if let Some(p) = &r.timestamp_problem {
-                        lines.push(format!("Timestamp not valid: {p}"));
-                    }
-                    if let Some(iss) = &r.issuer {
-                        lines.push(format!("Certificate from {iss}"));
-                    }
-                    match r.anchor {
-                        Some(pdfr_sign::trust::Anchor::EuQualified) => {
-                            lines.push("Issuer on the EU Trusted List".into())
-                        }
-                        Some(pdfr_sign::trust::Anchor::System) => {
-                            lines.push("Issuer trusted by this computer".into())
-                        }
-                        None => {}
-                    }
-                    if let Some(x) = &r.reason {
-                        lines.push(format!("Reason: {x}"));
-                    }
-                    if let Some(x) = &r.location {
-                        lines.push(format!("Place: {x}"));
-                    }
-                    if let After::Changes { what, .. } = &r.after {
-                        lines.push(format!("Since signed: {}", what.join(", ")));
-                    }
-                    if let Some(p) = &r.problem {
-                        lines.push(capitalise(p));
-                    }
-                    lines.push(format!(
-                        "{} · {} · revocation not checked",
-                        r.kind, r.digest
-                    ));
-                    for l in lines {
-                        ui.label(RichText::new(l).size(12.0).color(c.weak));
-                    }
-                    if let Some(p) = r.page
-                        && ui.link(format!("Show on page {}", p + 1)).clicked()
-                    {
-                        go_to = Some(p);
+                ui.spacing_mut().item_spacing.y = 10.0;
+                for r in &reports {
+                    if signature_card(ui, c, r) {
+                        go_to = r.page;
                     }
                 }
             });
@@ -707,6 +676,134 @@ impl App {
             self.scroll_to_page(p);
         }
     }
+}
+
+/// One signature as a card: who signed and the verdict on top, then the
+/// details as small label/value pairs. Returns true when "Show on page" is
+/// clicked.
+fn signature_card(ui: &mut egui::Ui, c: &Colors, r: &Report) -> bool {
+    let (mark, color, verdict) = verdict(r);
+    let mut clicked = false;
+    egui::Frame::new()
+        .fill(c.card)
+        .stroke(egui::Stroke::new(1.0, c.border))
+        .corner_radius(egui::CornerRadius::same(10))
+        .inner_margin(egui::Margin::symmetric(12, 10))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y = 6.0;
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = 8.0;
+                status_badge(ui, mark, color);
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    ui.add(
+                        egui::Label::new(RichText::new(&r.signer).strong().color(c.text)).wrap(),
+                    );
+                    ui.add(egui::Label::new(RichText::new(verdict).size(12.0).color(color)).wrap());
+                    if let Some(p) = &r.problem {
+                        ui.add(
+                            egui::Label::new(RichText::new(capitalise(p)).size(12.0).color(color))
+                                .wrap(),
+                        );
+                    }
+                });
+            });
+            row_divider(ui, c);
+            ui.spacing_mut().item_spacing.y = 8.0;
+
+            let date = pdfr_core::digital::display_date;
+            if let Some(t) = r.timestamp {
+                detail(ui, c, "Timestamped", &date(t), None);
+            } else if let Some(t) = r.claimed_time {
+                detail(
+                    ui,
+                    c,
+                    "Signed",
+                    &date(t),
+                    Some("Time from the signer's computer"),
+                );
+            }
+            if let Some(p) = &r.timestamp_problem {
+                detail(ui, c, "Timestamp", &format!("Not valid: {p}"), None);
+            }
+            if let Some(iss) = &r.issuer {
+                let trust = match r.anchor {
+                    Some(pdfr_sign::trust::Anchor::EuQualified) => Some("On the EU Trusted List"),
+                    Some(pdfr_sign::trust::Anchor::System) => Some("Trusted by this computer"),
+                    None => None,
+                };
+                detail(ui, c, "Certificate", iss, trust);
+            }
+            if let Some(x) = &r.reason {
+                detail(ui, c, "Reason", x, None);
+            }
+            if let Some(x) = &r.location {
+                detail(ui, c, "Place", x, None);
+            }
+            if let After::Changes { what, .. } = &r.after {
+                detail(ui, c, "Since signed", &what.join(", "), None);
+            }
+            detail(
+                ui,
+                c,
+                "Format",
+                &format!("{} · {}", r.kind, r.digest),
+                Some("Revocation not checked"),
+            );
+            if let Some(p) = r.page {
+                ui.add_space(2.0);
+                clicked =
+                    crate::assist_ui::widgets::link(ui, c, &format!("Show on page {}", p + 1))
+                        .clicked();
+            }
+        });
+    clicked
+}
+
+/// A round badge with the verdict's mark.
+fn status_badge(ui: &mut egui::Ui, mark: &str, color: Color32) {
+    let (r, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
+    let p = ui.painter();
+    p.circle_filled(r.center(), 11.0, color.gamma_multiply(0.2));
+    let s = egui::Stroke::new(1.8, color);
+    let pt = |x: f32, y: f32| r.center() + vec2(x, y);
+    match mark {
+        "✔" => {
+            p.line_segment([pt(-4.5, 0.2), pt(-1.3, 3.4)], s);
+            p.line_segment([pt(-1.3, 3.4), pt(4.6, -3.6)], s);
+        }
+        "✖" => {
+            p.line_segment([pt(-3.8, -3.8), pt(3.8, 3.8)], s);
+            p.line_segment([pt(-3.8, 3.8), pt(3.8, -3.8)], s);
+        }
+        _ => {
+            p.text(
+                r.center(),
+                egui::Align2::CENTER_CENTER,
+                if mark == "?" { "?" } else { "!" },
+                egui::FontId::proportional(14.0),
+                color,
+            );
+        }
+    }
+}
+
+/// A small caption over a value, with an optional note under it.
+fn detail(ui: &mut egui::Ui, c: &Colors, label: &str, value: &str, sub: Option<&str>) {
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 1.0;
+        ui.label(
+            RichText::new(label.to_uppercase())
+                .size(10.0)
+                .strong()
+                .color(c.weak),
+        );
+        ui.add(egui::Label::new(RichText::new(value).size(12.5).color(c.text)).wrap());
+        if let Some(s) = sub {
+            ui.add(egui::Label::new(RichText::new(s).size(11.5).color(c.weak)).wrap());
+        }
+    });
 }
 
 /// Signs, checks the result, writes it next to `target` and renames it

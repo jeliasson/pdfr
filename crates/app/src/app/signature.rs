@@ -4,13 +4,13 @@
 
 use super::*;
 use crate::assist_ui::widgets::{
-    Colors, checkbox, panel_frame, primary_button, row_divider, secondary_button,
+    Colors, checkbox, panel_frame, primary_button, row_divider, secondary_button, segmented,
 };
 use egui::{Align, Layout, RichText};
 use pdfr_core::signature::Ink;
 
 /// Size of the drawing pad, in screen points.
-const PAD_W: f32 = 460.0;
+pub(super) const PAD_W: f32 = 460.0;
 const PAD_H: f32 = 160.0;
 /// Pen width on the pad, in screen points.
 const PEN: f32 = 2.6;
@@ -483,6 +483,7 @@ impl App {
         let mut done: Option<Arc<Ink>> = None;
         let mut cancel = ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape));
         let mut pick_image = false;
+        let mut to_certificate = false;
         let title = if dlg.initials { "Initials" } else { "Sign" };
         egui::Modal::new(Id::unique("pdfr-sign"))
             .frame(panel_frame(ctx, &pal, &c, 20))
@@ -516,17 +517,21 @@ impl App {
                     });
                     row_divider(ui, &c);
                 }
-                ui.horizontal(|ui| {
-                    for (t, label) in [
-                        (SignTab::Draw, "Draw"),
-                        (SignTab::Type, "Type"),
-                        (SignTab::Image, "Image"),
-                    ] {
-                        if ui.selectable_label(dlg.tab == t, label).clicked() {
-                            dlg.tab = t;
-                        }
-                    }
-                });
+                // `None` is the Certificate tab (a digital signature),
+                // which is its own dialog.
+                let mut tabs = vec![
+                    (Some(SignTab::Draw), "Draw"),
+                    (Some(SignTab::Type), "Type"),
+                    (Some(SignTab::Image), "Image"),
+                ];
+                if !dlg.initials {
+                    tabs.push((None, "Certificate"));
+                }
+                match segmented(ui, &c, &tabs, Some(dlg.tab)) {
+                    Some(Some(t)) => dlg.tab = t,
+                    Some(None) => to_certificate = true,
+                    None => {}
+                }
                 match dlg.tab {
                     SignTab::Draw => draw_pad(ui, dlg, &c),
                     SignTab::Type => type_pad(ui, dlg, &c),
@@ -607,6 +612,11 @@ impl App {
             self.sign = None;
             return;
         }
+        if to_certificate {
+            let target = self.sign.take().and_then(|d| d.target);
+            self.open_digital(target);
+            return;
+        }
         if pick_image {
             self.pick_signature_image();
             return;
@@ -646,6 +656,11 @@ impl App {
 }
 
 impl SignDialog {
+    /// Switches to the Draw, Type or Image tab.
+    pub(super) fn show_tab(&mut self, t: SignTab) {
+        self.tab = t;
+    }
+
     /// Types a name on the Type tab (tests, screenshots).
     pub(super) fn type_name(&mut self, name: &str) {
         self.tab = SignTab::Type;
