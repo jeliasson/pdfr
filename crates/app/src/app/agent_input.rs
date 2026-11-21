@@ -13,7 +13,7 @@ use std::collections::VecDeque;
 use std::time::Duration;
 
 /// How long input may take before the agent is told the window is stuck.
-const INPUT_WAIT: Duration = Duration::from_secs(30);
+const INPUT_WAIT: Duration = Duration::from_secs(12);
 /// Frames drawn after the last step before the agent is answered.
 const SETTLE_PASSES: u64 = 3;
 /// Characters typed per frame.
@@ -149,6 +149,12 @@ impl App {
             return fail(
                 "busy",
                 "pdfr is waiting for the user to answer a question; it cannot be clicked away.",
+            );
+        }
+        if self.assist.agents_section_open() {
+            return fail(
+                "busy",
+                "pdfr's AI agents settings are open. They are the user's to change; ask them to close Settings.",
             );
         }
         if !self.viewport.is_positive() {
@@ -314,6 +320,11 @@ impl App {
         // Nothing of the agent's gets through while the user is asked
         // something, or has paused it.
         if self.agent.paused || self.agent.ask.is_some() {
+            return;
+        }
+        // Nor into the switches that say what agents may do.
+        if self.assist.agents_section_open() {
+            self.agent.input.clear();
             return;
         }
         let inp = &mut self.agent.input;

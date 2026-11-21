@@ -31,6 +31,9 @@ How pdfr is put together, and where new features go.
 | `app/redact.rs` | The redact tool: marks (dragged, from the selection or search), the apply dialog, writing the redacted copy |
 | `app/markup.rs` | Comments and markup (notes, highlights, text boxes, shapes): placing, selecting, moving, the comment card, the Comments tab; saved by `core/markup.rs` as standard annotations with appearances |
 | `app/automation.rs` | Hidden `--demo/--save/--screenshot` flags for tests |
+| `agent/` | **Agent control**: `pdfr mcp` (an MCP server on stdin/stdout, no window), the line protocol and socket folder (`bridge.rs`), each window's listener (`server.rs`), screenshot scaling (`shot.rs`) |
+| `app/agent.rs` | What an agent's request does to the window: answered on the UI thread in `App::logic` (which also runs while the window is hidden), at once or when what it waits for has happened; the questions only the user can answer |
+| `app/agent_input.rs` | The `computer` tool: an agent's clicks and keys fed in as input events, one step per drawn frame; the user taking over |
 | `worker.rs` | Render/detect thread pool (newest request per page wins); reads scanned pages (one at a time) |
 | `app/ocr.rs` | "Read scanned text": the one-time model download, reading again scans found before it |
 | `assist_ui.rs` | Ghost text, suggestion list, consent and remember dialogs, settings |
@@ -59,6 +62,11 @@ How pdfr is put together, and where new features go.
   exactly; structural changes re-analyse.
 - Keyboard input goes to the PDF field only when no other widget or dialog
   has the keyboard.
+- What an agent may not do unasked (sign digitally, save over a file, print
+  when the user wants to be asked) is held where it happens
+  (`agent_hold_*`), not only in the agent's tools: an agent can reach the
+  same thing by clicking through a dialog. The question is drawn by pdfr and
+  no agent input is fed while it shows.
 
 ## Privacy boundary (assist)
 

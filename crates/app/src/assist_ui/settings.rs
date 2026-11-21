@@ -20,6 +20,8 @@ pub enum Section {
     #[default]
     General,
     License,
+    /// AI agents controlling pdfr (`pdfr mcp`).
+    Agents,
     Autocomplete,
     Ai,
     People,
@@ -28,9 +30,10 @@ pub enum Section {
 }
 
 impl Section {
-    const ALL: [Section; 7] = [
+    const ALL: [Section; 8] = [
         Section::General,
         Section::License,
+        Section::Agents,
         Section::Autocomplete,
         Section::People,
         Section::Values,
@@ -42,13 +45,17 @@ impl Section {
     /// part of autocomplete.
     fn group(self) -> Option<&'static str> {
         match self {
-            Section::General | Section::License => None,
+            Section::General | Section::License | Section::Agents => None,
             _ => Some("Autocomplete"),
         }
     }
 
     /// Also found by these names (`--settings autocomplete`).
     fn matches(self, name: &str) -> bool {
+        // "ai" is the AI helper's section, not this one.
+        if self == Section::Agents {
+            return name == "agents" || name == "ai agents";
+        }
         self.title().to_lowercase().contains(name)
             || (self == Section::Autocomplete && name == "autocomplete")
     }
@@ -57,6 +64,7 @@ impl Section {
         match self {
             Section::General => "General",
             Section::License => "License",
+            Section::Agents => "AI agents",
             Section::Autocomplete => "Behaviour",
             Section::Ai => "AI",
             Section::People => "People",
@@ -69,6 +77,7 @@ impl Section {
         match self {
             Section::General => "How pdfr fits into your computer.",
             Section::License => "Your licence key, and who this copy is registered to.",
+            Section::Agents => "Let Claude and other AI agents fill in forms in pdfr for you.",
             Section::Autocomplete => "How pdfr learns from the forms you fill.",
             Section::Ai => "Optional help from an AI tool already installed on this computer.",
             Section::People => {
@@ -83,6 +92,7 @@ impl Section {
         match self {
             Section::General => Icon::Settings,
             Section::License => Icon::Key,
+            Section::Agents => Icon::Pointer,
             Section::Autocomplete => Icon::FillAll,
             Section::Ai => Icon::Sparkle,
             Section::People => Icon::Person,
@@ -99,6 +109,8 @@ pub struct SettingsUi {
     people_open: HashSet<u64>,
     filter: String,
     confirm_clear: bool,
+    /// Which "Copy" button of the AI agents section was just pressed.
+    copied: Option<(usize, std::time::Instant)>,
 }
 
 /// What the user asked for this frame, applied after drawing.
@@ -299,6 +311,7 @@ impl AssistState {
                 match s {
                     Section::General => act.changed |= self.general_section(ui, c),
                     Section::License => license.settings_section(ui, c),
+                    Section::Agents => self.agents(ui, c, act),
                     Section::Autocomplete => self.autocomplete(ui, c, act),
                     Section::Ai => self.ai(ui, c, act),
                     Section::People => self.people(ui, c, act),
@@ -343,6 +356,135 @@ impl AssistState {
             ui,
             c,
             "Passwords, card numbers and fields you mark \u{201c}don't remember\u{201d} are never stored.",
+        );
+    }
+
+    /// The AI agents section is showing. Agents' own clicks and keys are
+    /// not let through meanwhile: these switches are the user's.
+    pub fn agents_section_open(&self) -> bool {
+        self.settings_open && self.settings_ui.section == Section::Agents
+    }
+
+    /// AI agents: whether they may control pdfr, what they must ask the
+    /// user first, and how to connect one.
+    fn agents(&mut self, ui: &mut Ui, c: &Colors, act: &mut Actions) {
+        let mut st = self.a.store.settings.clone();
+        card(ui, c, None, |ui| {
+            setting_row(
+                ui,
+                c,
+                "Allow AI agents",
+                "An agent you connect can open PDFs in pdfr, read them and fill them in, in a window you can watch.",
+                |ui| {
+                    toggle(ui, c, &mut st.agents_enabled);
+                },
+            );
+        });
+        // How to connect: the command an agent runs to reach pdfr.
+        let flatpak = std::path::Path::new("/.flatpak-info").exists();
+        let program = if flatpak {
+            "flatpak run --command=pdfr io.github.kjellberg.pdfr".to_string()
+        } else if pdfr_assist::ai::which("pdfr").is_some() {
+            "pdfr".to_string()
+        } else {
+            // Not on the PATH (run from an archive or an app bundle).
+            std::env::current_exe()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| "pdfr".into())
+        };
+        let (cmd, args): (&str, Vec<&str>) = match program.split_once(' ') {
+            Some((cmd, rest)) => (cmd, rest.split(' ').chain(["mcp"]).collect()),
+            None => (program.as_str(), vec!["mcp"]),
+        };
+        let json = serde_json::json!({"mcpServers": {"pdfr": {"command": cmd, "args": args}}});
+        let rows = [
+            (
+                "Claude Code",
+                "Run this once in a terminal.",
+                format!("claude mcp add pdfr -- {program} mcp"),
+            ),
+            (
+                "Claude Desktop, Cursor and others",
+                "Add this to the agent's MCP settings.",
+                json.to_string(),
+            ),
+        ];
+        card(ui, c, Some("Connect your agent"), |ui| {
+            for (i, (title, sub, text)) in rows.iter().enumerate() {
+                if i > 0 {
+                    row_divider(ui, c);
+                }
+                let copied = self
+                    .settings_ui
+                    .copied
+                    .is_some_and(|(k, at)| k == i && at.elapsed().as_secs_f32() < 2.0);
+                setting_row(ui, c, title, sub, |ui| {
+                    let label = if copied { "Copied" } else { "Copy" };
+                    if secondary_button(ui, c, label).clicked() {
+                        ui.ctx().copy_text(text.clone());
+                        self.settings_ui.copied = Some((i, std::time::Instant::now()));
+                    }
+                });
+                ui.add(
+                    egui::Label::new(RichText::new(text).monospace().size(12.0).color(c.weak))
+                        .wrap(),
+                );
+            }
+        });
+        card(ui, c, Some("Ask me first"), |ui| {
+            ui.add_enabled_ui(st.agents_enabled, |ui| {
+                setting_row(
+                    ui,
+                    c,
+                    "Signing digitally",
+                    "Before an agent signs with your certificate or ID card.",
+                    |ui| {
+                        toggle(ui, c, &mut st.agent_ask_sign);
+                    },
+                );
+                row_divider(ui, c);
+                setting_row(
+                    ui,
+                    c,
+                    "Saving over a file",
+                    "Before an agent replaces a file that is already there. New files are saved without asking.",
+                    |ui| {
+                        toggle(ui, c, &mut st.agent_ask_overwrite);
+                    },
+                );
+                row_divider(ui, c);
+                setting_row(
+                    ui,
+                    c,
+                    "Printing",
+                    "Before an agent opens the print dialog.",
+                    |ui| {
+                        toggle(ui, c, &mut st.agent_ask_print);
+                    },
+                );
+            });
+        });
+        card(ui, c, Some("Your details"), |ui| {
+            ui.add_enabled_ui(st.agents_enabled, |ui| {
+                setting_row(
+                    ui,
+                    c,
+                    "Use remembered details",
+                    "Agents may be told what pdfr remembers you usually write in a box. Off: they only type what they already know.",
+                    |ui| {
+                        toggle(ui, c, &mut st.agent_use_memory);
+                    },
+                );
+            });
+        });
+        if st != self.a.store.settings {
+            self.a.store.settings = st;
+            act.changed = true;
+        }
+        note(
+            ui,
+            c,
+            "Then ask your agent to fill in a form with pdfr. It works in a window you can see: click or type yourself and it pauses until you press Resume.",
         );
     }
 

@@ -117,6 +117,27 @@ and offer them on the next form, in any language.
   <sub>Suggestions, person by person. <a href="docs/media/remember.mp4">Watch in higher quality</a></sub>
 </p>
 
+### Works with your AI agent
+
+Hand the form to Claude (or Cursor, or any agent that speaks MCP) and watch
+it get filled in. Connect it once:
+
+```sh
+claude mcp add pdfr -- pdfr mcp
+```
+
+Then ask: *"Fill in ~/Downloads/application.pdf with my details and save it
+next to the original."* The agent opens pdfr, reads the boxes, fills them in
+and saves, in a window on your screen.
+
+- **It sees what you see.** The agent can read every box by its label, or
+  look at the window and use the pointer and keyboard like a person.
+- **You stay in charge.** Click or type and the agent pauses. Signing
+  digitally and saving over an existing file ask you first.
+- **Local.** The agent talks to pdfr on your computer only. What it may do
+  is yours to set in **Settings → AI agents**, where the line for other
+  agents is ready to copy.
+
 ---
 
 ## How it compares

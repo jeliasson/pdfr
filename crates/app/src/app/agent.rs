@@ -27,6 +27,9 @@ const SETTLE_PASSES: u64 = 3;
 pub(super) struct AgentState {
     /// This window's socket, while agents are allowed.
     server: Option<Server>,
+    /// Listening could not be started here (no folder for the socket): it
+    /// is not tried again every frame.
+    cannot_listen: bool,
     /// Requests not answered yet.
     waiting: Vec<Waiting>,
     /// A question to the user about something an agent wants to do.
@@ -42,6 +45,10 @@ pub(super) struct AgentState {
     pub(super) last_request: Option<Instant>,
     /// Pointer and keyboard input an agent is feeding in.
     pub(super) input: super::agent_input::Input,
+    /// A request is waiting for a frame: the frame count and when it was
+    /// last seen to change, and whether the window was asked to come
+    /// forward because it did not.
+    stalled: Option<(u64, Instant, bool)>,
     /// The window's widgets as last drawn (toolbar, dialogs), for read_ui.
     widgets: Option<Arc<std::sync::Mutex<Vec<Widget>>>>,
 }
@@ -180,7 +187,10 @@ impl App {
     /// requests and answers those whose wait is over.
     pub(super) fn agent_tick(&mut self, ctx: &egui::Context) {
         match (self.agents_allowed(), self.agent.server.is_some()) {
-            (true, false) => self.agent.server = Server::start(ctx.clone()),
+            (true, false) if !self.agent.cannot_listen => {
+                self.agent.server = Server::start(ctx.clone());
+                self.agent.cannot_listen = self.agent.server.is_none();
+            }
             (false, true) => self.agent.server = None,
             _ => {}
         }
@@ -224,6 +234,36 @@ impl App {
             ctx.request_repaint_after(Duration::from_millis(16));
             ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaintWhileHidden);
         }
+        // A request that needs frames, and none come: the window is on
+        // another workspace or behind others, where the desktop does not
+        // draw it. Bring it forward, once per stall.
+        let needs_frames = self.agent.ask.is_some()
+            || self
+                .agent
+                .waiting
+                .iter()
+                .any(|w| !matches!(w.what, Wait::Idle(_) | Wait::Answer(_)));
+        if !needs_frames {
+            self.agent.stalled = None;
+            return;
+        }
+        let pass = ctx.cumulative_pass_nr();
+        match &mut self.agent.stalled {
+            Some((seen, _, _)) if *seen == pass => {}
+            other => *other = Some((pass, Instant::now(), false)),
+        }
+        if let Some((_, since, raised)) = &mut self.agent.stalled
+            && !*raised
+            && since.elapsed() > Duration::from_millis(600)
+        {
+            *raised = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
+    }
+
+    /// The window is closing: stop listening and remove the socket.
+    pub(super) fn agent_stop(&mut self) {
+        self.agent.server = None;
     }
 
     fn agent_reply(&self, reply: &Sender<Value>, res: Result<Value, Failure>) {
@@ -1412,7 +1452,8 @@ fn paused() -> Failure {
 fn not_drawing() -> Failure {
     Failure::new(
         "window_not_rendering",
-        "The pdfr window is not being drawn (minimised, or on another workspace). \
-         The other tools still work; for a screenshot the window must be shown.",
+        "The pdfr window is not being drawn (minimised, or on another workspace), and it \
+         could not be brought forward. read_form, fill, save_as and the other form tools \
+         still work; for screenshot and computer, ask the user to show the window.",
     )
 }

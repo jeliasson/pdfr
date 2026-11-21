@@ -50,6 +50,8 @@ pub enum Icon {
     Rectangle,
     Ellipse,
     Arrow,
+    /// AI agents: a pointer arrow, as the one an agent moves.
+    Pointer,
 }
 
 /// Maps the 24×24 design grid into a rectangle.
@@ -485,6 +487,19 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             line(&[(19.5, 6.0), (19.5, 18.0)]);
         }
         Icon::Search => magnifier(false, false),
+        Icon::Pointer => {
+            // The arrow of a mouse pointer, with its tail.
+            line(&[
+                (6.0, 3.5),
+                (6.0, 18.5),
+                (9.8, 15.0),
+                (12.4, 20.8),
+                (14.8, 19.7),
+                (12.2, 14.0),
+                (17.6, 14.0),
+                (6.0, 3.5),
+            ]);
+        }
         Icon::Key => {
             // A round bow and a shaft with two teeth.
             circle(7.5, 16.5, 4.0);

@@ -5,6 +5,22 @@ version's section into its GitHub release notes.
 
 ## [Unreleased]
 
+### Added
+
+- **Your AI agent can use pdfr.** Connect Claude Code, Claude Desktop,
+  Cursor or another agent with `claude mcp add pdfr -- pdfr mcp` (Settings →
+  AI agents has the line to copy), then ask it to fill in a form. The agent
+  opens pdfr, reads the form's boxes, fills them in and saves, in a window
+  you can watch. It can also look at the window and use the pointer and
+  keyboard the way you do.
+  - Click or type yourself and the agent pauses until you press Resume.
+  - Signing digitally and saving over a file that is already there ask you
+    first. Printing and using remembered details are allowed. Each of these
+    can be changed in Settings → AI agents, and agents can be turned off
+    there altogether.
+  - It runs on your computer: pdfr listens only on a socket that only you
+    can reach, and nothing is sent anywhere by pdfr.
+
 ## [0.5.0] - 2026-11-21
 
 More than forms: pdfr reads scanned text on your computer, checks your

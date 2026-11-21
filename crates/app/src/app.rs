@@ -646,6 +646,7 @@ impl App {
 
 impl eframe::App for App {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.agent_stop();
         self.remember_position();
         // "Restart" after an update: start the new pdfr with this file.
         if let Some(exe) = self.assist.take_restart() {

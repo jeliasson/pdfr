@@ -2238,3 +2238,49 @@ fn what_an_agent_clicks_through_is_asked_about_too() {
     assert!(std::fs::read(&other).unwrap().starts_with(b"%PDF"));
     assert!(h.state().agent.ask.is_none());
 }
+
+#[test]
+fn settings_ai_agents_section() {
+    use egui_kittest::kittest::Queryable;
+    use serde_json::json;
+    let mut h = harness("flat_form.pdf", data_dir("agent-settings", None));
+    // The defaults: agents allowed; signing and saving over a file ask
+    // first, printing and remembered details do not.
+    let st = h.state().assist.a.store.settings.clone();
+    assert!(st.agents_enabled && st.agent_ask_sign && st.agent_ask_overwrite);
+    assert!(!st.agent_ask_print && st.agent_use_memory);
+    h.state_mut().assist.open_settings("agents");
+    h.run_steps(3);
+    for label in [
+        "AI agents",
+        "Allow AI agents",
+        "Signing digitally",
+        "Saving over a file",
+        "Printing",
+        "Use remembered details",
+        "Connect your agent",
+        "Claude Code",
+    ] {
+        h.get_by_label(label);
+    }
+    // The command to connect is the one that works here.
+    assert!(
+        h.query_all_by_label_contains("claude mcp add pdfr -- ")
+            .next()
+            .is_some()
+    );
+    // While these switches show, an agent's clicks and keys are refused.
+    let a = agent_computer(&mut h, json!({"action": "key", "keys": "Tab"}));
+    assert_eq!(a["error"]["code"], "busy");
+    // "ai" still opens the AI helper's section.
+    h.state_mut().assist.open_settings("ai");
+    h.run_steps(3);
+    h.get_by_label("Use AI");
+    // Remembered details turned off: nothing is told.
+    h.state_mut().assist.settings_open = false;
+    h.state_mut().assist.a.store.settings.agent_use_memory = false;
+    let name = agent_ref(&h, 150.0, 168.0);
+    let a = agent(&mut h, "suggest", json!({"ref": name}));
+    assert_eq!(a["result"]["suggestions"], json!([]));
+    assert!(a["result"]["note"].is_string());
+}
