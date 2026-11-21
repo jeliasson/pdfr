@@ -278,6 +278,7 @@ impl App {
         // The Certificate tab of the signing dialog: the same window (same
         // id, so switching tabs doesn't fade it in again) and size.
         egui::Modal::new(Id::unique("pdfr-sign"))
+            .area(super::signature::sign_area(ctx))
             .frame(panel_frame(ctx, &pal, &c, 20))
             .show(ctx, |ui| {
                 ui.set_width(super::signature::PAD_W);

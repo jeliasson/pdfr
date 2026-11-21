@@ -486,6 +486,7 @@ impl App {
         let mut to_certificate = false;
         let title = if dlg.initials { "Initials" } else { "Sign" };
         egui::Modal::new(Id::unique("pdfr-sign"))
+            .area(super::signature::sign_area(ctx))
             .frame(panel_frame(ctx, &pal, &c, 20))
             .show(ctx, |ui| {
                 ui.set_width(PAD_W);
@@ -653,6 +654,15 @@ impl App {
             }
         }
     }
+}
+
+/// Where the signing dialog sits: its top edge pinned near the top of the
+/// window (not centred), so switching tabs or a list filling in grows it
+/// downwards and the tabs stay under the pointer.
+pub(super) fn sign_area(ctx: &egui::Context) -> egui::Area {
+    let top = (ctx.content_rect().height() * 0.12).clamp(40.0, 140.0);
+    egui::Modal::default_area(Id::unique("pdfr-sign"))
+        .anchor(egui::Align2::CENTER_TOP, vec2(0.0, top))
 }
 
 impl SignDialog {
