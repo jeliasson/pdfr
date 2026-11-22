@@ -34,10 +34,14 @@ base64 = "0.23"
 # pdfr's own file dialog, for desktops without a file chooser portal.
 egui-file-dialog = { version = "0.16", default-features = false, features = ["default_fonts"] }
 serde_json = "1"
-# The opt-in update check: HTTPS with rustls on the pure-Rust RustCrypto
-# provider (no ring or aws-lc, so no C code), Mozilla's root certificates.
-ureq = { version = "3", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots"] }
-rustls-rustcrypto = { version = "0.1.0-pre.0", default-features = false, features = ["std", "tls12"] }
+# HTTPS (update check, downloads, revocation, OCR models): rustls on its
+# mature `ring` provider, Mozilla's root certificates.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+# Self-update: a private, randomly named work folder.
+getrandom = "0.3"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 # Printing through the desktop's print portal: D-Bus (pure Rust) and the
 # Wayland handle export that attaches the dialog to the window. All already

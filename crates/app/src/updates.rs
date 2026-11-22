@@ -4,10 +4,9 @@
 //! header is `User-Agent: pdfr/<version>`). Nothing is downloaded or
 //! installed until the user presses "Update now" (`self_update`).
 //!
-//! TLS is rustls with the pure-Rust RustCrypto provider, so no C code is
-//! added to pdfr.
+//! TLS is rustls with the `ring` provider (ureq's default), and Mozilla's
+//! root certificates.
 
-use std::sync::Arc;
 use std::sync::mpsc::{Receiver, channel};
 
 const LATEST: &str = "https://api.github.com/repos/kjellberg/pdfr/releases/latest";
@@ -59,11 +58,9 @@ pub(crate) fn download_agent() -> ureq::Agent {
 
 /// Like `agent`, giving up on a request after `secs` seconds.
 pub(crate) fn agent_with_timeout(secs: u64) -> ureq::Agent {
-    let provider = Arc::new(rustls_rustcrypto::provider());
     let tls = ureq::tls::TlsConfig::builder()
         .provider(ureq::tls::TlsProvider::Rustls)
         .root_certs(ureq::tls::RootCerts::WebPki)
-        .unversioned_rustls_crypto_provider(provider)
         .build();
     ureq::Agent::config_builder()
         .tls_config(tls)
@@ -98,9 +95,31 @@ fn parse_latest(json: &str) -> Option<String> {
     version_parts(ver).map(|_| ver.to_string())
 }
 
+/// Whether `v` is a version pdfr accepts: `1.2.3`, optionally with a
+/// suffix of letters, digits and dots (`1.2.3-rc1`). Versions end up in
+/// download addresses and file names, so nothing else gets through.
+pub fn valid_version(v: &str) -> bool {
+    version_parts(v).is_some()
+}
+
 fn version_parts(v: &str) -> Option<Vec<u64>> {
-    let core = v.split(['-', '+']).next()?;
-    let parts: Option<Vec<u64>> = core.split('.').map(|p| p.parse().ok()).collect();
+    let (core, suffix) = match v.split_once('-') {
+        Some((c, s)) => (c, Some(s)),
+        None => (v, None),
+    };
+    if let Some(s) = suffix
+        && (s.is_empty() || !s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.'))
+    {
+        return None;
+    }
+    let parts: Option<Vec<u64>> = core
+        .split('.')
+        .map(|p| {
+            (!p.is_empty() && p.len() <= 9 && p.bytes().all(|b| b.is_ascii_digit()))
+                .then(|| p.parse().ok())
+                .flatten()
+        })
+        .collect();
     parts.filter(|p| !p.is_empty() && p.len() <= 4)
 }
 
@@ -133,6 +152,33 @@ mod tests {
         assert!(!is_newer("0.1.0", "0.1.0"));
         assert!(!is_newer("0.1.0", "0.2.0"));
         assert!(!is_newer("garbage", "0.1.0"));
+        assert!(is_newer("0.7.0-rc1", "0.6.1"));
+    }
+
+    #[test]
+    fn version_suffixes() {
+        for ok in ["0.6.2", "1.0", "0.7.0-rc1", "0.7.0-beta.2"] {
+            assert!(valid_version(ok), "{ok}");
+        }
+        for bad in [
+            "0.6.2-",
+            "0.6.2-rc/../../x",
+            "0.6.2-$(id)",
+            "0.6.2-a b",
+            "0.6.2+meta",
+            "0.6.2-rc-1",
+            "+1.0",
+            "1..0",
+            "",
+            "0.6.2\n",
+            "v0.6.2",
+        ] {
+            assert!(!valid_version(bad), "{bad:?}");
+        }
+        assert_eq!(
+            parse_latest(r#"{"tag_name":"v0.7.0-x;rm","prerelease":false}"#),
+            None
+        );
     }
 
     #[test]
