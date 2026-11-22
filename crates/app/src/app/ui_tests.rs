@@ -2439,3 +2439,66 @@ fn closing_the_window_closes_settings_first() {
     close(&mut h);
     assert!(matches!(h.state().confirm, Some(Confirm::Close)));
 }
+
+fn ctrl_click(h: &mut Harness<'_, App>, p: Pos2) {
+    h.event(Event::ModifiersChanged(Modifiers::COMMAND));
+    h.event(Event::PointerMoved(p));
+    for pressed in [true, false] {
+        h.event(Event::PointerButton {
+            pos: p,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::COMMAND,
+        });
+    }
+    h.event(Event::ModifiersChanged(Modifiers::NONE));
+    h.run_steps(2);
+}
+
+/// A click on a web link asks first (Esc says no); Ctrl+click opens at
+/// once; "Always open links to …" remembers the site.
+#[test]
+fn clicking_a_link_asks_and_ctrl_click_opens() {
+    use egui_kittest::kittest::Queryable;
+    let dir = data_dir("link-ask", None);
+    let mut h = harness("links.pdf", dir.clone());
+    let url = "https://example.org/form-help";
+    let launched = || links::LAUNCHED.with(|l| l.borrow().clone());
+    links::LAUNCHED.with(|l| l.borrow_mut().clear());
+    let p = screen(&h, 300.0, 118.0);
+    click(&mut h, p);
+    assert_eq!(
+        h.state().link_ask.as_ref().map(|a| a.url.as_str()),
+        Some(url)
+    );
+    h.get_by_label("Open this link?");
+    // The whole address (also in the link's tooltip).
+    assert!(h.query_all_by_label(url).next().is_some());
+    assert!(launched().is_empty(), "nothing opened yet");
+    key(&mut h, Key::Escape);
+    assert!(h.state().link_ask.is_none());
+    assert!(launched().is_empty());
+    // Ctrl+click: straight to the browser. (Clicks apart, not a double-click.)
+    h.run_steps(40);
+    ctrl_click(&mut h, p);
+    assert!(h.state().link_ask.is_none());
+    assert_eq!(launched(), vec![url.to_string()]);
+    // "Always open links to example.org" opens it and remembers the site.
+    h.run_steps(40);
+    click(&mut h, p);
+    h.get_by_label("Always open links to example.org").click();
+    h.run_steps(2);
+    assert!(h.state().link_ask.is_none());
+    assert_eq!(launched().len(), 2);
+    assert_eq!(
+        Store::load(&dir.join("memory.json")).settings.link_hosts,
+        vec!["example.org".to_string()]
+    );
+    h.run_steps(40);
+    click(&mut h, p);
+    assert!(
+        h.state().link_ask.is_none(),
+        "an allowed site opens at once"
+    );
+    assert_eq!(launched().len(), 3);
+}

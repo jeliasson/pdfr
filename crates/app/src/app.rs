@@ -255,6 +255,8 @@ pub struct App {
     side_rows: Vec<(usize, Rect)>,
     /// A page change waiting for "remove the digital signatures?".
     page_confirm: Option<pages::PageOp>,
+    /// A web link waiting for "Open this link?".
+    link_ask: Option<links::LinkAsk>,
     /// Outline entries opened or closed by the user.
     outline_open: HashMap<usize, bool>,
     /// Where to return to in a reopened file: page, offset, zoom.
@@ -382,6 +384,7 @@ impl App {
             side_drag: None,
             side_rows: vec![],
             page_confirm: None,
+            link_ask: None,
             outline_open: HashMap::new(),
             restore: None,
             dark_applied: false,
@@ -782,6 +785,7 @@ impl eframe::App for App {
         self.digital_window(&ctx);
         self.check_window(&ctx);
         self.redact_windows(&ctx);
+        self.link_window(&ctx);
         self.password_window(&ctx);
         self.page_confirm_window(&ctx);
         self.agent_windows(&ctx);

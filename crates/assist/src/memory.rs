@@ -118,6 +118,10 @@ pub struct Settings {
     /// Agents may be told what pdfr remembers the user usually writes.
     #[serde(default = "yes")]
     pub agent_use_memory: bool,
+    /// Web sites whose links open without asking (lowercase host names,
+    /// added with "Always open links to …").
+    #[serde(default)]
+    pub link_hosts: Vec<String>,
 }
 
 /// A recently opened file and where it was left.
@@ -187,6 +191,7 @@ impl Default for Settings {
             agent_ask_overwrite: true,
             agent_ask_print: false,
             agent_use_memory: true,
+            link_hosts: vec![],
         }
     }
 }
@@ -654,5 +659,21 @@ mod merge_tests {
         assert!(disk.signatures.is_empty(), "A's delete is not undone by B");
         assert!(disk.settings.dark_pages);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use super::*;
+
+    #[test]
+    fn link_hosts_load_from_old_files() {
+        // Settings written before the field existed load with none allowed.
+        let s: Settings = serde_json::from_str(r#"{"dark_pages": true}"#).unwrap();
+        assert!(s.link_hosts.is_empty());
+        let mut s = s;
+        s.link_hosts.push("example.org".into());
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.link_hosts, vec!["example.org".to_string()]);
     }
 }

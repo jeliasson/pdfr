@@ -8,6 +8,59 @@ use pdfr_core::links::{Link, Target};
 /// Most positions kept for Go back.
 const BACK_MAX: usize = 50;
 
+/// A web or e-mail address waiting for "Open this link?".
+pub(super) struct LinkAsk {
+    pub url: String,
+    /// Its site (lowercase), for "Always open links to …"; `None` for an
+    /// address without one.
+    pub host: Option<String>,
+    /// Where the pointer was, to show the question there.
+    pub at: Option<Pos2>,
+}
+
+/// Whether pdfr hands this address to the desktop at all: web pages and
+/// e-mail only, never files, scripts or other programs.
+fn openable(u: &str) -> bool {
+    let lower = u.to_lowercase();
+    lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:")
+}
+
+/// The site of a web address, lowercase: "https://user@Example.org:8080/x"
+/// gives "example.org". `None` for an address without one (e-mail).
+pub(super) fn link_host(u: &str) -> Option<String> {
+    let lower = u.trim().to_lowercase();
+    let rest = lower
+        .strip_prefix("https://")
+        .or_else(|| lower.strip_prefix("http://"))?;
+    let authority = rest.split(['/', '?', '#', '\\']).next()?;
+    // Whatever is before the last "@" is a user name, not the site.
+    let host_port = authority.rsplit('@').next()?;
+    let host = if let Some(v6) = host_port.strip_prefix('[') {
+        format!("[{}]", v6.split(']').next()?)
+    } else {
+        host_port.split(':').next()?.to_string()
+    };
+    let host = host.trim_end_matches('.').to_string();
+    (!host.is_empty()).then_some(host)
+}
+
+/// Opens an address with the desktop. Tests record it instead.
+fn launch(u: &str) -> Result<(), String> {
+    #[cfg(test)]
+    {
+        LAUNCHED.with(|l| l.borrow_mut().push(u.to_string()));
+        Ok(())
+    }
+    #[cfg(not(test))]
+    crate::system::open_url(u)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Addresses tests "opened".
+    pub(super) static LAUNCHED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
 impl App {
     /// A page's printed addresses become links when its text arrives,
     /// except where the PDF already has a link.
@@ -62,22 +115,40 @@ impl App {
         }
     }
 
-    /// Opens a web link with the desktop, or jumps within the document.
+    /// Follows a link: jumps within the document, or asks before a web
+    /// or e-mail address opens (unless its site is always allowed).
     pub(super) fn follow_link(&mut self, l: &Link) {
+        self.follow_link_with(l, false);
+    }
+
+    /// Follows a link; `now` (Ctrl+click) opens an address without asking.
+    pub(super) fn follow_link_with(&mut self, l: &Link, now: bool) {
         match &l.target {
             Target::Uri(u) => {
-                let lower = u.to_lowercase();
-                if lower.starts_with("http://")
-                    || lower.starts_with("https://")
-                    || lower.starts_with("mailto:")
-                {
-                    self.status = match crate::system::open_url(u) {
-                        Ok(()) => format!("Opening {u}"),
-                        Err(e) => format!("Could not open {u}: {e}"),
-                    };
-                } else {
+                if !openable(u) {
                     // Files, scripts and other schemes are never opened.
                     self.status = format!("Not opened (not a web address): {u}");
+                    return;
+                }
+                let host = link_host(u);
+                let allowed = host.as_ref().is_some_and(|h| {
+                    self.assist
+                        .a
+                        .store
+                        .settings
+                        .link_hosts
+                        .iter()
+                        .any(|a| a == h)
+                });
+                if now || allowed {
+                    self.open_address(u);
+                } else {
+                    let at = self.egui_ctx.input(|i| i.pointer.latest_pos());
+                    self.link_ask = Some(LinkAsk {
+                        url: u.clone(),
+                        host,
+                        at,
+                    });
                 }
             }
             Target::Dest { page, y } => {
@@ -109,6 +180,99 @@ impl App {
         }
     }
 
+    /// Hands an address to the desktop (the browser or mail app).
+    fn open_address(&mut self, u: &str) {
+        self.status = match launch(u) {
+            Ok(()) => format!("Opening {u}"),
+            Err(e) => format!("Could not open {u}: {e}"),
+        };
+    }
+
+    /// The small "Open this link?" card by the pointer: the whole address,
+    /// Open, Cancel and "Always open links to <site>". Esc or a click
+    /// elsewhere closes it; nothing else waits for it.
+    pub(super) fn link_window(&mut self, ctx: &egui::Context) {
+        use crate::assist_ui::widgets::{
+            Colors, link, panel_frame, primary_button, secondary_button,
+        };
+        use egui::RichText;
+        let Some(ask) = &self.link_ask else { return };
+        let pal = self.palette.clone();
+        let c = Colors::new(&pal);
+        let (mut open, mut cancel) = ctx.input_mut(|i| {
+            (
+                i.consume_key(Modifiers::NONE, Key::Enter),
+                i.consume_key(Modifiers::NONE, Key::Escape),
+            )
+        });
+        let mut always = false;
+        let at = ask
+            .at
+            .unwrap_or_else(|| self.viewport.center() - vec2(160.0, 60.0))
+            + vec2(0.0, 12.0);
+        let mail = ask.url.to_lowercase().starts_with("mailto:");
+        let area = egui::Area::new(Id::unique("pdfr-link-ask"))
+            .fixed_pos(at)
+            .constrain(true)
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                panel_frame(ctx, &pal, &c, 14).show(ui, |ui| {
+                    ui.set_max_width(340.0);
+                    ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
+                    ui.label(
+                        RichText::new(if mail {
+                            "Write an e-mail?"
+                        } else {
+                            "Open this link?"
+                        })
+                        .strong()
+                        .color(c.text),
+                    );
+                    // The whole address, so a look-alike shows for what it is.
+                    let shown = ask.url.strip_prefix("mailto:").unwrap_or(&ask.url);
+                    ui.add(
+                        egui::Label::new(RichText::new(shown).monospace().size(12.0).color(c.weak))
+                            .wrap_mode(egui::TextWrapMode::Wrap),
+                    );
+                    ui.horizontal(|ui| {
+                        if let Some(h) = &ask.host
+                            && !mail
+                        {
+                            always = link(ui, &c, &format!("Always open links to {h}")).clicked();
+                        }
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            open |= primary_button(ui, &c, "Open")
+                                .on_hover_text("Enter. Ctrl+click a link to open it at once.")
+                                .clicked();
+                            cancel |= secondary_button(ui, &c, "Cancel")
+                                .on_hover_text("Esc")
+                                .clicked();
+                        });
+                    });
+                });
+            });
+        let outside = ctx.input(|i| {
+            i.pointer.any_pressed()
+                && i.pointer
+                    .interact_pos()
+                    .is_some_and(|p| !area.response.rect.contains(p))
+        });
+        if always && let Some(h) = ask.host.clone() {
+            let hosts = &mut self.assist.a.store.settings.link_hosts;
+            if !hosts.contains(&h) {
+                hosts.push(h);
+                self.assist.a.save();
+            }
+            open = true;
+        }
+        if open {
+            let url = self.link_ask.take().unwrap().url;
+            self.open_address(&url);
+        } else if cancel || outside {
+            self.link_ask = None;
+        }
+    }
+
     fn push_back(&mut self) {
         self.back.push(self.scroll);
         if self.back.len() > BACK_MAX {
@@ -122,5 +286,33 @@ impl App {
             self.scroll = s;
             self.clamp_scroll();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::link_host;
+
+    #[test]
+    fn hosts_of_addresses() {
+        let h = |u: &str| link_host(u);
+        assert_eq!(
+            h("https://Example.org/form-help").as_deref(),
+            Some("example.org")
+        );
+        assert_eq!(
+            h("http://example.org:8080?q=1").as_deref(),
+            Some("example.org")
+        );
+        // The part before "@" is a user name: the site is the one after.
+        assert_eq!(
+            h("https://bank.com@evil.example/x").as_deref(),
+            Some("evil.example")
+        );
+        assert_eq!(h("https://example.org./").as_deref(), Some("example.org"));
+        assert_eq!(h("https://[::1]:80/").as_deref(), Some("[::1]"));
+        assert_eq!(h("https:///nothing"), None);
+        assert_eq!(h("mailto:anna@example.org"), None);
+        assert_eq!(h("file:///etc/passwd"), None);
     }
 }

@@ -290,6 +290,7 @@ impl App {
         self.side_anchor = None;
         self.side_drag = None;
         self.page_confirm = None;
+        self.link_ask = None;
         self.outline_open.clear();
         if let Some(s) = &mut self.search {
             let q = std::mem::take(&mut s.query);

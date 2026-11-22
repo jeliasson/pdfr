@@ -745,8 +745,9 @@ impl App {
                         self.focus = None;
                         self.choice_open = None;
                         self.assist.close_list();
+                        // A web link asks first; Ctrl+click opens it at once.
                         if let Some(l) = self.link_at(rects, p) {
-                            self.follow_link(&l);
+                            self.follow_link_with(&l, ctrl);
                             return;
                         }
                         // The PDF's own "sign here" spot opens the signing dialog.
