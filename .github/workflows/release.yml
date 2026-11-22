@@ -2,8 +2,10 @@
 #   1. builds and tries the Linux packages (build-linux.yml)
 #   2. publishes a GitHub release with them, the macOS app, install.sh (the
 #      installer pdfr.app serves), SHA256SUMS and the changelog
-#   3. runs the released installer on Linux and macOS
-#   4. for stable versions, and only while the variable PUBLISH_PACKAGES is
+#   3. signs SHA256SUMS (SHA256SUMS.sig) in the `sign` job, with the secret
+#      RELEASE_SIGNING_KEY of the protected `release` environment
+#   4. runs the released installer on Linux and macOS
+#   5. for stable versions, and only while the variable PUBLISH_PACKAGES is
 #      true, updates the AUR, the Homebrew tap and the apt/rpm repositories.
 #      Each of those is also skipped while its secret is missing; see
 #      docs/RELEASING.md.
@@ -30,9 +32,15 @@ jobs:
       version: ${{ steps.v.outputs.version }}
       prerelease: ${{ steps.v.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: v
+        # The version goes into file names, addresses and scripts: only
+        # vX.Y.Z with an optional suffix of letters, digits and dots (the
+        # same rule as tools/release.sh). Later jobs read it through env.
         run: |
+          if ! [[ $GITHUB_REF_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::tag is not a version (vX.Y.Z or vX.Y.Z-rc1)"; exit 1
+          fi
           v=${GITHUB_REF_NAME#v}
           cargo_v=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
           if [ "${v%%-*}" != "${cargo_v%%-*}" ]; then
@@ -63,15 +71,17 @@ jobs:
     if: vars.RELEASE_WINDOWS == 'true'
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Build
         run: cargo build --locked --release -p pdfr
       - name: Build the installer
         shell: pwsh
-        run: packaging/windows/build-msi.ps1 -Version ${{ needs.version.outputs.version }} -Out dist
-      - uses: actions/upload-artifact@v7
+        env:
+          V: ${{ needs.version.outputs.version }}
+        run: packaging/windows/build-msi.ps1 -Version "$env:V" -Out dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows
           path: dist/*
@@ -84,15 +94,17 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
           pattern: "{linux-*,macos,windows}"
           merge-multiple: true
       - name: Checksums and notes
+        env:
+          V: ${{ needs.version.outputs.version }}
         run: |
-          v=${{ needs.version.outputs.version }}
+          v=$V
           # The installer pdfr.app serves, with this version stamped in.
           sed "s/^VERSION=\"@VERSION@\"$/VERSION=\"$v\"/" packaging/install.sh > artifacts/install.sh
           grep -q "^VERSION=\"$v\"$" artifacts/install.sh
@@ -115,18 +127,69 @@ jobs:
           Or download a file below: the `.dmg` for macOS, the `.tar.gz` for any Linux
           (`./pdfr --register` adds it to your app menu), or the `.deb` / `.rpm`.
           MD
-      - uses: softprops/action-gh-release@v3
+      - uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           files: artifacts/*
           body_path: notes.md
           prerelease: ${{ needs.version.outputs.prerelease == 'true' }}
 
-  # The released installer, run the way users run it: install, run again
-  # (up to date), uninstall.
-  installer:
-    name: Try the installer (${{ matrix.os }})
+  # Signs SHA256SUMS with the release key, so pdfr's "Update now" and
+  # install.sh can tell the files came from here. The key is a secret of the
+  # protected `release` environment, and this job runs nothing but checkout,
+  # our own code and gh: no third-party action sees it. Before signing it
+  # checks that the release's files are exactly what this run built.
+  sign:
+    name: Sign the checksums
     needs: [version, release]
     if: ${{ !cancelled() && needs.release.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the signing tool
+        run: |
+          rustup toolchain install stable --profile minimal
+          cargo +stable build --locked --release -p pdfr-license --bin release_sign
+      - name: Check the release against this run's builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir release built
+          gh release download "v$V" -R "$GITHUB_REPOSITORY" -D release
+          gh run download "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY" -D built -p 'linux-*' -p macos -p windows
+          sed "s/^VERSION=\"@VERSION@\"$/VERSION=\"$V\"/" packaging/install.sh > built/install.sh
+          (cd release && sha256sum -c SHA256SUMS)
+          # Every file the release lists, and nothing else, is one built here.
+          find built -type f -exec sha256sum {} + | sed 's|  .*/|  |' | sort -k2 > built.sums
+          sort -k2 release/SHA256SUMS | diff - built.sums
+          find release -type f ! -name SHA256SUMS ! -name SHA256SUMS.sig -printf '%f\n' | sort \
+            | diff - <(awk '{print $2}' built.sums | sort)
+      - name: Sign
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          target/release/release_sign sign release/SHA256SUMS
+          target/release/release_sign verify release/SHA256SUMS
+      - name: Upload SHA256SUMS.sig
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ needs.version.outputs.version }}
+        run: gh release upload "v$V" -R "$GITHUB_REPOSITORY" release/SHA256SUMS.sig --clobber
+
+  # The released installer, run the way users run it: install, run again
+  # (up to date), uninstall. On Linux it must check the signature.
+  installer:
+    name: Try the installer (${{ matrix.os }})
+    needs: [version, sign]
+    if: ${{ !cancelled() && needs.sign.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
@@ -137,9 +200,12 @@ jobs:
         env:
           V: ${{ needs.version.outputs.version }}
         run: |
-          set -eux
-          curl -fsSL "https://github.com/${{ github.repository }}/releases/download/v$V/install.sh" -o install.sh
-          sh install.sh
+          set -euxo pipefail
+          curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/v$V/install.sh" -o install.sh
+          sh install.sh 2>&1 | tee first.txt
+          if [ "$RUNNER_OS" = Linux ] && grep -q "checking checksums only" first.txt; then
+            echo "::error::install.sh did not check the release's signature"; exit 1
+          fi
           export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
           pdfr --version
           sh install.sh | tee second.txt
@@ -149,7 +215,7 @@ jobs:
 
   aur:
     name: Publish to the AUR
-    needs: [version, release]
+    needs: [version, sign]
     if: needs.version.outputs.prerelease == 'false' && vars.PUBLISH_PACKAGES == 'true'
     runs-on: ubuntu-latest
     strategy:
@@ -157,13 +223,14 @@ jobs:
         pkg: [pdfr, pdfr-bin]
     env:
       HAS_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
+      V: ${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: env.HAS_KEY == 'true'
       - name: Update the PKGBUILD
         if: env.HAS_KEY == 'true'
         run: |
-          v=${{ needs.version.outputs.version }}
+          v=$V
           base=https://github.com/kjellberg/pdfr
           dir=packaging/aur; [ "${{ matrix.pkg }}" = pdfr-bin ] && dir=packaging/aur/pdfr-bin
           sed -i "s/^pkgver=.*/pkgver=$v/; s/^pkgrel=.*/pkgrel=1/" $dir/PKGBUILD
@@ -175,7 +242,7 @@ jobs:
             sed -i "s/^sha256sums_aarch64=.*/sha256sums_aarch64=('$(sum $base/releases/download/v$v/pdfr-v$v-aarch64-linux.tar.gz)')/" $dir/PKGBUILD
           fi
           cp $dir/PKGBUILD ./PKGBUILD.out
-      - uses: KSXGitHub/github-actions-deploy-aur@v4
+      - uses: KSXGitHub/github-actions-deploy-aur@084b0d9b15415bf9cdb65d44dad1efe37a354050 # v4.2.0
         if: env.HAS_KEY == 'true'
         with:
           pkgname: ${{ matrix.pkg }}
@@ -187,15 +254,16 @@ jobs:
 
   homebrew:
     name: Update the Homebrew tap
-    needs: [version, release]
+    needs: [version, sign]
     if: needs.version.outputs.prerelease == 'false' && vars.PUBLISH_PACKAGES == 'true'
     runs-on: ubuntu-latest
     env:
       HAS_KEY: ${{ secrets.TAP_DEPLOY_KEY != '' }}
+      V: ${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: env.HAS_KEY == 'true'
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: env.HAS_KEY == 'true'
         with:
           repository: kjellberg/homebrew-tap
@@ -204,7 +272,7 @@ jobs:
       - name: Bump the formula
         if: env.HAS_KEY == 'true'
         run: |
-          v=${{ needs.version.outputs.version }}
+          v=$V
           url=https://github.com/kjellberg/pdfr/archive/refs/tags/v$v.tar.gz
           sha=$(curl -fsSL "$url" | sha256sum | cut -d' ' -f1)
           mkdir -p tap/Formula
@@ -218,21 +286,22 @@ jobs:
 
   repos:
     name: Update the apt and rpm repositories
-    needs: [version, release]
+    needs: [version, sign]
     if: needs.version.outputs.prerelease == 'false' && vars.PUBLISH_PACKAGES == 'true'
     runs-on: ubuntu-latest
     env:
       HAS_KEY: ${{ secrets.REPO_GPG_PRIVATE_KEY != '' && secrets.PACKAGES_DEPLOY_KEY != '' }}
+      V: ${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: env.HAS_KEY == 'true'
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: env.HAS_KEY == 'true'
         with:
           repository: kjellberg/packages
           ssh-key: ${{ secrets.PACKAGES_DEPLOY_KEY }}
           path: site
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: env.HAS_KEY == 'true'
         with:
           path: new
@@ -251,7 +320,7 @@ jobs:
           git config user.name "pdfr release"
           git config user.email "actions@users.noreply.github.com"
           git add -A
-          git commit -m "pdfr ${{ needs.version.outputs.version }}" && git push
+          git commit -m "pdfr $V" && git push
 
   flatpak:
     name: Flatpak bundle (check)
@@ -262,13 +331,13 @@ jobs:
       options: --privileged
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Crate list for the offline build
         run: |
-          curl -fsSLO https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/master/cargo/flatpak-cargo-generator.py
+          curl -fsSLO https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/9d86d336a39b9af38b86f114b6ce5820fe260f91/cargo/flatpak-cargo-generator.py
           pip3 install --break-system-packages aiohttp toml tomlkit 2>/dev/null || pip3 install aiohttp toml tomlkit
           python3 flatpak-cargo-generator.py Cargo.lock -o packaging/flatpak/cargo-sources.json
-      - uses: flathub-infra/flatpak-github-actions/flatpak-builder@master
+      - uses: flathub-infra/flatpak-github-actions/flatpak-builder@933e9e8ca36e85046ebca8e211f0785c6becac40 # master
         with:
           bundle: pdfr.flatpak
           manifest-path: packaging/flatpak/io.github.kjellberg.pdfr.yml
