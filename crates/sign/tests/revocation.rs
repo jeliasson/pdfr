@@ -109,7 +109,13 @@ fn pki() -> Pki {
             &ca_key,
         )
         .unwrap();
-        if urls {
+        if !urls {
+            // The timestamp authority: for time stamping only.
+            b.add_extension(&x509_cert::ext::pkix::ExtendedKeyUsage(vec![
+                oids::KP_TIME_STAMPING,
+            ]))
+            .unwrap();
+        } else {
             let uri = |u: &str| {
                 GeneralName::UniformResourceIdentifier(der::asn1::Ia5String::new(u).unwrap())
             };
@@ -208,80 +214,84 @@ impl Pki {
 
     /// An RFC 3161 token from the test TSA for `data`, dated `at`.
     fn token(&self, data: &[u8], at: u64) -> Vec<u8> {
-        let info = x509_tsp::TstInfo {
-            version: x509_tsp::TspVersion::V1,
-            policy: der::asn1::ObjectIdentifier::new_unwrap("1.2.3.4"),
-            message_imprint: x509_tsp::MessageImprint {
-                hash_algorithm: spki::AlgorithmIdentifier {
-                    oid: oids::SHA256,
-                    parameters: None,
-                },
-                hashed_message: OctetString::new(pdfr_sign::sha256(data).to_vec()).unwrap(),
-            },
-            serial_number: der::asn1::Int::new(&[1]).unwrap(),
-            gen_time: GeneralizedTime::from_unix_duration(Duration::from_secs(at)).unwrap(),
-            accuracy: None,
-            ordering: false,
-            nonce: None,
-            tsa: None,
-            extensions: None,
-        }
-        .to_der()
-        .unwrap();
-        let attr = |oid, v: Any| Attribute {
-            oid,
-            values: SetOfVec::try_from(vec![v]).unwrap(),
-        };
-        let attrs = SetOfVec::try_from(vec![
-            attr(
-                oids::CONTENT_TYPE,
-                Any::encode_from(&oids::TST_INFO).unwrap(),
-            ),
-            attr(
-                oids::MESSAGE_DIGEST,
-                Any::encode_from(&OctetString::new(pdfr_sign::sha256(&info).to_vec()).unwrap())
-                    .unwrap(),
-            ),
-        ])
-        .unwrap();
-        let sig: p256::ecdsa::DerSignature = self.tsa_key.sign(&attrs.to_der().unwrap());
-        let alg = |oid| AlgorithmIdentifierOwned {
-            oid,
-            parameters: None,
-        };
-        let si = SignerInfo {
-            version: CmsVersion::V1,
-            sid: SignerIdentifier::IssuerAndSerialNumber(IssuerAndSerialNumber {
-                issuer: self.tsa.x.tbs_certificate.issuer.clone(),
-                serial_number: self.tsa.x.tbs_certificate.serial_number.clone(),
-            }),
-            digest_alg: alg(oids::SHA256),
-            signed_attrs: Some(attrs),
-            signature_algorithm: alg(oids::ECDSA_SHA256),
-            signature: OctetString::new(sig.as_bytes()).unwrap(),
-            unsigned_attrs: None,
-        };
-        let sd = SignedData {
-            version: CmsVersion::V3,
-            digest_algorithms: SetOfVec::try_from(vec![alg(oids::SHA256)]).unwrap(),
-            encap_content_info: EncapsulatedContentInfo {
-                econtent_type: oids::TST_INFO,
-                econtent: Some(Any::encode_from(&OctetString::new(info).unwrap()).unwrap()),
-            },
-            certificates: Some(CertificateSet(
-                SetOfVec::try_from(vec![CertificateChoices::Certificate(self.tsa.x.clone())])
-                    .unwrap(),
-            )),
-            crls: None,
-            signer_infos: SignerInfos(SetOfVec::try_from(vec![si]).unwrap()),
-        };
-        ContentInfo {
-            content_type: oids::SIGNED_DATA,
-            content: Any::encode_from(&sd).unwrap(),
-        }
-        .to_der()
-        .unwrap()
+        token_by(&self.tsa_key, &self.tsa, data, at)
     }
+}
+
+/// An RFC 3161 token for `data`, dated `at`, signed by `key` (`cert`).
+fn token_by(key: &p256::ecdsa::SigningKey, cert: &Cert, data: &[u8], at: u64) -> Vec<u8> {
+    let info = x509_tsp::TstInfo {
+        version: x509_tsp::TspVersion::V1,
+        policy: der::asn1::ObjectIdentifier::new_unwrap("1.2.3.4"),
+        message_imprint: x509_tsp::MessageImprint {
+            hash_algorithm: spki::AlgorithmIdentifier {
+                oid: oids::SHA256,
+                parameters: None,
+            },
+            hashed_message: OctetString::new(pdfr_sign::sha256(data).to_vec()).unwrap(),
+        },
+        serial_number: der::asn1::Int::new(&[1]).unwrap(),
+        gen_time: GeneralizedTime::from_unix_duration(Duration::from_secs(at)).unwrap(),
+        accuracy: None,
+        ordering: false,
+        nonce: None,
+        tsa: None,
+        extensions: None,
+    }
+    .to_der()
+    .unwrap();
+    let attr = |oid, v: Any| Attribute {
+        oid,
+        values: SetOfVec::try_from(vec![v]).unwrap(),
+    };
+    let attrs = SetOfVec::try_from(vec![
+        attr(
+            oids::CONTENT_TYPE,
+            Any::encode_from(&oids::TST_INFO).unwrap(),
+        ),
+        attr(
+            oids::MESSAGE_DIGEST,
+            Any::encode_from(&OctetString::new(pdfr_sign::sha256(&info).to_vec()).unwrap())
+                .unwrap(),
+        ),
+    ])
+    .unwrap();
+    let sig: p256::ecdsa::DerSignature = key.sign(&attrs.to_der().unwrap());
+    let alg = |oid| AlgorithmIdentifierOwned {
+        oid,
+        parameters: None,
+    };
+    let si = SignerInfo {
+        version: CmsVersion::V1,
+        sid: SignerIdentifier::IssuerAndSerialNumber(IssuerAndSerialNumber {
+            issuer: cert.x.tbs_certificate.issuer.clone(),
+            serial_number: cert.x.tbs_certificate.serial_number.clone(),
+        }),
+        digest_alg: alg(oids::SHA256),
+        signed_attrs: Some(attrs),
+        signature_algorithm: alg(oids::ECDSA_SHA256),
+        signature: OctetString::new(sig.as_bytes()).unwrap(),
+        unsigned_attrs: None,
+    };
+    let sd = SignedData {
+        version: CmsVersion::V3,
+        digest_algorithms: SetOfVec::try_from(vec![alg(oids::SHA256)]).unwrap(),
+        encap_content_info: EncapsulatedContentInfo {
+            econtent_type: oids::TST_INFO,
+            econtent: Some(Any::encode_from(&OctetString::new(info).unwrap()).unwrap()),
+        },
+        certificates: Some(CertificateSet(
+            SetOfVec::try_from(vec![CertificateChoices::Certificate(cert.x.clone())]).unwrap(),
+        )),
+        crls: None,
+        signer_infos: SignerInfos(SetOfVec::try_from(vec![si]).unwrap()),
+    };
+    ContentInfo {
+        content_type: oids::SIGNED_DATA,
+        content: Any::encode_from(&sd).unwrap(),
+    }
+    .to_der()
+    .unwrap()
 }
 
 /// The signer's key, in memory.
@@ -380,9 +390,9 @@ fn good_answer_online_is_cached() {
     // Asked again: the answer comes from memory.
     check(&p, &bytes, Some(&issuers), &cache);
     assert_eq!(issuers.calls.lock().unwrap().len(), 1);
-    // Online checks off: unknown, and still valid.
+    // Online checks off: unknown: valid, but not checked for revocation.
     let r = &check(&p, &bytes, None, &cache)[0];
-    assert_eq!(r.status, Status::Valid);
+    assert_eq!(r.status, Status::ValidUnchecked);
     assert!(matches!(
         r.revocation.as_ref().unwrap().state,
         State::Unknown(_)
@@ -395,7 +405,7 @@ fn unknown_when_the_issuer_cannot_be_reached() {
     let bytes = signed(&p, now(), Some(now()));
     let issuers = Issuers::default();
     let r = &check(&p, &bytes, Some(&issuers), &Cache::default())[0];
-    assert_eq!(r.status, Status::Valid, "{:?}", r.problem);
+    assert_eq!(r.status, Status::ValidUnchecked, "{:?}", r.problem);
     assert_eq!(
         r.revocation.as_ref().unwrap().state,
         State::Unknown("offline".into())
@@ -483,7 +493,7 @@ fn an_answer_signed_by_someone_else_is_ignored() {
         ..Default::default()
     };
     let r = &check(&p, &bytes, Some(&forged), &Cache::default())[0];
-    assert_eq!(r.status, Status::Valid);
+    assert_eq!(r.status, Status::ValidUnchecked);
     assert!(matches!(
         r.revocation.as_ref().unwrap().state,
         State::Unknown(_)
@@ -600,4 +610,195 @@ fn ocsp_request_names_the_certificate() {
     );
     assert_eq!(pdfr_sign::revocation::ocsp_urls(&p.leaf), vec![OCSP_URL]);
     assert_eq!(pdfr_sign::revocation::crl_urls(&p.leaf), vec![CRL_URL]);
+}
+
+// --- Security regressions --------------------------------------------------------
+
+#[test]
+fn a_timestamp_by_the_signers_own_key_is_not_trusted() {
+    // The signer backdates with a "timestamp" signed by their own key:
+    // their certificate is not for time stamping.
+    let p = pki();
+    let signer = KeySigner {
+        key: p.leaf_key.clone(),
+        cert: p.leaf.clone(),
+        chain: vec![p.ca.clone()],
+    };
+    let fd = FormDoc::open(sample("real_form.pdf")).unwrap();
+    let req = SignRequest {
+        name_beside: None,
+        spot: None,
+        ink: None,
+        signer: "Anna Ek".into(),
+        reason: None,
+        location: None,
+        time: now(),
+        reserve: pdfr_core::digital::DEFAULT_RESERVE,
+    };
+    let backdated = now() - 20 * DAY;
+    let ts = |d: &[u8]| Ok(token_by(&p.leaf_key, &p.leaf, d, backdated));
+    let bytes = sign(&fd, &fd.fields, &req, |content| {
+        cades::sign(content, &signer, Some(&ts as cades::Timestamper)).map(|s| s.der)
+    })
+    .unwrap();
+    let r = &check(&p, &bytes, None, &Cache::default())[0];
+    assert_eq!(r.timestamp, None);
+    assert!(
+        r.timestamp_problem
+            .as_deref()
+            .is_some_and(|w| w.contains("not a timestamp authority")),
+        "{:?}",
+        r.timestamp_problem
+    );
+    assert_eq!(r.kind, "PAdES B-B");
+}
+
+#[test]
+fn a_stale_answer_in_the_file_falls_through_to_asking() {
+    let p = pki();
+    let bt = signed(&p, now(), Some(now()));
+    // A "good" answer from before the signature was timestamped, still
+    // within its validity, kept in the DSS.
+    let id = CertId::from_cert::<sha1::Sha1>(&p.ca.x, &p.leaf.x).unwrap();
+    let old = OcspResponseBuilder::new(p.ca.x.tbs_certificate.subject.clone())
+        .with_single_response(
+            SingleResponse::new(id, CertStatus::good(), gtime(now() - 2 * DAY))
+                .with_next_update(gtime(now() + 5 * DAY)),
+        )
+        .sign::<_, p256::ecdsa::DerSignature>(&mut p.ca_key.clone(), None, gtime(now() - 2 * DAY))
+        .unwrap()
+        .to_der()
+        .unwrap();
+    let dss = pdfr_core::digital::DssData {
+        ocsps: vec![old],
+        ..Default::default()
+    };
+    let bytes = pdfr_core::digital::add_dss(&bt, &dss).unwrap();
+    // Offline: not good enough to say "not revoked".
+    let r = &check(&p, &bytes, None, &Cache::default())[0];
+    assert_eq!(r.status, Status::ValidUnchecked, "{:?}", r.revocation);
+    // Online: the issuer is asked.
+    let issuers = Issuers {
+        ocsp: Some(p.ocsp(CertStatus::good())),
+        ..Default::default()
+    };
+    let r = &check(&p, &bytes, Some(&issuers), &Cache::default())[0];
+    assert_eq!(r.status, Status::Valid, "{:?}", r.problem);
+    assert_eq!(r.revocation.as_ref().unwrap().source, Some(Source::Online));
+    assert_eq!(issuers.calls.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn an_untrusted_chain_is_never_asked_about() {
+    // A self-made CA names its own "OCSP responder": verifying must not
+    // send anything there.
+    let p = pki();
+    let trusted_elsewhere = pki();
+    let bytes = signed(&p, now(), Some(now()));
+    let fd = FormDoc::open(bytes.clone()).unwrap();
+    let issuers = Issuers {
+        ocsp: Some(p.ocsp(CertStatus::good())),
+        ..Default::default()
+    };
+    let cache = Cache::default();
+    let online = Online {
+        fetch: &issuers,
+        cache: &cache,
+    };
+    let r = &verify_all_with(
+        &bytes,
+        &fd.digital,
+        &trusted_elsewhere.store(),
+        Some(online),
+    )[0];
+    assert_eq!(r.status, Status::Untrusted);
+    assert!(issuers.calls.lock().unwrap().is_empty());
+}
+
+#[test]
+fn local_addresses_are_never_asked() {
+    use pdfr_sign::revocation::public_url;
+    assert!(public_url("http://ocsp.example.com/"));
+    assert!(public_url("https://8.8.8.8:8443/x"));
+    for url in [
+        "http://127.0.0.1/",
+        "http://localhost:8080/ocsp",
+        "http://printer.local/",
+        "http://10.0.0.5/crl",
+        "http://192.168.1.1/",
+        "http://172.16.0.1/",
+        "http://169.254.169.254/latest/meta-data",
+        "http://[::1]/",
+        "http://[fe80::1]/",
+        "http://[fd00::1]/",
+        "http://[::ffff:127.0.0.1]/",
+        "http://0.0.0.0/",
+        "http://user@127.0.0.1/",
+        "file:///etc/passwd",
+    ] {
+        assert!(!public_url(url), "{url}");
+    }
+}
+
+#[test]
+fn validation_data_added_twice_after_two_signatures_stays_valid() {
+    // Sign, add long-term validation data, sign again, add more: the DSS
+    // the first update made is updated by the second.
+    let p = pki();
+    let issuers = Issuers {
+        ocsp: Some(p.ocsp(CertStatus::good())),
+        ..Default::default()
+    };
+    let cache = Cache::default();
+    let online = Online {
+        fetch: &issuers,
+        cache: &cache,
+    };
+    let first = extend(signed(&p, now(), Some(now())), &p.store(), online, None);
+    assert_eq!(first.level, Level::Lt, "{:?}", first.problem);
+    let signer = KeySigner {
+        key: p.leaf_key.clone(),
+        cert: p.leaf.clone(),
+        chain: vec![p.ca.clone()],
+    };
+    let fd = FormDoc::open(first.bytes.clone()).unwrap();
+    let req = SignRequest {
+        name_beside: None,
+        spot: None,
+        ink: None,
+        signer: "Anna Ek".into(),
+        reason: None,
+        location: None,
+        time: now(),
+        reserve: pdfr_core::digital::DEFAULT_RESERVE,
+    };
+    let ts = |d: &[u8]| Ok(p.token(d, now()));
+    let twice = sign(&fd, &fd.fields, &req, |content| {
+        cades::sign(content, &signer, Some(&ts as cades::Timestamper)).map(|s| s.der)
+    })
+    .unwrap();
+    // A new answer from the issuer, given after the second signature (as
+    // signing does, with a fresh cache).
+    let issuers = Issuers {
+        ocsp: Some(p.ocsp(CertStatus::good())),
+        ..Default::default()
+    };
+    let cache = Cache::default();
+    let online = Online {
+        fetch: &issuers,
+        cache: &cache,
+    };
+    let second = extend(twice, &p.store(), online, Some(&ts as cades::Timestamper));
+    assert_eq!(second.level, Level::Lta, "{:?}", second.problem);
+    let fd = FormDoc::open(second.bytes.clone()).unwrap();
+    let rs = verify_all(&second.bytes, &fd.digital, &p.store());
+    assert_eq!(rs.len(), 3);
+    assert!(rs.iter().all(|r| r.status == Status::Valid), "{rs:?}");
+    assert!(
+        rs.iter().all(|r| matches!(
+            &r.after,
+            After::Nothing | After::Changes { allowed: true, .. }
+        )),
+        "{rs:?}"
+    );
 }

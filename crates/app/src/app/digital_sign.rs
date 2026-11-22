@@ -30,6 +30,14 @@ const NO_CERTS: &str = "No certificates found. Add yours to the Keychain (double
 const NO_CERTS: &str = "No certificates found. Install yours in Chrome, Chromium or Firefox, \
      insert your ID card or token, or choose a certificate file.";
 
+/// The PIN or password field, by id: its state is dropped when the
+/// dialog closes.
+const PIN_FIELD: &str = "pdfr-sign-pin";
+
+fn forget_pin(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.remove::<egui::text_edit::TextEditState>(Id::unique(PIN_FIELD)));
+}
+
 /// The roots signatures are checked against, loaded once.
 fn trust() -> &'static TrustStore {
     static T: OnceLock<TrustStore> = OnceLock::new();
@@ -43,7 +51,8 @@ fn revocation_cache() -> &'static Cache {
 }
 
 /// Asks certificate issuers (OCSP responders, CRLs) over plain HTTP(S),
-/// giving up quickly so a check never waits long.
+/// giving up quickly so a check never waits long. Never this computer or
+/// the local network, and no redirects (which could lead there).
 struct NetFetch(ureq::Agent);
 
 impl NetFetch {
@@ -52,11 +61,52 @@ impl NetFetch {
     }
 }
 
+/// Refuses an issuer address on this computer or the local network,
+/// as written or as its name resolves.
+fn public_address(url: &str) -> Result<(), String> {
+    use std::net::ToSocketAddrs;
+    const LOCAL: &str = "the issuer's address is on this computer or the local network";
+    if !pdfr_sign::revocation::public_url(url) {
+        return Err(LOCAL.into());
+    }
+    let uri: ureq::http::Uri = url
+        .parse()
+        .map_err(|_| "the issuer's address can't be read".to_string())?;
+    let host = uri
+        .host()
+        .ok_or("the issuer's address can't be read")?
+        .trim_start_matches('[')
+        .trim_end_matches(']');
+    let port = uri
+        .port_u16()
+        .unwrap_or(if uri.scheme_str() == Some("https") {
+            443
+        } else {
+            80
+        });
+    let addrs: Vec<_> = (host, port)
+        .to_socket_addrs()
+        .map_err(|e| format!("could not reach the issuer ({e})"))?
+        .collect();
+    if addrs.is_empty()
+        || addrs
+            .iter()
+            .any(|a| !pdfr_sign::revocation::is_public_ip(a.ip()))
+    {
+        return Err(LOCAL.into());
+    }
+    Ok(())
+}
+
 impl Fetch for NetFetch {
     fn post(&self, url: &str, content_type: &str, body: &[u8]) -> Result<Vec<u8>, String> {
+        public_address(url)?;
         let resp = self
             .0
             .post(url)
+            .config()
+            .max_redirects(0)
+            .build()
             .header("Content-Type", content_type)
             .send(body)
             .map_err(|e| format!("could not reach the issuer ({e})"))?;
@@ -64,9 +114,13 @@ impl Fetch for NetFetch {
     }
 
     fn get(&self, url: &str) -> Result<Vec<u8>, String> {
+        public_address(url)?;
         let resp = self
             .0
             .get(url)
+            .config()
+            .max_redirects(0)
+            .build()
             .call()
             .map_err(|e| format!("could not reach the issuer ({e})"))?;
         read_body(resp, 32 << 20)
@@ -231,6 +285,9 @@ impl App {
         let saved = if self.digital.dialog.is_some() {
             self.saved_signature_inks()
         } else {
+            // Closed, however: what egui keeps of the PIN field (its
+            // text in the undo history) goes too.
+            forget_pin(ctx);
             return;
         };
         let pal = self.palette.clone();
@@ -423,6 +480,7 @@ impl App {
                         ui.label(RichText::new(label).color(c.weak));
                         let r = ui.add(
                             egui::TextEdit::singleline(&mut *dlg.pin)
+                                .id(Id::unique(PIN_FIELD))
                                 .password(true)
                                 .desired_width(200.0),
                         );
@@ -868,7 +926,7 @@ fn signature_card(ui: &mut egui::Ui, c: &Colors, r: &Report) -> bool {
             if let Some(iss) = &r.issuer {
                 let trust = match r.anchor {
                     Some(pdfr_sign::trust::Anchor::EuQualified) => Some("On the EU Trusted List"),
-                    Some(pdfr_sign::trust::Anchor::System) => Some("Trusted by this computer"),
+                    Some(pdfr_sign::trust::Anchor::System) => Some("Trusted by your system"),
                     None => None,
                 };
                 detail(ui, c, "Certificate", iss, trust);
@@ -1136,6 +1194,7 @@ fn verdict(r: &Report) -> (&'static str, Color32, String) {
                 "Valid: the signed version is intact; allowed changes came after.".into(),
             ),
         },
+        Status::ValidUnchecked => ("!", amber, "Valid, revocation could not be checked.".into()),
         Status::Untrusted => (
             "?",
             amber,
@@ -1182,9 +1241,10 @@ fn summary(reports: &[Report]) -> String {
     let worst = reports
         .iter()
         .map(|r| match r.status {
-            Status::Broken => 3,
-            Status::Modified => 2,
-            Status::Untrusted => 1,
+            Status::Broken => 4,
+            Status::Modified => 3,
+            Status::Untrusted => 2,
+            Status::ValidUnchecked => 1,
             Status::Valid => 0,
         })
         .max()
@@ -1203,8 +1263,9 @@ fn summary(reports: &[Report]) -> String {
     };
     let verdict = match worst {
         0 => "valid",
-        1 => "intact, but a signer could not be confirmed",
-        2 => "changed after signing",
+        1 => "valid, but revocation could not be checked",
+        2 => "intact, but a signer could not be confirmed",
+        3 => "changed after signing",
         _ => "NOT valid",
     };
     format!("{what}: {verdict}. The sidebar (Ctrl+B) has the details.")
@@ -1289,6 +1350,33 @@ mod tests {
         assert!(ltv_note(Some((Level::Lta, None))).contains("PAdES B-LTA"));
         let n = ltv_note(Some((Level::T, Some("offline".into()))));
         assert!(n.contains("PAdES B-T") && n.contains("offline"), "{n}");
+    }
+
+    #[test]
+    fn unchecked_revocation_is_amber() {
+        let mut r = report(None);
+        r.status = Status::ValidUnchecked;
+        let (mark, color, words) = verdict(&r);
+        assert_eq!(mark, "!");
+        assert_eq!(words, "Valid, revocation could not be checked.");
+        assert_ne!(color, verdict(&report(None)).1, "not the green of valid");
+        let s = summary(&[report(None), r]);
+        assert!(
+            s.contains("valid, but revocation could not be checked"),
+            "{s}"
+        );
+    }
+
+    #[test]
+    fn issuers_on_this_computer_are_not_asked() {
+        for url in [
+            "http://localhost/ocsp",
+            "http://127.0.0.1:8080/",
+            "http://[::1]/",
+            "http://192.168.0.10/crl",
+        ] {
+            assert!(public_address(url).is_err(), "{url}");
+        }
     }
 
     #[test]

@@ -70,6 +70,62 @@ impl DigitalSig {
     }
 }
 
+/// A signature dictionary as it was in the revision its signature covers:
+/// what the signer actually signed, whatever later updates say.
+#[derive(Clone, Debug)]
+pub struct SignedDict {
+    /// The dictionary's object.
+    pub id: ObjId,
+    /// `/Contents`, decoded.
+    pub contents: Vec<u8>,
+    pub name: Option<String>,
+    pub time: Option<String>,
+    pub reason: Option<String>,
+    pub location: Option<String>,
+}
+
+/// The signature dictionary of `rev` (the revision `sig` covers, read on
+/// its own) with `sig`'s `/ByteRange`, if there is exactly one.
+pub fn signed_dict(rev: &Document, sig: &DigitalSig) -> Option<SignedDict> {
+    let mut found = rev.objects.iter().filter_map(|(id, o)| {
+        let d = o.as_dict().ok()?;
+        let nums: Vec<i64> = d
+            .get(b"ByteRange")
+            .ok()
+            .and_then(|o| deref(rev, o))?
+            .as_array()
+            .ok()?
+            .iter()
+            .filter_map(|o| o.as_i64().ok())
+            .collect();
+        let ranges: Vec<(usize, usize)> = nums
+            .chunks(2)
+            .filter_map(|c| {
+                Some((
+                    usize::try_from(c[0]).ok()?,
+                    usize::try_from(*c.get(1)?).ok()?,
+                ))
+            })
+            .collect();
+        if ranges != sig.byte_range {
+            return None;
+        }
+        let Ok(Object::String(contents, _)) = d.get(b"Contents") else {
+            return None;
+        };
+        Some(SignedDict {
+            id: *id,
+            contents: contents.clone(),
+            name: get_text(rev, d, b"Name"),
+            time: get_text(rev, d, b"M"),
+            reason: get_text(rev, d, b"Reason"),
+            location: get_text(rev, d, b"Location"),
+        })
+    });
+    let first = found.next()?;
+    found.next().is_none().then_some(first)
+}
+
 impl FormDoc {
     /// Whether the file holds a digital signature. Changes to it are then
     /// saved as incremental updates so the signature stays valid.
