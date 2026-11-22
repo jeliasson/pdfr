@@ -182,10 +182,10 @@ pub fn unset_default() -> Result<String, String> {
     }
 }
 
+/// Replaces a file safely, keeping its mode (and a symlink pointing at it:
+/// dotfile managers link `mimeapps.list`).
 fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let tmp = path.with_extension("pdfr-tmp");
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, path)
+    pdfr_core::fsx::write_atomic(path, bytes)
 }
 
 pub fn open_url(url: &str) -> Result<(), String> {

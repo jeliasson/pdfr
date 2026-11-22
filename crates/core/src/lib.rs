@@ -9,6 +9,7 @@ pub mod field;
 pub mod flatten;
 pub mod font;
 pub mod forms;
+pub mod fsx;
 pub mod geom;
 pub mod layout;
 pub mod links;
