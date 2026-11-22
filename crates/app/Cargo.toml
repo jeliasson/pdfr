@@ -33,7 +33,11 @@ png = "0.18"
 base64 = "0.23"
 # pdfr's own file dialog, for desktops without a file chooser portal.
 egui-file-dialog = { version = "0.16", default-features = false, features = ["default_fonts"] }
-serde_json = "1"
+# Key order kept when an agent's settings file is rewritten.
+serde_json = { version = "1", features = ["preserve_order"] }
+# Codex's and Grok's config.toml: read and edited keeping its layout and
+# comments (already in the build through zbus's macros).
+toml_edit = { version = "0.25", default-features = false, features = ["parse", "display"] }
 # HTTPS (update check, downloads, revocation, OCR models): rustls on its
 # mature `ring` provider, Mozilla's root certificates.
 ureq = { version = "3", default-features = false, features = ["rustls"] }

@@ -22,12 +22,70 @@ const NAME: &str = "pdfr";
 /// The skills folder most agents share.
 const SHARED_SKILLS: &str = ".agents/skills";
 
+/// The start of the line that marks a guide pdfr wrote (see `SKILL.md`):
+/// a later install may replace such a file.
+const SKILL_MARK: &str = "<!-- pdfr-skill ";
+
+/// FNV-1a hashes of the guides earlier versions of pdfr wrote, before they
+/// carried the mark: such a file is pdfr's own, unchanged, and may be
+/// replaced too.
+const OLD_SKILLS: &[u64] = &[
+    // pdfr 0.5 and 0.6.
+    0x4602_6730_f8b3_b431,
+];
+
+/// Where pdfr's guide goes when the user has a SKILL.md of their own there.
+const SKILL_NEW: &str = "SKILL.pdfr-new.md";
+
 /// The command an agent runs to reach pdfr: the program and its arguments
 /// (ending in `mcp`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Launch {
     pub cmd: String,
     pub args: Vec<String>,
+}
+
+impl Launch {
+    /// How agents start this copy of pdfr: through Flatpak, as `pdfr` when
+    /// it is on the PATH, otherwise by the program's full path.
+    pub fn this_copy(flatpak: bool) -> Launch {
+        let on_path = pdfr_assist::ai::which("pdfr").is_some();
+        Launch::from_parts(flatpak, on_path, std::env::current_exe().ok())
+    }
+
+    /// The command for each case. A path is one argument, spaces and all.
+    fn from_parts(flatpak: bool, on_path: bool, exe: Option<PathBuf>) -> Launch {
+        let mcp = "mcp".to_string();
+        if flatpak {
+            return Launch {
+                cmd: "flatpak".into(),
+                args: vec![
+                    "run".into(),
+                    "--command=pdfr".into(),
+                    crate::system::APP_ID.into(),
+                    mcp,
+                ],
+            };
+        }
+        let cmd = match exe {
+            // Not on the PATH (run from an archive or an app bundle).
+            Some(p) if !on_path => p.display().to_string(),
+            _ => "pdfr".into(),
+        };
+        Launch {
+            cmd,
+            args: vec![mcp],
+        }
+    }
+
+    /// The command as a shell line, each word quoted where it needs to be.
+    pub fn shell_line(&self) -> String {
+        std::iter::once(&self.cmd)
+            .chain(&self.args)
+            .map(|w| shell_word(w))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
 }
 
 /// How an agent's entry for a server is written in a JSON settings file.
@@ -37,7 +95,8 @@ enum Entry {
     Plain,
     /// The same with `"type": "stdio"`.
     Stdio,
-    /// GitHub Copilot: `"type": "local"` and every tool allowed.
+    /// GitHub Copilot: `"type": "local"` and only the read-only tools
+    /// allowed without asking.
     Local,
     /// Kilo: `"type": "local"`, the command and its arguments as one list.
     List,
@@ -319,24 +378,25 @@ impl Client {
     }
 
     /// Adds pdfr to this agent. May take a moment (Claude Code is asked
-    /// through its own command), so call it off the UI thread.
-    pub fn install(&self, home: &Path, launch: &Launch) -> Result<(), String> {
+    /// through its own command), so call it off the UI thread. Gives a note
+    /// for the user when something was not done the usual way.
+    pub fn install(&self, home: &Path, launch: &Launch) -> Result<Option<String>, String> {
         if !self.installed(home) {
             let file = self.config(home);
             match self.how {
                 How::ClaudeCode => claude_code_add(home, launch)?,
                 How::Json { keys, entry } => json_add(&file, keys, entry_value(entry, launch))?,
                 How::Opencode => opencode_add(&file, launch)?,
-                How::Toml => append(&file, toml_has_server, &toml_table(launch))?,
+                How::Toml => toml_add(&file, launch)?,
                 How::HermesYaml => hermes_add(&file, launch)?,
                 How::Crushrc => append(&file, crushrc_has_server, &crushrc_line(launch))?,
                 How::DshYaml => append(&file, dsh_has_server, &dsh_patch(launch))?,
             }
         }
-        if let Some(path) = self.skill_path(home) {
-            write_skill(&path)?;
+        match self.skill_path(home) {
+            Some(path) => write_skill(&path),
+            None => Ok(None),
         }
-        Ok(())
     }
 }
 
@@ -352,29 +412,55 @@ fn said(what: &str, path: &Path, e: impl std::fmt::Display) -> String {
     format!("Could not {what} {}: {e}.", path.display())
 }
 
-/// Writes the guide, replacing an older copy of it.
-fn write_skill(path: &Path) -> Result<(), String> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| said("create", dir, e))?;
+/// FNV-1a: a stable hash, to recognise pdfr's earlier guides.
+fn fnv(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in bytes {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x0100_0000_01b3);
     }
-    std::fs::write(path, SKILL).map_err(|e| said("write", path, e))
+    h
 }
 
-/// Replaces a settings file in one step, so a crash half way leaves the old
-/// one. A symlinked file (dotfiles) stays a symlink: its target is replaced.
+/// Whether a SKILL.md is pdfr's own: it carries the mark, or it is a guide
+/// an earlier pdfr wrote, unchanged.
+fn skill_is_ours(text: &str) -> bool {
+    text.lines().any(|l| l.trim_start().starts_with(SKILL_MARK))
+        || OLD_SKILLS.contains(&fnv(text.replace("\r\n", "\n").as_bytes()))
+}
+
+/// Writes the guide, replacing an older copy of it. A SKILL.md the user
+/// wrote or changed is kept: the guide goes next to it, and the note says
+/// so.
+fn write_skill(path: &Path) -> Result<Option<String>, String> {
+    let old = match std::fs::read(path) {
+        Ok(b) => Some(String::from_utf8_lossy(&b).into_owned()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(said("read", path, e)),
+    };
+    match old {
+        Some(text) if text == SKILL => Ok(None),
+        Some(text) if !skill_is_ours(&text) => {
+            let new = path.with_file_name(SKILL_NEW);
+            replace_file(&new, SKILL)?;
+            Ok(Some(format!(
+                "{} has changes of your own, so it was kept. pdfr's guide is in {SKILL_NEW} next to it.",
+                path.display(),
+            )))
+        }
+        _ => replace_file(path, SKILL).map(|()| None),
+    }
+}
+
+/// Replaces a file in one step, so a crash half way leaves the old one. A
+/// symlinked file (dotfiles) stays a symlink: its target is replaced. The
+/// file keeps its permissions; a new one is readable by the user only.
 fn replace_file(path: &Path, text: &str) -> Result<(), String> {
     let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    if let Some(dir) = target.parent() {
+    if let Some(dir) = target.parent().filter(|d| !d.as_os_str().is_empty()) {
         std::fs::create_dir_all(dir).map_err(|e| said("create", dir, e))?;
     }
-    let mut tmp = target.clone().into_os_string();
-    tmp.push(".pdfr-new");
-    let tmp = PathBuf::from(tmp);
-    std::fs::write(&tmp, text).map_err(|e| said("write", &tmp, e))?;
-    std::fs::rename(&tmp, &target).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        said("write", &target, e)
-    })
+    pdfr_core::fsx::write_atomic(path, text.as_bytes()).map_err(|e| said("write", path, e))
 }
 
 /// A text settings file, empty if it is not there yet.
@@ -438,7 +524,8 @@ fn entry_value(entry: Entry, launch: &Launch) -> Value {
         Entry::Plain => json!({"command": launch.cmd, "args": launch.args}),
         Entry::Stdio => json!({"type": "stdio", "command": launch.cmd, "args": launch.args}),
         Entry::Local => json!({
-            "type": "local", "command": launch.cmd, "args": launch.args, "tools": ["*"],
+            "type": "local", "command": launch.cmd, "args": launch.args,
+            "tools": super::mcp::READ_ONLY,
         }),
         Entry::List => json!({"type": "local", "command": command_list(launch), "enabled": true}),
     }
@@ -494,11 +581,70 @@ fn append(path: &Path, has: fn(&str) -> bool, block: &str) -> Result<(), String>
     replace_file(path, &text)
 }
 
+/// The servers in a Codex `config.toml`, however they are written: a
+/// `[mcp_servers]` table, `[mcp_servers.<name>]` tables, dotted keys or an
+/// inline table.
+fn toml_servers(doc: &toml_edit::DocumentMut) -> Option<&dyn toml_edit::TableLike> {
+    doc.get("mcp_servers")?.as_table_like()
+}
+
 fn toml_has_server(text: &str) -> bool {
-    text.lines().any(|l| {
-        let l = l.trim();
-        l == "[mcp_servers.pdfr]" || l == "[mcp_servers.\"pdfr\"]"
-    })
+    text.parse::<toml_edit::DocumentMut>()
+        .is_ok_and(|doc| toml_servers(&doc).is_some_and(|t| t.contains_key(NAME)))
+}
+
+/// Adds pdfr to the servers in a Codex `config.toml`: a new
+/// `[mcp_servers.pdfr]` table at the end, or an entry in the inline table
+/// the servers are written as. Comments and layout are kept.
+fn toml_add(path: &Path, launch: &Launch) -> Result<(), String> {
+    use toml_edit::{Array, InlineTable, Item, Table, Value as TomlValue, value};
+    let text = read_or_empty(path)?;
+    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| {
+        said(
+            "read",
+            path,
+            format!("it is not valid TOML ({})", e.message()),
+        )
+    })?;
+    if toml_servers(&doc).is_some_and(|t| t.contains_key(NAME)) {
+        return Ok(());
+    }
+    let args: Array = launch.args.iter().map(String::as_str).collect();
+    let root = doc.as_table_mut();
+    if !root.contains_key("mcp_servers") {
+        let mut servers = Table::new();
+        servers.set_implicit(true);
+        root.insert("mcp_servers", Item::Table(servers));
+    }
+    match root.get_mut("mcp_servers") {
+        Some(Item::Table(servers)) => {
+            let mut t = Table::new();
+            if !text.trim().is_empty() {
+                t.decor_mut().set_prefix("\n");
+            }
+            t.insert("command", value(launch.cmd.as_str()));
+            t.insert("args", value(args));
+            servers.insert(NAME, Item::Table(t));
+        }
+        Some(Item::Value(TomlValue::InlineTable(servers))) => {
+            let mut t = InlineTable::new();
+            t.insert("command", launch.cmd.as_str().into());
+            t.insert("args", TomlValue::Array(args));
+            servers.insert(NAME, TomlValue::InlineTable(t));
+        }
+        _ => {
+            return Err(said(
+                "change",
+                path,
+                "its mcp_servers is not a table; add pdfr there by hand",
+            ));
+        }
+    }
+    let mut out = doc.to_string();
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    replace_file(path, &out)
 }
 
 /// The lines of pdfr's entry under Hermes's `mcp_servers:`, indented by
@@ -551,6 +697,20 @@ fn hermes_add(path: &Path, launch: &Launch) -> Result<(), String> {
         return Ok(());
     }
     if let Some((at, indent)) = hermes_servers(&text) {
+        // A YAML list (`- name: …`) is not the shape Hermes reads: a named
+        // entry added to it would break the file.
+        let first = text[at..]
+            .lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty() && !l.starts_with('#'));
+        if first.is_some_and(|l| l == "-" || l.starts_with("- ")) {
+            return Err(said(
+                "change",
+                path,
+                "its mcp_servers are written as a list (lines starting with \"-\"), not as \
+                 named entries; add pdfr there by hand",
+            ));
+        }
         let mut out = text[..at].to_string();
         if !out.ends_with('\n') {
             out.push('\n');
@@ -568,17 +728,6 @@ fn hermes_add(path: &Path, launch: &Launch) -> Result<(), String> {
     }
     let block = format!("mcp_servers:\n{}", hermes_entry("  ", launch));
     append(path, |_| false, &block)
-}
-
-/// A table for Codex's `config.toml`. A new table at the end is valid
-/// whatever comes before it, so the file need not be parsed. A JSON string
-/// is a valid TOML string, and a JSON list of strings a TOML array.
-fn toml_table(launch: &Launch) -> String {
-    format!(
-        "[mcp_servers.{NAME}]\ncommand = {}\nargs = {}\n",
-        json!(launch.cmd),
-        json!(launch.args),
-    )
 }
 
 fn crushrc_has_server(text: &str) -> bool {
@@ -777,7 +926,12 @@ mod tests {
         client("GitHub Copilot").install(&home, &launch()).unwrap();
         let v = read_json_file(&file);
         assert_eq!(v["mcpServers"]["pdfr"]["type"], "local");
-        assert_eq!(v["mcpServers"]["pdfr"]["tools"], json!(["*"]));
+        // Only the tools that change nothing run without Copilot asking.
+        assert_eq!(
+            v["mcpServers"]["pdfr"]["tools"],
+            json!(super::super::mcp::READ_ONLY)
+        );
+        assert!(!v.to_string().contains("\"*\""));
         let _ = std::fs::remove_dir_all(&home);
 
         let (home, file) = with("Kilo", None);
@@ -910,6 +1064,181 @@ mod tests {
             "model = \"x\"\n\n[mcp_servers.other]\ncommand = \"y\"\n\n\
              [mcp_servers.pdfr]\ncommand = \"/opt/My Apps/pdfr\"\nargs = [\"mcp\"]\n"
         );
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// pdfr in Codex's settings is found however it is written, and is
+    /// then not added a second time.
+    #[test]
+    fn codex_finds_pdfr_written_any_way() {
+        for text in [
+            "[mcp_servers.pdfr]\ncommand = \"x\"\n",
+            "[mcp_servers.\"pdfr\"]\ncommand = \"x\"\n",
+            "[mcp_servers]\npdfr = { command = \"x\" }\n",
+            "mcp_servers.pdfr.command = \"x\"\n",
+            "mcp_servers = { pdfr = { command = \"x\" } }\n",
+            "# servers\n[ mcp_servers . pdfr ] # mine\ncommand = \"x\"\n",
+        ] {
+            let (home, file) = with("Codex and ChatGPT Desktop", Some(text));
+            let c = client("Codex and ChatGPT Desktop");
+            assert!(c.installed(&home), "{text}");
+            c.install(&home, &launch()).unwrap();
+            assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
+            let _ = std::fs::remove_dir_all(&home);
+        }
+        // A key of another table named pdfr is not ours.
+        assert!(!toml_has_server("[tools]\npdfr = 1\n"));
+    }
+
+    #[test]
+    fn codex_servers_in_an_inline_table_get_pdfr_there() {
+        let text = "# my settings\nmcp_servers = { other = { command = \"y\" } }\nmodel = \"x\"\n";
+        let (home, file) = with("Codex and ChatGPT Desktop", Some(text));
+        let c = client("Codex and ChatGPT Desktop");
+        assert!(!c.installed(&home));
+        c.install(&home, &launch()).unwrap();
+        let out = std::fs::read_to_string(&file).unwrap();
+        assert!(out.starts_with("# my settings\n"), "{out}");
+        assert!(c.installed(&home), "{out}");
+        let doc: toml_edit::DocumentMut = out.parse().unwrap();
+        assert_eq!(
+            doc["mcp_servers"]["pdfr"]["command"].as_str(),
+            Some("/opt/My Apps/pdfr")
+        );
+        assert_eq!(doc["mcp_servers"]["other"]["command"].as_str(), Some("y"));
+        assert_eq!(doc["model"].as_str(), Some("x"));
+        let _ = std::fs::remove_dir_all(&home);
+        // TOML that does not parse is left alone.
+        let (home, file) = with("Codex and ChatGPT Desktop", Some("model = \n"));
+        assert!(c.install(&home, &launch()).is_err());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "model = \n");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn hermes_servers_written_as_a_list_are_left_alone() {
+        for before in [
+            "mcp_servers:\n  - name: other\n    command: y\n",
+            "mcp_servers:\n# mine\n- name: other\n",
+        ] {
+            let (home, file) = with("Hermes", Some(before));
+            let e = client("Hermes").install(&home, &launch()).unwrap_err();
+            assert!(e.contains("list"), "{e}");
+            assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
+            let _ = std::fs::remove_dir_all(&home);
+        }
+    }
+
+    #[test]
+    fn a_rewritten_json_file_keeps_its_key_order() {
+        let text = r#"{"zeta": 1, "mcpServers": {"yak": {"command": "y"}, "ant": {"command": "a"}}, "alpha": 2}"#;
+        let (home, file) = with("Cursor", Some(text));
+        client("Cursor").install(&home, &launch()).unwrap();
+        let out = std::fs::read_to_string(&file).unwrap();
+        let at = |k: &str| out.find(&format!("\"{k}\"")).unwrap();
+        assert!(at("zeta") < at("mcpServers") && at("mcpServers") < at("alpha"));
+        assert!(at("yak") < at("ant") && at("ant") < at("pdfr"), "{out}");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_rewritten_settings_file_keeps_its_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let (home, file) = with("Cursor", Some("{}"));
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640)).unwrap();
+        client("Cursor").install(&home, &launch()).unwrap();
+        let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o640);
+        // A new file is the user's alone.
+        let (home2, file2) = with("Kiro", None);
+        client("Kiro").install(&home2, &launch()).unwrap();
+        let mode = std::fs::metadata(&file2).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        // No temporary file is left behind.
+        let left: Vec<_> = std::fs::read_dir(file.parent().unwrap())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(left, vec![std::ffi::OsString::from("mcp.json")]);
+        let _ = std::fs::remove_dir_all(&home);
+        let _ = std::fs::remove_dir_all(&home2);
+    }
+
+    #[test]
+    fn a_path_with_spaces_stays_one_word() {
+        let exe = PathBuf::from("/home/me/My Apps/pdfr's copy/pdfr");
+        let l = Launch::from_parts(false, false, Some(exe.clone()));
+        assert_eq!(l.cmd, exe.display().to_string());
+        assert_eq!(l.args, vec!["mcp"]);
+        assert_eq!(
+            l.shell_line(),
+            r#"'/home/me/My Apps/pdfr'\''s copy/pdfr' mcp"#
+        );
+        // On the PATH: just its name.
+        let l = Launch::from_parts(false, true, Some(exe));
+        assert_eq!(
+            (l.cmd.as_str(), l.shell_line().as_str()),
+            ("pdfr", "pdfr mcp")
+        );
+        // Flatpak: flatpak runs it.
+        let l = Launch::from_parts(true, false, None);
+        assert_eq!(l.cmd, "flatpak");
+        assert_eq!(
+            l.args,
+            vec!["run", "--command=pdfr", crate::system::APP_ID, "mcp"]
+        );
+    }
+
+    #[test]
+    fn a_guide_the_user_changed_is_kept() {
+        let c = client("Cursor");
+        let (home, _) = with("Cursor", None);
+        let skill = c.skill_path(&home).unwrap();
+        std::fs::create_dir_all(skill.parent().unwrap()).unwrap();
+        // The user's own guide: kept, pdfr's goes next to it.
+        std::fs::write(&skill, "my own notes on pdfr\n").unwrap();
+        let note = c.install(&home, &launch()).unwrap().expect("a note");
+        assert!(note.contains(SKILL_NEW), "{note}");
+        assert_eq!(
+            std::fs::read_to_string(&skill).unwrap(),
+            "my own notes on pdfr\n"
+        );
+        let new = skill.with_file_name(SKILL_NEW);
+        assert_eq!(std::fs::read_to_string(&new).unwrap(), SKILL);
+        // A guide with pdfr's mark is replaced, whatever it says.
+        std::fs::write(&skill, "---\n<!-- pdfr-skill v1 -->\nold words\n").unwrap();
+        assert_eq!(c.install(&home, &launch()).unwrap(), None);
+        assert_eq!(std::fs::read_to_string(&skill).unwrap(), SKILL);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// pdfr 0.6 wrote the guide without the mark: that file, unchanged, is
+    /// still replaced.
+    #[test]
+    fn the_guide_of_an_earlier_pdfr_is_replaced() {
+        let mark = SKILL
+            .lines()
+            .find(|l| l.starts_with(SKILL_MARK))
+            .expect("the guide carries the mark");
+        let old = SKILL.replacen(&format!("{mark}\n\n"), "", 1);
+        assert!(skill_is_ours(&old) || fnv(old.as_bytes()) != OLD_SKILLS[0]);
+        if fnv(old.as_bytes()) != OLD_SKILLS[0] {
+            // The guide has changed since 0.6: nothing more to show here.
+            return;
+        }
+        let c = client("Cursor");
+        let (home, _) = with("Cursor", None);
+        let skill = c.skill_path(&home).unwrap();
+        std::fs::create_dir_all(skill.parent().unwrap()).unwrap();
+        std::fs::write(&skill, &old).unwrap();
+        assert_eq!(c.install(&home, &launch()).unwrap(), None);
+        assert_eq!(std::fs::read_to_string(&skill).unwrap(), SKILL);
+        assert!(!skill.with_file_name(SKILL_NEW).exists());
+        // One word changed: the user's.
+        std::fs::write(&skill, old.replacen("pdfr", "PDFR", 1)).unwrap();
+        assert!(c.install(&home, &launch()).unwrap().is_some());
         let _ = std::fs::remove_dir_all(&home);
     }
 

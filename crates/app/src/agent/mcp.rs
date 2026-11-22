@@ -292,6 +292,20 @@ fn tool(name: &str, description: &str, mut props: Value, required: &[&str]) -> V
     })
 }
 
+/// The tools that only look: they change no document, file or setting.
+/// Agents that keep a list of tools allowed without asking (GitHub
+/// Copilot) get these.
+pub const READ_ONLY: &[&str] = &[
+    "windows_list",
+    "screenshot",
+    "read_ui",
+    "read_form",
+    "read_text",
+    "find",
+    "check_form",
+    "wait_idle",
+];
+
 /// The tools an agent sees.
 pub fn tools() -> Vec<Value> {
     let field_ref =
@@ -516,6 +530,16 @@ mod tests {
         }
         let fill = tools.iter().find(|t| t["name"] == "fill").unwrap();
         assert_eq!(fill["inputSchema"]["required"], json!(["ref", "value"]));
+        // The read-only list names real tools, and none that changes
+        // anything or tells what pdfr remembers.
+        for name in READ_ONLY {
+            assert!(tools.iter().any(|t| t["name"] == *name), "{name}");
+        }
+        for name in [
+            "open", "close", "fill", "computer", "save", "save_as", "suggest",
+        ] {
+            assert!(!READ_ONLY.contains(&name), "{name}");
+        }
     }
 
     #[test]

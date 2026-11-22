@@ -125,18 +125,21 @@ pub struct SettingsUi {
     ai_model_edit: Option<String>,
 }
 
+/// How an install went: a note for the user if any, or why it failed.
+type InstallResult = Result<Option<String>, String>;
+
 /// AI agents → Install: the agents on this computer, and an install under
 /// way (off the UI thread: Claude Code is asked through its own command).
 #[derive(Default)]
 struct Installs {
     /// Each agent found and whether pdfr is in it. `None`: not looked yet.
     found: Option<Vec<(&'static Client, bool)>>,
-    running: Option<(
-        &'static Client,
-        std::sync::mpsc::Receiver<Result<(), String>>,
-    )>,
+    running: Option<(&'static Client, std::sync::mpsc::Receiver<InstallResult>)>,
     /// The agent whose install failed, and why.
     error: Option<(&'static Client, String)>,
+    /// The agent whose install went through with something to tell (its
+    /// own guide was kept, say).
+    note: Option<(&'static Client, String)>,
 }
 
 /// What the user asked for this frame, applied after drawing.
@@ -408,25 +411,8 @@ impl AssistState {
         });
         // How to connect: the command an agent runs to reach pdfr.
         let flatpak = std::path::Path::new("/.flatpak-info").exists();
-        let program = if flatpak {
-            "flatpak run --command=pdfr io.github.kjellberg.pdfr".to_string()
-        } else if pdfr_assist::ai::which("pdfr").is_some() {
-            "pdfr".to_string()
-        } else {
-            // Not on the PATH (run from an archive or an app bundle).
-            std::env::current_exe()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|_| "pdfr".into())
-        };
-        let (cmd, args): (&str, Vec<&str>) = match program.split_once(' ') {
-            Some((cmd, rest)) => (cmd, rest.split(' ').chain(["mcp"]).collect()),
-            None => (program.as_str(), vec!["mcp"]),
-        };
-        let json = serde_json::json!({"mcpServers": {"pdfr": {"command": cmd, "args": args}}});
-        let launch = Launch {
-            cmd: cmd.to_string(),
-            args: args.iter().map(|a| a.to_string()).collect(),
-        };
+        let launch = Launch::this_copy(flatpak);
+        let json = serde_json::json!({"mcpServers": {"pdfr": {"command": launch.cmd, "args": launch.args}}});
         // Agents on this computer get an Install button. Not in a Flatpak:
         // the sandbox cannot see their settings.
         let home = self
@@ -438,7 +424,10 @@ impl AssistState {
         if let Some((client, rx)) = &ins.running
             && let Ok(result) = rx.try_recv()
         {
-            ins.error = result.err().map(|e| (*client, e));
+            match result {
+                Ok(note) => ins.note = note.map(|n| (*client, n)),
+                Err(e) => ins.error = Some((*client, e)),
+            }
             ins.running = None;
             ins.found = None;
         }
@@ -456,7 +445,7 @@ impl AssistState {
             (
                 "Claude Code",
                 "Run this once in a terminal.",
-                format!("claude mcp add pdfr -- {program} mcp"),
+                format!("claude mcp add pdfr -- {}", launch.shell_line()),
             ),
             (
                 "Claude Desktop, Cursor and others",
@@ -496,8 +485,12 @@ impl AssistState {
                         });
                         ins.running = Some((client, rx));
                         ins.error = None;
+                        ins.note = None;
                     }
                 });
+                if let Some((_, note)) = ins.note.as_ref().filter(|n| n.0 == *client) {
+                    ui.add(egui::Label::new(RichText::new(note).size(12.0).color(c.weak)).wrap());
+                }
                 if let Some((_, why)) = ins.error.as_ref().filter(|e| e.0 == *client) {
                     ui.add(
                         egui::Label::new(

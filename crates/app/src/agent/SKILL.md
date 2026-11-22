@@ -9,6 +9,8 @@ description: >
   the box, sign this PDF.
 ---
 
+<!-- pdfr-skill v2 (pdfr updates this file; delete this line to keep your own changes) -->
+
 # Using pdfr
 
 pdfr is a desktop app for viewing PDFs and filling in forms. Its tools (the MCP
