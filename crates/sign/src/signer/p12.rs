@@ -9,8 +9,10 @@ enum Key {
     P384(p384::ecdsa::SigningKey),
 }
 
-/// A key and its certificate read from a .p12 file. The key is wiped from
-/// memory when this is dropped.
+/// A key and its certificate read from a .p12 file. The key types wipe
+/// themselves when this is dropped, and the key bytes pdfr copies while
+/// reading are wiped as soon as it is read. (The PKCS#12 library's own
+/// decrypted copy, freed when `open` returns, is not wiped by it.)
 pub struct P12Signer {
     cert: Cert,
     chain: Vec<Cert>,
@@ -30,10 +32,12 @@ pub fn open(data: &[u8], password: &str) -> Result<P12Signer, String> {
     let (_, kc) = ks
         .private_key_chain()
         .ok_or("the file has no private key")?;
-    let pk = pkcs8::PrivateKeyInfo::try_from(kc.key()).map_err(|e| e.to_string())?;
+    // pdfr's own copy of the key, wiped when done.
+    let key_der = zeroize::Zeroizing::new(kc.key().to_vec());
+    let pk = pkcs8::PrivateKeyInfo::try_from(key_der.as_slice()).map_err(|e| e.to_string())?;
     let (key, spki) = match pk.algorithm.oid {
         crate::oids::RSA => {
-            let k = rsa::RsaPrivateKey::from_pkcs8_der(kc.key()).map_err(|e| e.to_string())?;
+            let k = rsa::RsaPrivateKey::from_pkcs8_der(&key_der).map_err(|e| e.to_string())?;
             let spki = k
                 .to_public_key()
                 .to_public_key_der()
@@ -50,7 +54,7 @@ pub fn open(data: &[u8], password: &str) -> Result<P12Signer, String> {
                 .map_err(|_| "unknown elliptic curve")?;
             match curve {
                 crate::oids::P256 => {
-                    let k = p256::ecdsa::SigningKey::from_pkcs8_der(kc.key())
+                    let k = p256::ecdsa::SigningKey::from_pkcs8_der(&key_der)
                         .map_err(|e| e.to_string())?;
                     let spki = k
                         .verifying_key()
@@ -59,7 +63,7 @@ pub fn open(data: &[u8], password: &str) -> Result<P12Signer, String> {
                     (Key::P256(k), spki.as_bytes().to_vec())
                 }
                 crate::oids::P384 => {
-                    let k = p384::ecdsa::SigningKey::from_pkcs8_der(kc.key())
+                    let k = p384::ecdsa::SigningKey::from_pkcs8_der(&key_der)
                         .map_err(|e| e.to_string())?;
                     let spki = k
                         .verifying_key()

@@ -270,23 +270,57 @@ struct TokenSigner {
     chain: Vec<Cert>,
     alg: SigAlg,
     key: KeyRef,
+    /// A session already logged in with the PIN, and the key in it: the
+    /// PIN itself is gone by then.
+    session: Option<(cryptoki::session::Session, cryptoki::object::ObjectHandle)>,
+    /// The PIN, kept only for a key that asks for it again at every
+    /// signature (CKA_ALWAYS_AUTHENTICATE). Wiped when dropped.
     pin: Option<Zeroizing<String>>,
+    /// Log in at signing time (no session kept: a PIN pad, or a key that
+    /// asks every time).
     login: bool,
 }
 
+/// A signer for `c`. Given a PIN, logs in now: a wrong PIN shows at once,
+/// and the PIN is dropped straight away unless the key needs it again at
+/// every signature. A PIN pad (no PIN given) is asked when signing.
 pub(crate) fn signer(
     c: &CertChoice,
     key: &KeyRef,
     pin: Option<Zeroizing<String>>,
 ) -> Result<Box<dyn Signer>, String> {
-    Ok(Box::new(TokenSigner {
+    let mut s = TokenSigner {
         alg: super::alg_of(&c.cert)?,
         cert: c.cert.clone(),
         chain: c.chain.clone(),
         key: key.clone(),
-        pin,
+        session: None,
+        pin: None,
         login: c.needs_pin,
-    }))
+    };
+    if let (true, Some(pin)) = (c.needs_pin, pin) {
+        match s.log_in(&pin) {
+            Ok(Some(open)) => s.session = Some(open),
+            // The key asks for the PIN at every signature.
+            Ok(None) => s.pin = Some(pin),
+            Err(e) => return Err(s.explain(e)),
+        }
+    }
+    Ok(Box::new(s))
+}
+
+impl Drop for TokenSigner {
+    fn drop(&mut self) {
+        if let Some((s, _)) = self.session.take() {
+            let _g = self
+                .key
+                .module
+                .lock
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let _ = s.logout();
+        }
+    }
 }
 
 /// DER prefix of a SHA-256 DigestInfo (RSA PKCS#1 v1.5).
@@ -319,9 +353,14 @@ impl Signer for TokenSigner {
             SigAlg::EcdsaP256Sha256 => (Mechanism::Ecdsa, sha2::Sha256::digest(msg).to_vec()),
             SigAlg::EcdsaP384Sha384 => (Mechanism::Ecdsa, sha2::Sha384::digest(msg).to_vec()),
         };
-        let raw = self
-            .sign_on_token(&mech, &data)
-            .map_err(|e| self.explain(e))?;
+        let raw = match &self.session {
+            Some((s, key)) => s
+                .sign(&mech, *key, &data)
+                .map_err(|e| format!("signing failed: {e}"))?,
+            None => self
+                .sign_on_token(&mech, &data)
+                .map_err(|e| self.explain(e))?,
+        };
         match self.alg {
             SigAlg::RsaSha256 => Ok(raw),
             SigAlg::EcdsaP256Sha256 => p256_der(&raw),
@@ -338,6 +377,51 @@ enum TokenError {
 }
 
 impl TokenSigner {
+    /// Logs in with `pin` and finds the key: the open session and the key,
+    /// or `None` (session closed again) for a key that asks for the PIN
+    /// at every signature.
+    fn log_in(
+        &self,
+        pin: &str,
+    ) -> Result<Option<(cryptoki::session::Session, cryptoki::object::ObjectHandle)>, TokenError>
+    {
+        let m = &self.key.module;
+        let _g = m.lock.lock().unwrap_or_else(|e| e.into_inner());
+        let s = m
+            .ctx
+            .open_ro_session(self.key.slot)
+            .map_err(|e| TokenError::Other(format!("could not reach the certificate: {e}")))?;
+        let auth = cryptoki::types::AuthPin::new(pin.into());
+        match s.login(UserType::User, Some(&auth)) {
+            Ok(())
+            | Err(cryptoki::error::Error::Pkcs11(
+                cryptoki::error::RvError::UserAlreadyLoggedIn,
+                _,
+            )) => {}
+            Err(e) => return Err(login_error(e)),
+        }
+        let key = s
+            .find_objects(&[
+                Attribute::Class(ObjectClass::PRIVATE_KEY),
+                Attribute::Id(self.key.id.clone()),
+            ])
+            .map_err(|e| TokenError::Other(e.to_string()))?
+            .into_iter()
+            .next()
+            .ok_or(TokenError::Other("the private key was not found".into()))?;
+        let always = s
+            .get_attributes(key, &[AttributeType::AlwaysAuthenticate])
+            .ok()
+            .into_iter()
+            .flatten()
+            .any(|a| matches!(a, Attribute::AlwaysAuthenticate(true)));
+        if always {
+            let _ = s.logout();
+            return Ok(None);
+        }
+        Ok(Some((s, key)))
+    }
+
     fn sign_on_token(&self, mech: &Mechanism, data: &[u8]) -> Result<Vec<u8>, TokenError> {
         let m = &self.key.module;
         let s = m

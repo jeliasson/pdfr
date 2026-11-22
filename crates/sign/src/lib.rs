@@ -4,7 +4,10 @@
 //!
 //! pdfr never sees a private key held by NSS or a token: it sends the hash
 //! of what is signed and gets the signature back. A key read from a .p12
-//! file is held only while signing and wiped when dropped.
+//! file is held only while signing, in key types that wipe themselves
+//! when dropped. A card's PIN is used to log in when the signature is
+//! prepared and then dropped, unless the card asks for it at every
+//! signature.
 
 pub mod cades;
 pub mod cert;
