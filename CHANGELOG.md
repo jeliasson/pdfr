@@ -5,8 +5,27 @@ version's section into its GitHub release notes.
 
 ## [Unreleased]
 
+### Security
+
+- **Redaction removes every copy of what you black out.** Annotations,
+  replies, alternative text, bookmarks, attachments and the document's
+  details (title, author, metadata) no longer keep a hidden copy of the
+  redacted text.
+- **Extracted and deleted pages really leave the file.** Before, a link or
+  bookmark pointing at a removed page could keep it hidden inside the new
+  file.
+- **Updates are signed.** pdfr and the install script check a signature
+  made by pdfr's own release build before installing anything, and refuse
+  unsigned or altered downloads. Updates use a more mature encryption
+  library for HTTPS.
+
 ### Fixed
 
+- **Damaged or hostile PDFs no longer crash or freeze pdfr.** That covers
+  huge pages, compressed bombs, looping trees and odd text layouts that
+  could crash search and text selection.
+- **Form fields keep odd checkbox values exactly**, and impossible font
+  sizes are ignored.
 - **Super+W (Cmd+W on a Mac) closes Settings** when it is open, instead of
   closing pdfr.
 
