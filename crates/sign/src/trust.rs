@@ -115,14 +115,28 @@ pub struct ChainCheck {
     /// The root it ends in, if trusted.
     pub anchor: Option<Anchor>,
     /// Something wrong along the chain (expired at signing time, bad
-    /// signature), if anything.
+    /// signature, an issuer that isn't a certificate authority, SHA-1),
+    /// if anything.
     pub problem: Option<String>,
+}
+
+impl ChainCheck {
+    /// Ends in a trusted root with nothing wrong on the way.
+    pub fn trusted(&self) -> bool {
+        self.anchor.is_some() && self.problem.is_none()
+    }
 }
 
 /// Builds and checks `leaf`'s chain from `pool` and the trust store, with
 /// validity checked at time `at`.
+///
+/// Every issuer above the leaf that isn't itself a trusted root must be a
+/// certificate authority (basic constraints), allowed to sign
+/// certificates (key usage), within its path length, and without critical
+/// extensions pdfr doesn't know. Certificates signed with SHA-1 (other
+/// than a root's signature on itself) are a problem too.
 pub fn check_chain(leaf: &Cert, pool: &[Cert], store: &TrustStore, at: u64) -> ChainCheck {
-    let mut chain = Vec::new();
+    let mut chain: Vec<Cert> = Vec::new();
     let mut problem = None;
     if !leaf.valid_at(at) {
         problem = Some(format!(
@@ -153,6 +167,14 @@ pub fn check_chain(leaf: &Cert, pool: &[Cert], store: &TrustStore, at: u64) -> C
         if chain.contains(&next) {
             break;
         }
+        if cur.signed_with_sha1() {
+            problem.get_or_insert_with(|| {
+                format!(
+                    "the certificate \"{}\" was signed with the weak SHA-1 algorithm",
+                    cur.name()
+                )
+            });
+        }
         if !next.valid_at(at) && problem.is_none() {
             problem = Some(format!(
                 "the issuing certificate \"{}\" was not valid at the time of signing",
@@ -160,6 +182,9 @@ pub fn check_chain(leaf: &Cert, pool: &[Cert], store: &TrustStore, at: u64) -> C
             ));
         }
         anchor = store.anchor_for(&next);
+        if let Some(p) = issuer_problem(&next, &chain, anchor.is_some()) {
+            problem.get_or_insert(p);
+        }
         let self_issued = next.self_issued();
         chain.push(next.clone());
         if self_issued {
@@ -171,6 +196,34 @@ pub fn check_chain(leaf: &Cert, pool: &[Cert], store: &TrustStore, at: u64) -> C
         chain,
         anchor,
         problem,
+    }
+}
+
+/// Why `issuer` may not issue the certificates below it (`below`, the
+/// chain so far, nearest the leaf first), if it may not. A trusted root
+/// is trusted as it is, apart from its path length.
+fn issuer_problem(issuer: &Cert, below: &[Cert], is_root: bool) -> Option<String> {
+    let name = issuer.name();
+    if !is_root {
+        if !issuer.is_ca() || !issuer.may_sign_certs() {
+            return Some(format!(
+                "\"{name}\" is not a certificate authority, so it may not issue certificates"
+            ));
+        }
+        if issuer.has_unknown_critical() {
+            return Some(format!(
+                "the certificate authority \"{name}\" has a restriction pdfr can't check"
+            ));
+        }
+    }
+    // Path length: certificate authorities (not counting self-issued
+    // ones) allowed between this one and the leaf.
+    let between = below.iter().filter(|c| !c.self_issued()).count();
+    match issuer.path_len() {
+        Some(n) if between > usize::from(n) => Some(format!(
+            "the certificate authority \"{name}\" may not have so many authorities below it"
+        )),
+        _ => None,
     }
 }
 
@@ -233,7 +286,7 @@ pub(crate) fn verify(
 ) -> Result<Oid, String> {
     let spki_der = spki.to_der().map_err(|e| e.to_string())?;
     let digest = match alg {
-        oids::RSA_SHA1 => oids::SHA1,
+        oids::RSA_SHA1 | oids::ECDSA_SHA1 => oids::SHA1,
         oids::RSA_SHA256 | oids::ECDSA_SHA256 => oids::SHA256,
         oids::RSA_SHA384 | oids::ECDSA_SHA384 => oids::SHA384,
         oids::RSA_SHA512 | oids::ECDSA_SHA512 => oids::SHA512,

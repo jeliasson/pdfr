@@ -2,7 +2,7 @@
 use crate::oids;
 use der::{Decode, Encode};
 use x509_cert::Certificate;
-use x509_cert::ext::pkix::{BasicConstraints, KeyUsage, KeyUsages};
+use x509_cert::ext::pkix::{BasicConstraints, ExtendedKeyUsage, KeyUsage, KeyUsages};
 use x509_cert::name::Name;
 
 /// A certificate with its DER bytes.
@@ -111,15 +111,99 @@ impl Cert {
     }
 
     /// Whether the key may sign documents: key usage allows digital
-    /// signature or non-repudiation (or the certificate doesn't restrict it).
+    /// signature or non-repudiation (or the certificate doesn't restrict
+    /// it), and the extended key usage, if there is one, includes a
+    /// document-signing purpose.
     pub fn can_sign_documents(&self) -> bool {
-        match self.ext::<KeyUsage>(oids::KEY_USAGE) {
+        let usage = match self.ext::<KeyUsage>(oids::KEY_USAGE) {
             None => !self.is_ca(),
             Some(ku) => {
                 ku.0.contains(KeyUsages::DigitalSignature)
                     || ku.0.contains(KeyUsages::NonRepudiation)
             }
+        };
+        usage && self.purpose_allows_documents()
+    }
+
+    /// The extended key usage is absent or names a purpose that covers
+    /// signing documents (email protection, document signing, Adobe's
+    /// authentic documents, or any purpose). A certificate only for
+    /// websites (server or client authentication) is not one.
+    pub fn purpose_allows_documents(&self) -> bool {
+        match self.extended_key_usage() {
+            None => true,
+            Some(ekus) => ekus.iter().any(|o| {
+                [
+                    oids::KP_EMAIL_PROTECTION,
+                    oids::KP_DOCUMENT_SIGNING,
+                    oids::KP_ADOBE_AUTHENTIC_DOCUMENTS,
+                    oids::ANY_EXTENDED_KEY_USAGE,
+                ]
+                .contains(o)
+            }),
         }
+    }
+
+    /// The extended key usage purposes, if the certificate has the
+    /// extension.
+    pub fn extended_key_usage(&self) -> Option<Vec<const_oid::ObjectIdentifier>> {
+        self.ext::<ExtendedKeyUsage>(oids::EXT_KEY_USAGE)
+            .map(|e| e.0)
+    }
+
+    /// A timestamp authority's certificate: its extended key usage
+    /// includes time stamping.
+    pub fn is_timestamp_authority(&self) -> bool {
+        self.extended_key_usage()
+            .is_some_and(|e| e.contains(&oids::KP_TIME_STAMPING))
+    }
+
+    /// May issue certificates: key usage, if present, includes
+    /// certificate signing.
+    pub fn may_sign_certs(&self) -> bool {
+        self.ext::<KeyUsage>(oids::KEY_USAGE)
+            .is_none_or(|ku| ku.0.contains(KeyUsages::KeyCertSign))
+    }
+
+    /// The basic constraints' path length: how many certificate
+    /// authorities may sit below this one.
+    pub fn path_len(&self) -> Option<u8> {
+        self.ext::<BasicConstraints>(oids::BASIC_CONSTRAINTS)
+            .and_then(|b| b.path_len_constraint)
+    }
+
+    /// Has an extension marked critical that pdfr doesn't know, so the
+    /// certificate must not be relied on.
+    pub fn has_unknown_critical(&self) -> bool {
+        const KNOWN: &[const_oid::ObjectIdentifier] = &[
+            oids::BASIC_CONSTRAINTS,
+            oids::KEY_USAGE,
+            oids::EXT_KEY_USAGE,
+            oids::SUBJECT_KEY_ID,
+            oids::AUTHORITY_KEY_ID,
+            oids::SUBJECT_ALT_NAME,
+            oids::ISSUER_ALT_NAME,
+            oids::CERTIFICATE_POLICIES,
+            oids::POLICY_CONSTRAINTS,
+            oids::INHIBIT_ANY_POLICY,
+            oids::CRL_DISTRIBUTION_POINTS,
+            oids::AUTHORITY_INFO_ACCESS,
+            oids::QC_STATEMENTS,
+        ];
+        self.x
+            .tbs_certificate
+            .extensions
+            .iter()
+            .flatten()
+            .any(|e| e.critical && !KNOWN.contains(&e.extn_id))
+    }
+
+    /// Signed by its issuer with SHA-1.
+    pub fn signed_with_sha1(&self) -> bool {
+        matches!(
+            self.x.signature_algorithm.oid,
+            oids::RSA_SHA1 | oids::ECDSA_SHA1
+        )
     }
 
     /// A certificate meant for signing documents: its key usage includes
