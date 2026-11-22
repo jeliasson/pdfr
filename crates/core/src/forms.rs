@@ -249,9 +249,9 @@ fn blank_appearance(d: &mut Document, widget: ObjId) {
     let Ok(Object::Stream(s)) = d.get_object(ap_id) else {
         return;
     };
-    let content = s
-        .decompressed_content()
-        .unwrap_or_else(|_| s.content.clone());
+    let Some(content) = stream_content(s) else {
+        return;
+    };
     let blanked = strip_variable_text(&content);
     if blanked != content {
         let mut ns = s.clone();
@@ -275,6 +275,16 @@ fn blank_appearance(d: &mut Document, widget: ObjId) {
                 w.set("AP", Object::Dictionary(ap));
             }
         }
+    }
+}
+
+/// A stream's content, decoded: `None` when it would inflate past
+/// [`crate::MAX_STREAM_BYTES`]; the raw bytes when its filter is unknown.
+pub(crate) fn stream_content(s: &lopdf::Stream) -> Option<Vec<u8>> {
+    match s.decompressed_content_with_limit(crate::MAX_STREAM_BYTES) {
+        Ok(c) => Some(c),
+        Err(lopdf::Error::Decompress(lopdf::DecompressError::MemoryLimitExceeded { .. })) => None,
+        Err(_) => Some(s.content.clone()),
     }
 }
 
@@ -303,11 +313,19 @@ pub fn strip_variable_text(content: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(content.len());
     let mut i = 0;
     while i < content.len() {
-        if is_op_at(content, i, b"BT")
-            && let Some(e) = find_op(content, i + 2, b"ET")
-        {
-            i = e + 2;
-            continue;
+        if is_op_at(content, i, b"BT") {
+            match find_op(content, i + 2, b"ET") {
+                Some(e) => {
+                    i = e + 2;
+                    continue;
+                }
+                // No `ET` anywhere after: nothing further to strip (and
+                // searching again at each later `BT` would take forever).
+                None => {
+                    out.extend_from_slice(&content[i..]);
+                    break;
+                }
+            }
         }
         out.push(content[i]);
         i += 1;

@@ -1658,30 +1658,21 @@ pub fn reading_order(fields: &mut Vec<Field>) {
 
 /// [`reading_order`] for any items, given each item's page and rectangle.
 pub fn reading_order_by<T>(items: &mut Vec<T>, key: impl Fn(&T) -> (usize, Rect)) {
-    items.sort_by(|a, b| {
-        let (pa, ra) = key(a);
-        let (pb, rb) = key(b);
-        pa.cmp(&pb).then(ra.center().1.total_cmp(&rb.center().1))
-    });
-    let mut out: Vec<T> = Vec::with_capacity(items.len());
-    let mut row: Vec<T> = Vec::new();
-    let flush = |row: &mut Vec<T>, out: &mut Vec<T>| {
-        row.sort_by(|a, b| key(a).1.x0.total_cmp(&key(b).1.x0));
-        out.append(row);
-    };
-    for f in items.drain(..) {
-        if let Some(first) = row.first() {
+    crate::geom::line_order(
+        items,
+        |a, b| {
+            let (pa, ra) = key(a);
+            let (pb, rb) = key(b);
+            pa.cmp(&pb).then(ra.center().1.total_cmp(&rb.center().1))
+        },
+        |first, f| {
             let (p0, r0) = key(first);
-            let (p1, r1) = key(&f);
+            let (p1, r1) = key(f);
             let tol = 0.5 * r0.height().min(r1.height()).min(12.0);
-            if p0 != p1 || (r1.center().1 - r0.center().1).abs() > tol {
-                flush(&mut row, &mut out);
-            }
-        }
-        row.push(f);
-    }
-    flush(&mut row, &mut out);
-    *items = out;
+            p0 == p1 && (r1.center().1 - r0.center().1).abs() <= tol
+        },
+        |f| key(f).1.x0,
+    );
 }
 
 /// Renders page `index` of `pdf` for detection and detects its fields.
@@ -1700,13 +1691,38 @@ pub struct PageGray {
     pub px: Vec<u8>,
 }
 
+/// The largest page side (points) the PDF format allows (200 inches).
+pub const MAX_PAGE_SIDE: f32 = 14_400.0;
+
+/// Whether `page` can be rendered at [`DETECT_SCALE`] in full: no side
+/// over [`MAX_PAGE_SIDE`], and no render side over
+/// [`crate::render::MAX_RENDER_SIDE`] (which would lower the scale that
+/// detection and scanned-text reading count on). Larger pages get no field
+/// detection or text reading.
+pub fn detectable(page: &hayro::hayro_syntax::page::Page<'_>) -> bool {
+    let (w, h) = page.render_dimensions();
+    let side = w.abs().max(h.abs());
+    side.is_finite()
+        && side <= MAX_PAGE_SIDE
+        && side * DETECT_SCALE <= crate::render::MAX_RENDER_SIDE
+}
+
 /// Like [`detect_page`], also handing back the grey render it used (for
-/// reading scanned text without rendering the page again).
+/// reading scanned text without rendering the page again). A page too
+/// large to detect on ([`detectable`]) gives no fields and an empty render.
 pub fn detect_page_gray<'a>(
     page: &'a hayro::hayro_syntax::page::Page<'a>,
     cache: &crate::render::RenderCache<'a>,
     index: usize,
 ) -> (Vec<Field>, PageGray) {
+    if !detectable(page) {
+        let empty = PageGray {
+            w: 0,
+            h: 0,
+            px: vec![],
+        };
+        return (vec![], empty);
+    }
     let img = crate::render::render_page(page, cache, DETECT_SCALE);
     let gray = img.to_gray();
     let g = Gray {
@@ -1944,15 +1960,12 @@ pub fn prefill_printed(fields: &mut [Field], runs: &[crate::text::TextRun]) {
             continue;
         }
         // Lines top to bottom, runs left to right.
-        inside.sort_by(|a, b| {
-            let same_line =
-                (a.rect.center().1 - b.rect.center().1).abs() < a.size.max(b.size) * 0.5;
-            if same_line {
-                a.rect.x0.total_cmp(&b.rect.x0)
-            } else {
-                a.rect.y0.total_cmp(&b.rect.y0)
-            }
-        });
+        crate::geom::line_order(
+            &mut inside,
+            |a, b| a.rect.center().1.total_cmp(&b.rect.center().1),
+            |a, b| (a.rect.center().1 - b.rect.center().1).abs() < a.size.max(b.size) * 0.5,
+            |t| t.rect.x0,
+        );
         let text = inside
             .iter()
             .map(|t| t.text.trim())

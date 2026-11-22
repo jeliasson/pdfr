@@ -152,6 +152,38 @@ impl PageGeom {
     }
 }
 
+/// Sorts items into lines, top to bottom, each left to right: by `by_y`
+/// first, then each run of items `same_line` as the first of its line is
+/// one line, sorted by `x`.
+///
+/// A single sort with "same line within a tolerance, else by y" is not a
+/// total order (a ~ b and b ~ c without a ~ c), which Rust's sort may
+/// answer with a panic; this never compares that way.
+pub fn line_order<T>(
+    items: &mut Vec<T>,
+    by_y: impl Fn(&T, &T) -> std::cmp::Ordering,
+    same_line: impl Fn(&T, &T) -> bool,
+    x: impl Fn(&T) -> f32,
+) {
+    items.sort_by(&by_y);
+    let mut out: Vec<T> = Vec::with_capacity(items.len());
+    let mut line: Vec<T> = Vec::new();
+    let flush = |line: &mut Vec<T>, out: &mut Vec<T>| {
+        line.sort_by(|a, b| x(a).total_cmp(&x(b)));
+        out.append(line);
+    };
+    for it in items.drain(..) {
+        if let Some(first) = line.first()
+            && !same_line(first, &it)
+        {
+            flush(&mut line, &mut out);
+        }
+        line.push(it);
+    }
+    flush(&mut line, &mut out);
+    *items = out;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

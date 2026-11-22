@@ -75,9 +75,34 @@ pub fn page_geom(page: &Page<'_>) -> PageGeom {
     PageGeom::new(crop, rot)
 }
 
-/// Renders a page at `scale` pixels per point, with annotations (widget
+/// The longest side, in pixels, of any page render (and so of any texture
+/// made from one). [`render_page`] lowers the scale to stay within it.
+pub const MAX_RENDER_SIDE: f32 = 8192.0;
+
+/// The scale [`render_page`] really renders `page` at when asked for
+/// `scale`: lowered so that neither side exceeds [`MAX_RENDER_SIDE`] (a page
+/// can claim to be kilometres wide), and 1 when `scale` is not a positive
+/// number.
+pub fn render_scale(page: &Page<'_>, scale: f32) -> f32 {
+    let scale = if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    };
+    let (w, h) = page.render_dimensions();
+    let side = w.abs().max(h.abs());
+    if side.is_finite() && side * scale > MAX_RENDER_SIDE {
+        MAX_RENDER_SIDE / side
+    } else {
+        scale
+    }
+}
+
+/// Renders a page at `scale` pixels per point (lowered by
+/// [`render_scale`] for a huge page), with annotations (widget
 /// appearances), on a white background.
 pub fn render_page<'a>(page: &'a Page<'a>, cache: &RenderCache<'a>, scale: f32) -> Image {
+    let scale = render_scale(page, scale);
     let settings = InterpreterSettings::default();
     let pix = hayro::render(
         page,

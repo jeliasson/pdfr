@@ -227,9 +227,7 @@ fn write_text_appearance(
                         .all(|(a, b)| (a - b).abs() < 1e-3)
             }
         };
-        let content = old
-            .decompressed_content()
-            .unwrap_or_else(|_| old.content.clone());
+        let content = crate::forms::stream_content(old).unwrap_or_default();
         if same_box
             && same_matrix
             && let Some((a, b)) = find_tx_section(&content)

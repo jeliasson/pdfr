@@ -299,14 +299,12 @@ fn same_line(a: &TextRun, b: &TextRun) -> bool {
 /// Phrase indices in reading order: by line, then left to right.
 pub fn reading_order(runs: &[TextRun]) -> Vec<usize> {
     let mut idx: Vec<usize> = (0..runs.len()).collect();
-    idx.sort_by(|&a, &b| {
-        let (ra, rb) = (&runs[a], &runs[b]);
-        if same_line(ra, rb) {
-            ra.rect.x0.total_cmp(&rb.rect.x0)
-        } else {
-            ra.rect.y1.total_cmp(&rb.rect.y1)
-        }
-    });
+    crate::geom::line_order(
+        &mut idx,
+        |&a, &b| runs[a].rect.y1.total_cmp(&runs[b].rect.y1),
+        |&a, &b| same_line(&runs[a], &runs[b]),
+        |&i| runs[i].rect.x0,
+    );
     idx
 }
 
