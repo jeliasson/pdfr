@@ -1244,9 +1244,10 @@ impl App {
                 a.1.display_rect(&doc.form.pages[a.1.page]),
                 b.1.display_rect(&doc.form.pages[b.1.page]),
             );
-            (a.1.page, ra.y0, ra.x0)
-                .partial_cmp(&(b.1.page, rb.y0, rb.x0))
-                .unwrap_or(std::cmp::Ordering::Equal)
+            a.1.page
+                .cmp(&b.1.page)
+                .then(ra.y0.total_cmp(&rb.y0))
+                .then(ra.x0.total_cmp(&rb.x0))
         });
         let mut go = None;
         egui::ScrollArea::vertical()

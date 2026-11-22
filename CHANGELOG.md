@@ -14,6 +14,19 @@ version's section into its GitHub release notes.
 - **Extracted and deleted pages really leave the file.** Before, a link or
   bookmark pointing at a removed page could keep it hidden inside the new
   file.
+- **Signature checks are much stricter.** These no longer show as valid:
+  page edits hidden under the signature's validation data, rewritten
+  signature details, swapped fonts, certificates that aren't real
+  certificate authorities or aren't meant for signing, self-made timestamps
+  and SHA-1. Certification and field-lock rules are enforced.
+- **"Valid, revocation could not be checked"** now shows in amber instead
+  of a green check. pdfr no longer asks untrusted or local addresses about
+  revocation, and an ID card's PIN is dropped right after logging in.
+- **Links in a PDF ask before opening a web address.** Ctrl+click opens at
+  once, or allow a site with "Always open links to …".
+- **Saving keeps the file's permissions and symlinks.** A private (0600)
+  form stays private, and Extract pages can no longer overwrite the open
+  file.
 - **Updates are signed.** pdfr and the install script check a signature
   made by pdfr's own release build before installing anything, and refuse
   unsigned or altered downloads. Updates use a more mature encryption
@@ -24,6 +37,10 @@ version's section into its GitHub release notes.
 - **Damaged or hostile PDFs no longer crash or freeze pdfr.** That covers
   huge pages, compressed bombs, looping trees and odd text layouts that
   could crash search and text selection.
+- **Opening a file no longer discards changes typed while it loaded.**
+- **Selected boxes, the sidebar selection after undo and another
+  document's redaction marks are no longer mixed up.** Dark pages no longer
+  interrupt finding fields, and huge pages no longer use excessive memory.
 - **Form fields keep odd checkbox values exactly**, and impossible font
   sizes are ignored.
 - **Super+W (Cmd+W on a Mac) closes Settings** when it is open, instead of

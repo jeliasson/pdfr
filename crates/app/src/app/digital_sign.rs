@@ -679,7 +679,9 @@ impl App {
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "document".into());
         let name = format!("{stem} (signed).pdf");
-        let generation = doc.generation;
+        // The document's id, not its render generation: switching pages to
+        // dark mode while the dialog is open must not cancel the signing.
+        let generation = doc.id;
         if !super::files::native_dialogs() {
             let mut d = super::files::builtin::dialog(doc.path.parent(), Some(&name));
             d.save_file();
@@ -719,7 +721,7 @@ impl App {
             self.status = "Not signed.".into();
             return;
         };
-        let Some(doc) = self.doc.as_ref().filter(|d| d.generation == generation) else {
+        let Some(doc) = self.doc.as_ref().filter(|d| d.id == generation) else {
             self.status = "Not signed: another document was opened meanwhile.".into();
             return;
         };
