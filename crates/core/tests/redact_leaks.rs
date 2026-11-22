@@ -5,6 +5,7 @@
 //! searches every (decompressed) byte of the result.
 
 use lopdf::{Dictionary, Document, Object, Stream, StringFormat, dictionary};
+use pdfr_core::forms::FormDoc;
 use pdfr_core::redact::{Mark, redact};
 
 fn s(t: &str) -> Object {
@@ -396,4 +397,110 @@ fn malformed_quote_operator_does_not_panic() {
     let r = std::panic::catch_unwind(|| redact(&bytes, &[mark()]));
     assert!(r.is_ok(), "no panic");
     assert!(r.unwrap().is_ok());
+}
+
+// ---------------------------------------------------------------------------
+// Page extraction and deletion.
+
+/// Two pages; page 1 links to page 2 directly, through a named
+/// destination (both kinds) and through a bookmark; page 2 holds the secret.
+fn two_pages() -> Vec<u8> {
+    let mut d = Document::with_version("1.7");
+    let pages_id = d.new_object_id();
+    let c1 = d.add_object(Stream::new(
+        dictionary! {},
+        b"BT /F1 12 Tf 100 700 Td (PAGEONE) Tj ET".to_vec(),
+    ));
+    let c2 = d.add_object(Stream::new(
+        dictionary! {},
+        b"BT /F1 12 Tf 100 700 Td (PAGETWOSECRET) Tj ET".to_vec(),
+    ));
+    let p2 = d.add_object(dictionary! {
+        "Type"=>"Page","Parent"=>pages_id,"MediaBox"=>rect([0,0,612,792]),"Contents"=>c2,"Resources"=>dictionary!{},
+    });
+    let p2dest = || Object::Array(vec![Object::Reference(p2), "Fit".into()]);
+    let link = d.add_object(dictionary! {
+        "Type"=>"Annot","Subtype"=>"Link","Rect"=>rect([0,0,50,50]),"Dest"=>p2dest(),
+    });
+    let link2 = d.add_object(dictionary! {
+        "Type"=>"Annot","Subtype"=>"Link","Rect"=>rect([0,60,50,110]),
+        "A"=>dictionary!{"S"=>"GoTo","D"=>p2dest()},
+    });
+    let p1 = d.add_object(dictionary! {
+        "Type"=>"Page","Parent"=>pages_id,"MediaBox"=>rect([0,0,612,792]),"Contents"=>c1,
+        "Resources"=>dictionary!{},"Annots"=>vec![link.into(), link2.into()],
+    });
+    let p1dest = Object::Array(vec![Object::Reference(p1), "Fit".into()]);
+    d.objects.insert(
+        pages_id,
+        Object::Dictionary(
+            dictionary! {"Type"=>"Pages","Kids"=>vec![p1.into(),p2.into()],"Count"=>2},
+        ),
+    );
+    let names = d.add_object(dictionary! {
+        "Names"=>vec![s("one"), p1dest.clone(), s("two"), p2dest()],
+    });
+    let ol_item = d.new_object_id();
+    let ol = d.add_object(dictionary! {
+        "Type"=>"Outlines","First"=>Object::Reference(ol_item),"Last"=>Object::Reference(ol_item),"Count"=>1,
+    });
+    d.objects.insert(
+        ol_item,
+        Object::Dictionary(dictionary! {"Title"=>s("Two"),"Parent"=>ol,"Dest"=>p2dest()}),
+    );
+    let cat = d.add_object(dictionary! {
+        "Type"=>"Catalog","Pages"=>pages_id,
+        "Dests"=>dictionary!{"old"=>p2dest(),"first"=>p1dest},
+        "Names"=>dictionary!{"Dests"=>names},
+        "Outlines"=>ol,
+        "OpenAction"=>p2dest(),
+    });
+    d.trailer.set("Root", cat);
+    save(d)
+}
+
+#[test]
+fn extracted_page_leaves_the_other_behind() {
+    let fd = FormDoc::open(two_pages()).unwrap();
+    let out = pdfr_core::pages::extract(&fd, &fd.fields, &fd.markups, &[0]).unwrap();
+    let o = Document::load_mem(&out).unwrap();
+    assert_eq!(o.get_pages().len(), 1);
+    let txt = plain(&out);
+    assert!(txt.contains("PAGEONE"));
+    assert_gone(&txt, &["PAGETWOSECRET"]);
+}
+
+#[test]
+fn deleted_page_is_gone_and_links_to_it_too() {
+    let fd = FormDoc::open(two_pages()).unwrap();
+    let kept = fd.arranged(&[0]).unwrap();
+    let txt = plain(&kept.bytes);
+    assert!(txt.contains("PAGEONE"));
+    assert_gone(&txt, &["PAGETWOSECRET"]);
+    let d = Document::load_mem(&kept.bytes).unwrap();
+    let cat = d.catalog().unwrap();
+    // The named destination to page 1 stays, the one to page 2 goes.
+    let dests = cat.get(b"Dests").unwrap();
+    let dests = d.dereference(dests).unwrap().1.as_dict().unwrap();
+    assert!(dests.has(b"first") && !dests.has(b"old"));
+    let names = cat.get(b"Names").unwrap().as_dict().unwrap();
+    let tree = d.dereference(names.get(b"Dests").unwrap()).unwrap().1;
+    let arr = tree.as_dict().unwrap().get(b"Names").unwrap();
+    let arr = d.dereference(arr).unwrap().1.as_array().unwrap();
+    assert_eq!(arr.len(), 2, "only page 1's name is left");
+    assert!(!cat.has(b"OpenAction"), "the open action pointed at page 2");
+    let outline = d.dereference(cat.get(b"Outlines").unwrap()).unwrap().1;
+    assert!(
+        !outline.as_dict().unwrap().has(b"First"),
+        "the bookmark to page 2 is gone"
+    );
+    // The links on page 1 that went to page 2 are gone.
+    let page = *d.get_pages().values().next().unwrap();
+    let annots = d.get_dictionary(page).unwrap().get(b"Annots");
+    let n = annots
+        .ok()
+        .and_then(|a| d.dereference(a).ok())
+        .and_then(|(_, a)| a.as_array().ok().map(|a| a.len()))
+        .unwrap_or(0);
+    assert_eq!(n, 0);
 }

@@ -140,3 +140,47 @@ fn outline_of_the_links_sample() {
     }
     assert!(fd.outline[1].has_children);
 }
+
+#[test]
+fn shared_name_tree_does_not_hang() {
+    // 20 levels, each node listing the one below ten times: 10^20 paths
+    // to a missing name if every kid were followed.
+    let mut d = Document::with_version("1.7");
+    let pages_id = d.new_object_id();
+    let mut node = d.add_object(dictionary! { "Names" => Vec::<Object>::new() });
+    for _ in 0..20 {
+        node = d.add_object(dictionary! { "Kids" => vec![Object::Reference(node); 10] });
+    }
+    let link = d.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Link", "Rect" => rect([50, 400, 200, 420]),
+        "Dest" => Object::string_literal("missing"),
+    });
+    let p1 = d.add_object(dictionary! {
+        "Type" => "Page", "Parent" => Object::Reference(pages_id),
+        "MediaBox" => rect([0, 0, 600, 800]), "Annots" => vec![link.into()],
+    });
+    let p2 = d.add_object(dictionary! {
+        "Type" => "Page", "Parent" => Object::Reference(pages_id),
+        "MediaBox" => rect([0, 0, 600, 800]),
+    });
+    d.objects.insert(
+        pages_id,
+        Object::Dictionary(
+            dictionary! { "Type" => "Pages", "Kids" => vec![p1.into(), p2.into()], "Count" => 2 },
+        ),
+    );
+    let cat = d.add_object(dictionary! {
+        "Type" => "Catalog", "Pages" => Object::Reference(pages_id),
+        "Names" => dictionary! { "Dests" => Object::Reference(node) },
+    });
+    d.trailer.set("Root", Object::Reference(cat));
+    let mut out = Vec::new();
+    d.save_to(&mut out).unwrap();
+    let t = std::time::Instant::now();
+    let fd = FormDoc::open(out).unwrap();
+    assert!(t.elapsed().as_secs_f32() < 1.0, "{:?}", t.elapsed());
+    // Deleting a page walks the tree too.
+    let t = std::time::Instant::now();
+    fd.arranged(&[0]).unwrap();
+    assert!(t.elapsed().as_secs_f32() < 1.0, "{:?}", t.elapsed());
+}

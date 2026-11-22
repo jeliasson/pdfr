@@ -9,6 +9,7 @@ use crate::forms::deref;
 use crate::geom::{PageGeom, Rect};
 use crate::text::TextRun;
 use lopdf::{Dictionary, Document, Object};
+use std::collections::HashSet;
 
 /// Where a link goes.
 #[derive(Clone, Debug, PartialEq)]
@@ -60,16 +61,24 @@ fn num(d: &Document, o: &Object) -> Option<f32> {
     deref(d, o)?.as_float().ok()
 }
 
-/// Looks `key` up in a name tree (`/Names` and `/Kids`), depth-limited.
+/// The most nodes a walk of a name tree (or the outline) visits: a file can
+/// share subtrees so that a plain walk would take forever.
+pub const MAX_TREE_NODES: usize = 10_000;
+
+/// Looks `key` up in a name tree (`/Names` and `/Kids`), depth-limited,
+/// visiting each node once and at most [`MAX_TREE_NODES`] in all.
 fn name_tree<'a>(
     d: &'a Document,
     node: &'a Dictionary,
     key: &[u8],
     depth: u8,
+    seen: &mut HashSet<ObjId>,
+    budget: &mut usize,
 ) -> Option<&'a Object> {
-    if depth > 24 {
+    if depth > 24 || *budget == 0 {
         return None;
     }
+    *budget -= 1;
     if let Some(Object::Array(names)) = node.get(b"Names").ok().and_then(|o| deref(d, o)) {
         for pair in names.chunks(2) {
             if let [k, v] = pair
@@ -81,6 +90,11 @@ fn name_tree<'a>(
     }
     if let Some(Object::Array(kids)) = node.get(b"Kids").ok().and_then(|o| deref(d, o)) {
         for k in kids {
+            if let Object::Reference(id) = k
+                && !seen.insert(*id)
+            {
+                continue;
+            }
             let Some(kid) = deref(d, k).and_then(|o| o.as_dict().ok()) else {
                 continue;
             };
@@ -92,8 +106,11 @@ fn name_tree<'a>(
             {
                 continue;
             }
-            if let Some(v) = name_tree(d, kid, key, depth + 1) {
+            if let Some(v) = name_tree(d, kid, key, depth + 1, seen, budget) {
                 return Some(v);
+            }
+            if *budget == 0 {
+                return None;
             }
         }
     }
@@ -103,6 +120,7 @@ fn name_tree<'a>(
 /// A named destination's value (an array, or a dictionary with `/D`).
 fn named_dest<'a>(d: &'a Document, name: &[u8]) -> Option<&'a Object> {
     let cat = d.catalog().ok()?;
+    let mut budget = MAX_TREE_NODES;
     // PDF 1.2+: the /Dests name tree under /Names.
     if let Some(tree) = cat
         .get(b"Names")
@@ -112,7 +130,7 @@ fn named_dest<'a>(d: &'a Document, name: &[u8]) -> Option<&'a Object> {
         .and_then(|n| n.get(b"Dests").ok())
         .and_then(|o| deref(d, o))
         .and_then(|o| o.as_dict().ok())
-        && let Some(v) = name_tree(d, tree, name, 0)
+        && let Some(v) = name_tree(d, tree, name, 0, &mut HashSet::new(), &mut budget)
     {
         return Some(v);
     }

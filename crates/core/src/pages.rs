@@ -181,8 +181,309 @@ fn finish(d: &mut Document, old: &[ObjId], new: &[ObjId]) -> Result<()> {
             p.set("Parent", Object::Reference(root));
         }
     }
+    let dropped: HashSet<ObjId> = old.iter().copied().filter(|p| !keep.contains(p)).collect();
+    forget_pages(d, &dropped, new);
     d.prune_objects();
     Ok(())
+}
+
+/// Lets go of the pages `dropped`: every reference to them becomes `null`
+/// (or leaves its dictionary), so pruning really removes them, and named
+/// destinations, links, bookmarks and the open action that led to them go.
+/// Without this, a link to a removed page would keep it (and all it shows)
+/// in the file.
+fn forget_pages(d: &mut Document, dropped: &HashSet<ObjId>, kept: &[ObjId]) {
+    if dropped.is_empty() {
+        return;
+    }
+    crate::redact::forget(d, dropped);
+    // Named destinations.
+    let cat = d.catalog().ok().cloned().unwrap_or_default();
+    if let Ok(dests) = cat.get(b"Dests") {
+        let id = dests.as_reference().ok();
+        let dict = deref(d, dests).and_then(|o| o.as_dict().ok()).cloned();
+        if let Some(mut dict) = dict {
+            let dead: Vec<Vec<u8>> = dict
+                .iter()
+                .filter(|(_, v)| dead_dest(d, v))
+                .map(|(k, _)| k.clone())
+                .collect();
+            for k in dead {
+                dict.remove(&k);
+            }
+            set_dict(d, id, b"Dests", dict);
+        }
+    }
+    if let Some(tree) = cat
+        .get(b"Names")
+        .ok()
+        .and_then(|n| deref(d, n))
+        .and_then(|n| n.as_dict().ok())
+        .and_then(|n| n.get(b"Dests").ok())
+        .cloned()
+    {
+        let mut seen = HashSet::new();
+        let mut budget = crate::links::MAX_TREE_NODES;
+        prune_name_tree(d, &tree, &mut seen, &mut budget, 0);
+    }
+    // Links on the pages that stay.
+    for &p in kept {
+        let Some(Object::Array(annots)) = d
+            .get_dictionary(p)
+            .ok()
+            .and_then(|pg| pg.get(b"Annots").ok())
+            .and_then(|a| deref(d, a))
+            .cloned()
+        else {
+            continue;
+        };
+        let n = annots.len();
+        let keep: Vec<Object> = annots
+            .into_iter()
+            .filter(|a| {
+                !deref(d, a)
+                    .and_then(|a| a.as_dict().ok())
+                    .is_some_and(|a| dead_target(d, a))
+            })
+            .collect();
+        if keep.len() != n
+            && let Ok(pg) = d.get_dictionary_mut(p)
+        {
+            pg.set("Annots", Object::Array(keep));
+        }
+    }
+    // Bookmarks.
+    if let Ok(root) = cat.get(b"Outlines").and_then(|o| o.as_reference()) {
+        let mut seen = HashSet::new();
+        let mut budget = crate::links::MAX_TREE_NODES;
+        prune_outline(d, root, true, &mut seen, &mut budget, 0);
+    }
+    // The open action.
+    let open = cat
+        .get(b"OpenAction")
+        .ok()
+        .and_then(|o| deref(d, o))
+        .cloned();
+    let dead_open = match &open {
+        Some(Object::Dictionary(a)) => dead_target(d, a),
+        Some(o) => dead_dest(d, o),
+        None => false,
+    };
+    if dead_open && let Ok(c) = d.catalog_mut() {
+        c.remove(b"OpenAction");
+    }
+}
+
+/// Stores `dict` back: in object `id`, or as the catalog's `key`.
+fn set_dict(d: &mut Document, id: Option<ObjId>, key: &[u8], dict: Dictionary) {
+    match id {
+        Some(id) => {
+            d.objects.insert(id, Object::Dictionary(dict));
+        }
+        None => {
+            if let Ok(c) = d.catalog_mut() {
+                c.set(key, Object::Dictionary(dict));
+            }
+        }
+    }
+}
+
+/// Whether a destination (`[page …]`, or `<< /D [page …] >>`) leads to a
+/// page that is gone (its page reference became `null`).
+fn dead_dest(d: &Document, o: &Object) -> bool {
+    match deref(d, o) {
+        Some(Object::Array(a)) => matches!(a.first(), Some(Object::Null)),
+        Some(Object::Dictionary(x)) => x.get(b"D").is_ok_and(|v| dead_dest(d, v)),
+        _ => false,
+    }
+}
+
+/// Whether an annotation or bookmark leads to a page that is gone, by
+/// `/Dest` or a GoTo action.
+fn dead_target(d: &Document, a: &Dictionary) -> bool {
+    if a.get(b"Dest").is_ok_and(|v| dead_dest(d, v)) {
+        return true;
+    }
+    a.get(b"A")
+        .ok()
+        .and_then(|x| deref(d, x))
+        .and_then(|x| x.as_dict().ok())
+        .is_some_and(|x| {
+            x.get(b"S").and_then(|s| s.as_name()).ok() == Some(b"GoTo")
+                && x.get(b"D").is_ok_and(|v| dead_dest(d, v))
+        })
+}
+
+/// Removes the name tree's entries that lead to a page that is gone.
+fn prune_name_tree(
+    d: &mut Document,
+    node: &Object,
+    seen: &mut HashSet<ObjId>,
+    budget: &mut usize,
+    depth: u32,
+) {
+    if *budget == 0 || depth > 64 {
+        return;
+    }
+    *budget -= 1;
+    let id = node.as_reference().ok();
+    if let Some(id) = id
+        && !seen.insert(id)
+    {
+        return;
+    }
+    let Some(mut dict) = deref(d, node).and_then(|n| n.as_dict().ok()).cloned() else {
+        return;
+    };
+    if let Some(names) = dict
+        .get(b"Names")
+        .ok()
+        .and_then(|n| deref(d, n))
+        .and_then(|n| n.as_array().ok())
+        .cloned()
+    {
+        let mut kept = Vec::with_capacity(names.len());
+        for pair in names.chunks(2) {
+            if pair.len() == 2 && dead_dest(d, &pair[1]) {
+                continue;
+            }
+            kept.extend_from_slice(pair);
+        }
+        dict.set("Names", Object::Array(kept));
+    }
+    let kids = dict
+        .get(b"Kids")
+        .ok()
+        .and_then(|k| deref(d, k))
+        .and_then(|k| k.as_array().ok())
+        .cloned()
+        .unwrap_or_default();
+    match id {
+        Some(id) => {
+            d.objects.insert(id, Object::Dictionary(dict));
+        }
+        None => {
+            // Written straight into /Names: store it back there.
+            let names = d.catalog().ok().and_then(|c| c.get(b"Names").ok()).cloned();
+            match names {
+                Some(Object::Reference(nid)) => {
+                    if let Ok(n) = d.get_dictionary_mut(nid) {
+                        n.set("Dests", Object::Dictionary(dict));
+                    }
+                }
+                Some(Object::Dictionary(_)) => {
+                    if let Ok(Object::Dictionary(n)) =
+                        d.catalog_mut().and_then(|c| c.get_mut(b"Names"))
+                    {
+                        n.set("Dests", Object::Dictionary(dict));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    for k in kids.iter().filter(|k| k.as_reference().is_ok()) {
+        prune_name_tree(d, k, seen, budget, depth + 1);
+    }
+}
+
+/// Unlinks bookmarks under `parent` that lead to a page that is gone (one
+/// that still has bookmarks under it stays, without a destination), and
+/// sets the counts again. Returns how many bookmarks under `parent` show
+/// when it is open.
+fn prune_outline(
+    d: &mut Document,
+    parent: ObjId,
+    is_root: bool,
+    seen: &mut HashSet<ObjId>,
+    budget: &mut usize,
+    depth: u32,
+) -> i64 {
+    if !seen.insert(parent) || depth > 64 {
+        return 0;
+    }
+    let first = d
+        .get_dictionary(parent)
+        .ok()
+        .and_then(|p| p.get(b"First").ok())
+        .and_then(|f| f.as_reference().ok());
+    let mut kids = Vec::new();
+    let mut cur = first;
+    while let Some(id) = cur {
+        if *budget == 0 || seen.contains(&id) {
+            break;
+        }
+        *budget -= 1;
+        kids.push(id);
+        cur = d
+            .get_dictionary(id)
+            .ok()
+            .and_then(|k| k.get(b"Next").ok())
+            .and_then(|n| n.as_reference().ok());
+    }
+    let mut kept = Vec::new();
+    let mut shown = 0i64;
+    for id in kids {
+        let below = prune_outline(d, id, false, seen, budget, depth + 1);
+        let Ok(item) = d.get_dictionary(id).cloned() else {
+            continue;
+        };
+        let dead = dead_target(d, &item);
+        let has_kids = item.has(b"First");
+        if dead {
+            let Ok(item) = d.get_dictionary_mut(id) else {
+                continue;
+            };
+            item.remove(b"Dest");
+            item.remove(b"A");
+            if !has_kids {
+                continue;
+            }
+        }
+        let open = item
+            .get(b"Count")
+            .and_then(|c| c.as_i64())
+            .is_ok_and(|c| c > 0);
+        shown += 1 + if open { below } else { 0 };
+        kept.push(id);
+    }
+    for (i, &id) in kept.iter().enumerate() {
+        if let Ok(item) = d.get_dictionary_mut(id) {
+            item.set("Parent", Object::Reference(parent));
+            match i.checked_sub(1).map(|j| kept[j]) {
+                Some(p) => item.set("Prev", Object::Reference(p)),
+                None => {
+                    item.remove(b"Prev");
+                }
+            }
+            match kept.get(i + 1) {
+                Some(&n) => item.set("Next", Object::Reference(n)),
+                None => {
+                    item.remove(b"Next");
+                }
+            }
+        }
+    }
+    if let Ok(p) = d.get_dictionary_mut(parent) {
+        match (kept.first(), kept.last()) {
+            (Some(&f), Some(&l)) => {
+                p.set("First", Object::Reference(f));
+                p.set("Last", Object::Reference(l));
+                let closed = p
+                    .get(b"Count")
+                    .and_then(|c| c.as_i64())
+                    .is_ok_and(|c| c < 0);
+                let n = if closed && !is_root { -shown } else { shown };
+                p.set("Count", n);
+            }
+            _ => {
+                p.remove(b"First");
+                p.remove(b"Last");
+                p.remove(b"Count");
+            }
+        }
+    }
+    shown
 }
 
 /// Copies attributes page `id` inherits from its parents onto the page.
