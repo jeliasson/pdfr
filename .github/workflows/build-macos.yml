@@ -23,7 +23,7 @@ jobs:
     name: Build
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
@@ -55,7 +55,7 @@ jobs:
           plutil -lint "$app/Contents/Info.plist"
           "$app/Contents/MacOS/pdfr" --version
           hdiutil detach "$mnt"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos
           path: dist/*

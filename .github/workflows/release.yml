@@ -30,7 +30,7 @@ jobs:
       version: ${{ steps.v.outputs.version }}
       prerelease: ${{ steps.v.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: v
         run: |
           v=${GITHUB_REF_NAME#v}
@@ -63,7 +63,7 @@ jobs:
     if: vars.RELEASE_WINDOWS == 'true'
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build
@@ -71,7 +71,7 @@ jobs:
       - name: Build the installer
         shell: pwsh
         run: packaging/windows/build-msi.ps1 -Version ${{ needs.version.outputs.version }} -Out dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: dist/*
@@ -84,8 +84,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           pattern: "{linux-*,macos,windows}"
@@ -115,7 +115,7 @@ jobs:
           Or download a file below: the `.dmg` for macOS, the `.tar.gz` for any Linux
           (`./pdfr --register` adds it to your app menu), or the `.deb` / `.rpm`.
           MD
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: artifacts/*
           body_path: notes.md
@@ -158,7 +158,7 @@ jobs:
     env:
       HAS_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: env.HAS_KEY == 'true'
       - name: Update the PKGBUILD
         if: env.HAS_KEY == 'true'
@@ -193,9 +193,9 @@ jobs:
     env:
       HAS_KEY: ${{ secrets.TAP_DEPLOY_KEY != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: env.HAS_KEY == 'true'
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: env.HAS_KEY == 'true'
         with:
           repository: kjellberg/homebrew-tap
@@ -224,15 +224,15 @@ jobs:
     env:
       HAS_KEY: ${{ secrets.REPO_GPG_PRIVATE_KEY != '' && secrets.PACKAGES_DEPLOY_KEY != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: env.HAS_KEY == 'true'
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: env.HAS_KEY == 'true'
         with:
           repository: kjellberg/packages
           ssh-key: ${{ secrets.PACKAGES_DEPLOY_KEY }}
           path: site
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         if: env.HAS_KEY == 'true'
         with:
           path: new
@@ -262,7 +262,7 @@ jobs:
       options: --privileged
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Crate list for the offline build
         run: |
           curl -fsSLO https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/master/cargo/flatpak-cargo-generator.py

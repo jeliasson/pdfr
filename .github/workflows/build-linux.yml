@@ -29,16 +29,27 @@ jobs:
           - { arch: x86_64, deb_arch: amd64, runner: ubuntu-24.04, target: x86_64-unknown-linux-gnu }
           - { arch: aarch64, deb_arch: arm64, runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: zig-${{ matrix.target }}
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.14.1
+      - name: Install Zig
+        # Straight from ziglang.org, checked against its published SHA-256
+        # (setup-zig still runs on the retired Node 20).
+        run: |
+          set -euo pipefail
+          case ${{ matrix.arch }} in
+            x86_64) sum=24aeeec8af16c381934a6cd7d95c807a8cb2cf7df9fa40d359aa884195c4716c ;;
+            aarch64) sum=f7a654acc967864f7a050ddacfaa778c7504a0eca8d2b678839c21eea47c992b ;;
+          esac
+          name=zig-${{ matrix.arch }}-linux-0.14.1
+          curl -fsSL --retry 5 -o "$RUNNER_TEMP/zig.tar.xz" "https://ziglang.org/download/0.14.1/$name.tar.xz"
+          echo "$sum  $RUNNER_TEMP/zig.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/zig.tar.xz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/$name" >> "$GITHUB_PATH"
       - name: Install packaging tools
         run: cargo install --locked cargo-zigbuild cargo-deb cargo-generate-rpm
       - name: Build
@@ -59,7 +70,7 @@ jobs:
           # RPM versions can't hold "-": a pre-release is 0.3.0~rc1, which sorts before 0.3.0 (as in the .deb).
           cargo generate-rpm -p crates/app --target ${{ matrix.target }} -o dist/ --set-metadata "version = \"${v//-/\~}\""
           ls -la dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-${{ matrix.arch }}
           path: dist/*
@@ -96,8 +107,8 @@ jobs:
             image: archlinux:latest
             setup: pacman -Syu --noconfirm xorg-server-xvfb xorg-xauth python mesa libglvnd libxkbcommon libxkbcommon-x11 libx11 libxcursor libxrandr libxi && tar xzf dist/pdfr-*-x86_64-linux.tar.gz && ./pdfr-*/install.sh / /usr
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: linux-x86_64
           path: dist
@@ -120,7 +131,7 @@ jobs:
           xvfb-run -a -s "-screen 0 1280x1000x24" timeout 180 \
             python3 tools/agent_smoke.py "$(command -v pdfr)" samples/flat_form.pdf /tmp/agent
           python3 tools/check_screenshot.py /tmp/agent/agent.png
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: screenshot-${{ strategy.job-index }}
@@ -133,8 +144,8 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: linux-x86_64
           path: dist
