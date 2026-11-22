@@ -1,0 +1,21 @@
+# cargo deny check advisories (the "Security advisories" job in ci.yml):
+# fails on any RustSec advisory for a crate in Cargo.lock, except the ones
+# listed here, each with the reason it doesn't affect pdfr.
+
+[advisories]
+ignore = [
+    # rsa: Marvin timing side channel in RSA decryption and signing. pdfr
+    # uses rsa to check signatures (public keys only) and to sign locally,
+    # with the user's own key on the user's own computer; it never decrypts
+    # with RSA and no remote observer can time it. No fixed rsa release
+    # exists yet; drop this once one does.
+    { id = "RUSTSEC-2023-0071", reason = "rsa signs only locally, never decrypts; no fixed release yet" },
+    # crypto-bigint 0.5 (through p256/p384 0.13 in pdfr-sign): timing
+    # variability. Same situation as rsa: public-key verification, and
+    # local signing with the user's own key. Goes away when pdfr-sign moves
+    # to p256/p384 0.14 (crypto-bigint 0.7.6 or newer).
+    { id = "RUSTSEC-2026-0387", reason = "ECDSA verify and local signing only; fixed by moving pdfr-sign to p256/p384 0.14" },
+    # ttf-parser is unmaintained (no fix to take). pdfr-core uses it to
+    # measure fonts; the replacement is skrifa.
+    { id = "RUSTSEC-2026-0192", reason = "unmaintained, not a vulnerability; replace with skrifa later" },
+]
