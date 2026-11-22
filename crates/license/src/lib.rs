@@ -265,6 +265,99 @@ pub fn decode32(s: &str) -> Option<[u8; 32]> {
 }
 
 /* ------------------------------------------------------------------------- */
+/* Release signatures                                                         */
+
+/// Signatures on release files (`SHA256SUMS.sig`): Ed25519 over the file's
+/// bytes, written as standard base64 so `openssl` can check them too. The
+/// key is separate from the licence keys: CI holds the private half
+/// (`release_sign`); pdfr and `install.sh` pin the public half.
+pub mod release {
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
+    use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
+
+    /// The release-signing public key pdfr and `install.sh` trust. Made with
+    /// `release_sign keygen`; the private half is the `RELEASE_SIGNING_KEY`
+    /// secret of the repository's `release` environment.
+    /// Base64: `yz7tdRcUYQS+Gamxv3KljmqJgA7HipVYiADx49V/l1Q=`.
+    pub const PUBLIC_KEY: [u8; 32] = [
+        203, 62, 237, 117, 23, 20, 97, 4, 190, 25, 169, 177, 191, 114, 165, 142, 106, 137, 128, 14,
+        199, 138, 149, 88, 136, 0, 241, 227, 213, 127, 151, 84,
+    ];
+
+    /// The signature of `msg`, as one line of base64.
+    pub fn sign(seed: &[u8; 32], msg: &[u8]) -> String {
+        STANDARD.encode(SigningKey::from_bytes(seed).sign(msg).to_bytes())
+    }
+
+    /// Whether `sig` (base64, surrounding white space allowed) is a valid
+    /// signature of `msg` by `public`.
+    pub fn verify(public: &[u8; 32], msg: &[u8], sig: &[u8]) -> bool {
+        let Ok(text) = std::str::from_utf8(sig) else {
+            return false;
+        };
+        let Some(sig) = STANDARD
+            .decode(text.trim())
+            .ok()
+            .and_then(|b| <[u8; 64]>::try_from(b).ok())
+        else {
+            return false;
+        };
+        let Ok(vk) = VerifyingKey::from_bytes(public) else {
+            return false;
+        };
+        vk.verify_strict(msg, &Signature::from_bytes(&sig)).is_ok()
+    }
+
+    /// A 32-byte value written as base64 (a seed or a public key).
+    pub fn decode32(text: &str) -> Option<[u8; 32]> {
+        STANDARD.decode(text.trim()).ok()?.try_into().ok()
+    }
+
+    pub fn encode(bytes: &[u8]) -> String {
+        STANDARD.encode(bytes)
+    }
+
+    /// The public key as PEM (SubjectPublicKeyInfo), for `openssl pkeyutl`.
+    pub fn public_pem(public: &[u8; 32]) -> String {
+        // SEQUENCE { SEQUENCE { OID 1.3.101.112 } BIT STRING { key } }
+        let mut der = vec![
+            0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
+        ];
+        der.extend_from_slice(public);
+        format!(
+            "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----\n",
+            STANDARD.encode(der)
+        )
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn signs_and_verifies() {
+            let seed = [7u8; 32];
+            let public = crate::public_key(&seed);
+            let sig = sign(&seed, b"sums");
+            assert!(verify(&public, b"sums", sig.as_bytes()));
+            assert!(verify(&public, b"sums", format!("{sig}\n").as_bytes()));
+            assert!(!verify(&public, b"sumz", sig.as_bytes()));
+            assert!(!verify(
+                &crate::public_key(&[8; 32]),
+                b"sums",
+                sig.as_bytes()
+            ));
+            assert!(!verify(&public, b"sums", b"not base64"));
+            assert!(!verify(&public, b"sums", b""));
+            assert!(
+                public_pem(&public).starts_with("-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA")
+            );
+        }
+    }
+}
+
+/* ------------------------------------------------------------------------- */
 /* Files                                                                      */
 
 /// pdfr's data folder: `--data-dir` when given, otherwise `~/.local/share/pdfr`
