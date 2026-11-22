@@ -158,6 +158,15 @@ struct Answer {
     state: State,
     this_update: u64,
     next_update: Option<u64>,
+    /// When the OCSP response was signed (CRLs have only `this_update`).
+    produced_at: Option<u64>,
+}
+
+impl Answer {
+    /// The latest of the times the issuer vouches for.
+    fn issued(&self) -> u64 {
+        self.this_update.max(self.produced_at.unwrap_or(0))
+    }
 }
 
 /// Checks `leaf` and the certificate authorities above it. `chain` is
@@ -170,20 +179,36 @@ pub fn check_path(
     online: Option<Online>,
     now: u64,
 ) -> (Revocation, Evidence) {
+    check_path_since(leaf, chain, file, online, now, None)
+}
+
+/// Like `check_path`, for a signature made at the trusted time `since`
+/// (a timestamp's): a "not revoked" answer kept in the file counts only
+/// if the issuer gave it at or after that time. Without `since` it must
+/// be current. Otherwise the issuer is asked, if `online` allows. A
+/// "revoked" answer always counts.
+pub fn check_path_since(
+    leaf: &Cert,
+    chain: &[Cert],
+    file: &Evidence,
+    online: Option<Online>,
+    now: u64,
+    since: Option<u64>,
+) -> (Revocation, Evidence) {
     let Some(issuer) = chain.first() else {
         return (
             Revocation::unknown("the issuer's certificate was not found"),
             Evidence::default(),
         );
     };
-    let first = check(leaf, issuer, file, online, now);
+    let first = check_since(leaf, issuer, file, online, now, since);
     let mut data = first.data.clone();
     let mut out = first.rev;
     for pair in chain.windows(2) {
         if pair[0].self_issued() {
             break;
         }
-        let f = check(&pair[0], &pair[1], file, online, now);
+        let f = check_since(&pair[0], &pair[1], file, online, now, since);
         data.merge(&f.data);
         if f.rev.is_revoked() && !out.is_revoked() {
             out = Revocation {
@@ -204,12 +229,29 @@ pub fn check(
     online: Option<Online>,
     now: u64,
 ) -> Found {
-    if let Some(f) = from_evidence(cert, issuer, file) {
-        return f;
-    }
+    check_since(cert, issuer, file, online, now, None)
+}
+
+fn check_since(
+    cert: &Cert,
+    issuer: &Cert,
+    file: &Evidence,
+    online: Option<Online>,
+    now: u64,
+    since: Option<u64>,
+) -> Found {
+    let stale = match from_evidence(cert, issuer, file, since, now) {
+        Ok(f) => return f,
+        Err(stale) => stale,
+    };
     let Some(on) = online else {
+        let why = if stale {
+            "the file's revocation data is older than the signature, and online checks are off"
+        } else {
+            "the file has no revocation data, and online checks are off"
+        };
         return Found {
-            rev: Revocation::unknown("the file has no revocation data, and online checks are off"),
+            rev: Revocation::unknown(why),
             data: Evidence::default(),
         };
     };
@@ -239,8 +281,16 @@ pub fn check(
 }
 
 /// The answer from data already at hand: a revocation wins, else the
-/// newest "good".
-fn from_evidence(cert: &Cert, issuer: &Cert, ev: &Evidence) -> Option<Found> {
+/// newest "good" that is recent enough: given at or after `since`, or
+/// (without `since`) still current at `now`. Errs with whether there were
+/// answers, all too old.
+fn from_evidence(
+    cert: &Cert,
+    issuer: &Cert,
+    ev: &Evidence,
+    since: Option<u64>,
+    now: u64,
+) -> Result<Found, bool> {
     let ocsps = ev.ocsps.iter().filter_map(|d| {
         let a = ocsp_answer(d, cert, issuer)?;
         Some((
@@ -265,11 +315,20 @@ fn from_evidence(cert: &Cert, issuer: &Cert, ev: &Evidence) -> Option<Found> {
         .chain(crls)
         .filter(|(a, _)| !matches!(a.state, State::Unknown(_)))
         .collect();
+    let recent = |a: &Answer| match since {
+        Some(t) => a.issued() >= t,
+        None => fresh(a, now),
+    };
     let (a, data) = all
         .iter()
         .find(|(a, _)| matches!(a.state, State::Revoked { .. }))
-        .or_else(|| all.iter().max_by_key(|(a, _)| a.this_update))?;
-    Some(Found {
+        .or_else(|| {
+            all.iter()
+                .filter(|(a, _)| recent(a))
+                .max_by_key(|(a, _)| a.this_update)
+        })
+        .ok_or(!all.is_empty())?;
+    Ok(Found {
         rev: Revocation {
             state: a.state.clone(),
             source: Some(Source::File),
@@ -291,6 +350,12 @@ fn ask(
     let crl = crl_urls(cert);
     if ocsp.is_empty() && crl.is_empty() {
         return Err("the certificate doesn't say where to check it".into());
+    }
+    // Never ask this computer or the local network.
+    let ocsp: Vec<String> = ocsp.into_iter().filter(|u| public_url(u)).collect();
+    let crl: Vec<String> = crl.into_iter().filter(|u| public_url(u)).collect();
+    if ocsp.is_empty() && crl.is_empty() {
+        return Err("the certificate names only local addresses to check it".into());
     }
     let mut problem = None;
     if !ocsp.is_empty() {
@@ -401,6 +466,7 @@ fn ocsp_answer(der: &[u8], cert: &Cert, issuer: &Cert) -> Option<Answer> {
         return None;
     }
     let secs = |t: &x509_ocsp::OcspGeneralizedTime| t.0.to_unix_duration().as_secs();
+    let produced_at = Some(secs(&basic.tbs_response_data.produced_at));
     let state = match &single.cert_status {
         CertStatus::Good(_) => State::Good,
         CertStatus::Revoked(ri) => match ri.revocation_reason {
@@ -416,6 +482,7 @@ fn ocsp_answer(der: &[u8], cert: &Cert, issuer: &Cert) -> Option<Answer> {
         state,
         this_update: secs(&single.this_update),
         next_update: single.next_update.as_ref().map(secs),
+        produced_at,
     })
 }
 
@@ -436,7 +503,7 @@ fn cert_id_matches(id: &CertId, cert: &Cert, issuer: &Cert) -> bool {
 }
 
 /// Signed by `issuer`, or by a responder certificate `issuer` issued for
-/// OCSP signing (included in the response).
+/// OCSP signing (included in the response). SHA-1 doesn't count.
 fn ocsp_signed(basic: &BasicOcspResponse, issuer: &Cert) -> bool {
     let (Ok(tbs), Some(sig)) = (basic.tbs_response_data.to_der(), basic.signature.as_bytes())
     else {
@@ -453,7 +520,7 @@ fn ocsp_signed(basic: &BasicOcspResponse, issuer: &Cert) -> bool {
             &tbs,
             sig,
         )
-        .is_ok()
+        .is_ok_and(|digest| digest != oids::SHA1)
     };
     if by(issuer) {
         return true;
@@ -472,6 +539,7 @@ fn ocsp_signed(basic: &BasicOcspResponse, issuer: &Cert) -> bool {
         .any(|r| {
             r.issuer() == issuer.subject()
                 && trust::verify_cert(&r, issuer)
+                && !r.signed_with_sha1()
                 && r.valid_at(produced)
                 && r.ext::<ExtendedKeyUsage>(oids::EXT_KEY_USAGE)
                     .is_some_and(|k| k.0.contains(&oids::KP_OCSP_SIGNING))
@@ -501,7 +569,7 @@ fn crl_answer(der: &[u8], cert: &Cert, issuer: &Cert) -> Option<Answer> {
     let msg = tbs.to_der().ok()?;
     let alg = &crl.signature_algorithm;
     let params = alg.parameters.as_ref().and_then(|p| p.to_der().ok());
-    trust::verify(
+    let digest = trust::verify(
         &issuer.x.tbs_certificate.subject_public_key_info,
         alg.oid,
         params.as_deref(),
@@ -510,6 +578,9 @@ fn crl_answer(der: &[u8], cert: &Cert, issuer: &Cert) -> Option<Answer> {
         crl.signature.as_bytes()?,
     )
     .ok()?;
+    if digest == oids::SHA1 {
+        return None;
+    }
     let serial = &cert.x.tbs_certificate.serial_number;
     let state = match tbs
         .revoked_certificates
@@ -539,14 +610,18 @@ fn crl_answer(der: &[u8], cert: &Cert, issuer: &Cert) -> Option<Answer> {
         state,
         this_update: tbs.this_update.to_unix_duration().as_secs(),
         next_update: tbs.next_update.map(|t| t.to_unix_duration().as_secs()),
+        produced_at: None,
     })
 }
+
+/// The words for a revocation because the key was compromised.
+pub const KEY_COMPROMISE: &str = "the key was compromised";
 
 fn reason_words(r: CrlReason) -> Option<String> {
     Some(
         match r {
             CrlReason::Unspecified | CrlReason::RemoveFromCRL => return None,
-            CrlReason::KeyCompromise => "the key was compromised",
+            CrlReason::KeyCompromise => KEY_COMPROMISE,
             CrlReason::CaCompromise | CrlReason::AaCompromise => "the issuer was compromised",
             CrlReason::AffiliationChanged => "the holder's details changed",
             CrlReason::Superseded => "replaced by a newer certificate",
@@ -567,6 +642,73 @@ fn http(n: &GeneralName) -> Option<String> {
             (s.starts_with("http://") || s.starts_with("https://")).then(|| s.to_string())
         }
         _ => None,
+    }
+}
+
+/// Whether `url` may be asked: http(s) to a host that is not this
+/// computer or the local network (loopback, private, link-local and
+/// similar addresses, `localhost`, `.local`). Names are checked as they
+/// are written; the fetcher checks the addresses they resolve to.
+pub fn public_url(url: &str) -> bool {
+    let Some(rest) = url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"))
+    else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host_port = authority.rsplit('@').next().unwrap_or_default();
+    let host = if let Some(v6) = host_port.strip_prefix('[') {
+        match v6.split_once(']') {
+            Some((h, _)) => h,
+            None => return false,
+        }
+    } else {
+        host_port.split(':').next().unwrap_or_default()
+    };
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    if host.is_empty()
+        || host == "localhost"
+        || host.ends_with(".localhost")
+        || host.ends_with(".local")
+    {
+        return false;
+    }
+    match host.parse::<std::net::IpAddr>() {
+        Ok(ip) => is_public_ip(ip),
+        Err(_) => true,
+    }
+}
+
+/// An address on the internet: not this computer or a local network.
+pub fn is_public_ip(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(v4) => {
+            let o = v4.octets();
+            !(v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.is_multicast()
+                || v4.is_documentation()
+                || o[0] == 0
+                // Shared address space (carrier-grade NAT), 100.64.0.0/10.
+                || (o[0] == 100 && (o[1] & 0xc0) == 64))
+        }
+        IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_public_ip(IpAddr::V4(v4));
+            }
+            let s = v6.segments();
+            !(v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                // Unique local fc00::/7 and link-local fe80::/10.
+                || (s[0] & 0xfe00) == 0xfc00
+                || (s[0] & 0xffc0) == 0xfe80)
+        }
     }
 }
 
