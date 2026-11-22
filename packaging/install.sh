@@ -13,15 +13,24 @@
 # macOS: pdfr.app goes in /Applications (or ~/Applications), and the pdfr
 # command in /usr/local/bin (or ~/.local/bin).
 #
-# Every download is checked against the release's SHA256SUMS. The release
-# workflow stamps its version below; an unstamped copy installs the newest
-# release.
+# Every download is checked against the release's SHA256SUMS, and
+# SHA256SUMS against its signature (SHA256SUMS.sig, made by pdfr's release
+# workflow) with OpenSSL 3 when it is installed. The release workflow stamps
+# its version below; an unstamped copy installs the newest release.
+#
+# Everything runs from main, at the very end, so a download cut off halfway
+# runs nothing.
 set -eu
 
 VERSION="@VERSION@"
 REPO="kjellberg/pdfr"
+# The key pdfr's releases are signed with (release_sign in pdfr's source).
+RELEASE_KEY="-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAyz7tdRcUYQS+Gamxv3KljmqJgA7HipVYiADx49V/l1Q=
+-----END PUBLIC KEY-----"
 
 say() { printf '%s\n' "$*"; }
+warn() { printf 'pdfr: %s\n' "$*" >&2; }
 die() { printf 'pdfr: %s\n' "$*" >&2; exit 1; }
 
 usage() {
@@ -31,20 +40,6 @@ usage() {
 	say "  curl -fsSL https://pdfr.app/install.sh | sh -s -- --version 0.1.0"
 	say "  curl -fsSL https://pdfr.app/install.sh | sh -s -- --uninstall"
 }
-
-want=${PDFR_VERSION:-}
-action=install
-while [ $# -gt 0 ]; do
-	case $1 in
-	--version) [ $# -ge 2 ] || die "--version needs a version number"; want=$2; shift 2 ;;
-	--version=*) want=${1#*=}; shift ;;
-	--uninstall) action=uninstall; shift ;;
-	-h | --help) usage; exit 0 ;;
-	*) die "unknown option: $1 (try --help)" ;;
-	esac
-done
-
-command -v curl >/dev/null 2>&1 || die "this installer needs curl"
 
 fetch() {
 	curl -fsSL --proto '=https' --tlsv1.2 --retry 3 -o "$2" "$1" || die "could not download $1"
@@ -68,10 +63,49 @@ installed() {
 	[ -x "$1" ] && "$1" --version 2>/dev/null | awk '{print $2}' || true
 }
 
+# Whether openssl can check Ed25519 signatures: OpenSSL 3 or newer (the
+# LibreSSL macOS ships can't).
+can_verify() {
+	command -v openssl >/dev/null 2>&1 || return 1
+	case $(openssl version 2>/dev/null) in
+	"OpenSSL "[3-9].* | "OpenSSL "[1-9][0-9].*) return 0 ;;
+	esac
+	return 1
+}
+
+# Releases from 0.6.2 on are signed.
+signed_release() {
+	printf '%s\n' "$want" | awk -F '[.-]' '{ exit !($1 > 0 || $2 > 6 || ($2 == 6 && $3 >= 2)) }'
+}
+
+# Checks $tmp/SHA256SUMS against its signature.
+check_signature() {
+	if ! curl -fsSL --proto '=https' --tlsv1.2 --retry 3 -o "$tmp/SHA256SUMS.sig" "$base/SHA256SUMS.sig" 2>/dev/null; then
+		if signed_release; then
+			die "could not download the release's signature (SHA256SUMS.sig); nothing was changed"
+		fi
+		warn "version $want is from before releases were signed; checking checksums only."
+		return 0
+	fi
+	if ! can_verify; then
+		warn "OpenSSL 3 isn't installed, so the release's signature can't be checked; checking checksums only."
+		return 0
+	fi
+	printf '%s\n' "$RELEASE_KEY" >"$tmp/release.pem"
+	if ! openssl base64 -d -A -in "$tmp/SHA256SUMS.sig" -out "$tmp/SHA256SUMS.sig.bin" 2>/dev/null ||
+		! openssl pkeyutl -verify -pubin -inkey "$tmp/release.pem" -rawin \
+			-in "$tmp/SHA256SUMS" -sigfile "$tmp/SHA256SUMS.sig.bin" >/dev/null 2>&1; then
+		die "the release's signature does not match (SHA256SUMS.sig); nothing was changed"
+	fi
+}
+
 # Downloads a release file into $tmp and checks it against SHA256SUMS.
 download() {
+	if [ ! -f "$tmp/SHA256SUMS" ]; then
+		fetch "$base/SHA256SUMS" "$tmp/SHA256SUMS"
+		check_signature
+	fi
 	fetch "$base/$1" "$tmp/$1"
-	[ -f "$tmp/SHA256SUMS" ] || fetch "$base/SHA256SUMS" "$tmp/SHA256SUMS"
 	expected=$(awk -v n="$1" '$2 == n || $2 == "*" n {print $1}' "$tmp/SHA256SUMS")
 	[ -n "$expected" ] || die "the release has no checksum for $1"
 	[ "$(sha256 "$tmp/$1")" = "$expected" ] || die "$1 is damaged (checksum mismatch); nothing was changed"
@@ -92,12 +126,6 @@ on_path() {
 	case ":$PATH:" in *":$1:"*) return 0 ;; esac
 	return 1
 }
-
-os=$(uname -s)
-case $os in
-Linux | Darwin) ;;
-*) die "this installer is for Linux and macOS; other downloads are at https://github.com/$REPO/releases" ;;
-esac
 
 # ---------------------------------------------------------------- Linux
 
@@ -207,23 +235,55 @@ mac_uninstall() {
 
 # ---------------------------------------------------------------- main
 
-if [ "$action" = uninstall ]; then
-	if [ "$os" = Darwin ]; then mac_uninstall; else linux_uninstall; fi
-	exit 0
-fi
+main() {
+	want=${PDFR_VERSION:-}
+	action=install
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--version) [ $# -ge 2 ] || die "--version needs a version number"; want=$2; shift 2 ;;
+		--version=*) want=${1#*=}; shift ;;
+		--uninstall) action=uninstall; shift ;;
+		-h | --help) usage; exit 0 ;;
+		*) die "unknown option: $1 (try --help)" ;;
+		esac
+	done
 
-if [ -z "$want" ]; then
-	case $VERSION in
-	@*) want=$(latest) ;;
-	*) want=$VERSION ;;
+	command -v curl >/dev/null 2>&1 || die "this installer needs curl"
+
+	os=$(uname -s)
+	case $os in
+	Linux | Darwin) ;;
+	*) die "this installer is for Linux and macOS; other downloads are at https://github.com/$REPO/releases" ;;
 	esac
-fi
-want=${want#v}
-[ -n "$want" ] || die "could not find a pdfr release (no stable release yet, or GitHub is unreachable). See https://github.com/$REPO/releases"
-base="https://github.com/$REPO/releases/download/v$want"
 
-tmp=$(mktemp -d 2>/dev/null || mktemp -d -t pdfr)
-trap 'rm -rf "$tmp"' EXIT
-trap 'exit 1' INT TERM
+	if [ "$action" = uninstall ]; then
+		if [ "$os" = Darwin ]; then mac_uninstall; else linux_uninstall; fi
+		exit 0
+	fi
 
-if [ "$os" = Darwin ]; then mac_install; else linux_install; fi
+	if [ -z "$want" ]; then
+		case $VERSION in
+		@*) want=$(latest) ;;
+		*) want=$VERSION ;;
+		esac
+	fi
+	want=${want#v}
+	[ -n "$want" ] || die "could not find a pdfr release (no stable release yet, or GitHub is unreachable). See https://github.com/$REPO/releases"
+	# Letters, digits, dots and one "-": nothing else goes into addresses.
+	case $want in
+	[0-9]*) ;;
+	*) die "not a pdfr version: $want" ;;
+	esac
+	case $want in
+	*[!0-9A-Za-z.-]* | *-*-*) die "not a pdfr version: $want" ;;
+	esac
+	base="https://github.com/$REPO/releases/download/v$want"
+
+	tmp=$(mktemp -d 2>/dev/null || mktemp -d -t pdfr)
+	trap 'rm -rf "$tmp"' EXIT
+	trap 'exit 1' INT TERM
+
+	if [ "$os" = Darwin ]; then mac_install; else linux_install; fi
+}
+
+main "$@"
