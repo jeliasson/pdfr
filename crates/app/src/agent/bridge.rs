@@ -125,10 +125,140 @@ pub struct Client {
     next_id: u64,
 }
 
+/// Whether a file of `owner` with permission bits `mode` may be trusted by
+/// user `me`: it is theirs, and (with `private`) no one else may enter it.
+#[cfg(unix)]
+fn owned(owner: u32, mode: u32, me: u32, private: bool) -> bool {
+    owner == me && (!private || mode & 0o077 == 0)
+}
+
+/// The sockets' folder is a real folder of this user's that no one else
+/// can enter (not a link to one).
+#[cfg(unix)]
+pub fn check_dir(dir: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    let me = unsafe { libc::geteuid() };
+    let d = std::fs::symlink_metadata(dir)?;
+    if !d.is_dir() || !owned(d.uid(), d.mode(), me, true) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!("{} is not a folder only you can enter", dir.display()),
+        ));
+    }
+    Ok(())
+}
+
+/// The socket and its folder are this user's and no one else can reach
+/// them: in a shared temporary folder another user could have set up a
+/// look-alike to be sent form data.
+#[cfg(unix)]
+pub fn check_socket(socket: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+    let refuse = |what: String| {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            what,
+        ))
+    };
+    check_dir(socket.parent().unwrap_or(Path::new(".")))?;
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    let me = unsafe { libc::geteuid() };
+    let s = std::fs::symlink_metadata(socket)?;
+    if !s.file_type().is_socket() || !owned(s.uid(), s.mode(), me, false) {
+        return refuse(format!("{} is not your pdfr's socket", socket.display()));
+    }
+    Ok(())
+}
+
+/// The user id of the process at the other end of a Unix socket.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub fn peer_uid(stream: &std::os::unix::net::UnixStream) -> std::io::Result<u32> {
+    use std::os::fd::AsRawFd;
+    let mut cred = libc::ucred {
+        pid: 0,
+        uid: u32::MAX,
+        gid: u32::MAX,
+    };
+    let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+    // SAFETY: the buffer and its length describe `cred`, which outlives
+    // the call; the descriptor is open for as long as `stream` is.
+    let r = unsafe {
+        libc::getsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            (&mut cred as *mut libc::ucred).cast(),
+            &mut len,
+        )
+    };
+    if r != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(cred.uid)
+}
+
+/// The user id of the process at the other end of a Unix socket.
+#[cfg(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonfly"
+))]
+pub fn peer_uid(stream: &std::os::unix::net::UnixStream) -> std::io::Result<u32> {
+    use std::os::fd::AsRawFd;
+    let (mut uid, mut gid) = (u32::MAX, u32::MAX);
+    // SAFETY: both out-pointers point at live locals; the descriptor is
+    // open for as long as `stream` is.
+    if unsafe { libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(uid)
+}
+
+/// Where the system has no way to ask, the socket's folder (only the user
+/// can enter it) has to do.
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly"
+    ))
+))]
+pub fn peer_uid(_stream: &std::os::unix::net::UnixStream) -> std::io::Result<u32> {
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    Ok(unsafe { libc::geteuid() })
+}
+
+/// The other end of the connection runs as this user.
+#[cfg(unix)]
+pub fn check_peer(stream: &std::os::unix::net::UnixStream) -> std::io::Result<()> {
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    let me = unsafe { libc::geteuid() };
+    let uid = peer_uid(stream)?;
+    if uid != me {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!("the other end of the socket is user {uid}, not you"),
+        ));
+    }
+    Ok(())
+}
+
 impl Client {
     #[cfg(unix)]
     pub fn connect(socket: &Path) -> std::io::Result<Client> {
+        check_socket(socket)?;
         let stream = std::os::unix::net::UnixStream::connect(socket)?;
+        check_peer(&stream)?;
         let reader = BufReader::new(stream.try_clone()?);
         Ok(Client {
             stream,
@@ -245,5 +375,50 @@ mod tests {
         let p = PathBuf::from("/run/user/1000/pdfr").join(socket_name(4242));
         assert_eq!(pid_of(&p), Some(4242));
         assert_eq!(pid_of(Path::new("/tmp/other.sock")), None);
+    }
+
+    #[test]
+    fn only_the_users_own_files_are_trusted() {
+        assert!(owned(1000, 0o40700, 1000, true));
+        // Someone else's, or one others may enter.
+        assert!(!owned(1001, 0o40700, 1000, true));
+        assert!(!owned(1000, 0o40755, 1000, true));
+        assert!(!owned(1000, 0o41777, 1000, true));
+        // A socket only needs to be the user's (its folder keeps others out).
+        assert!(owned(1000, 0o140755, 1000, false));
+        assert!(!owned(0, 0o140600, 1000, false));
+    }
+
+    /// A socket in a folder others can enter is refused before anything is
+    /// sent to it, and is not removed; in a private folder it is used, and
+    /// the window at the other end is the user's own.
+    #[test]
+    fn a_socket_others_could_have_made_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("pdfr-bridge-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(socket_name(1));
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let e = check_socket(&path).unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(connect_or_clean(&path).is_none());
+        assert!(path.exists(), "a refused socket is not removed");
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        check_socket(&path).unwrap();
+        let c = connect_or_clean(&path).expect("a private socket is used");
+        let (theirs, _) = listener.accept().unwrap();
+        check_peer(&c.stream).unwrap();
+        check_peer(&theirs).unwrap();
+        // A plain file posing as the socket is not one.
+        let fake = dir.join(socket_name(2));
+        std::fs::write(&fake, b"").unwrap();
+        assert!(check_socket(&fake).is_err());
+        // Nor is a link to a folder.
+        let link = dir.join("link");
+        std::os::unix::fs::symlink(&dir, &link).unwrap();
+        assert!(check_dir(&link).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

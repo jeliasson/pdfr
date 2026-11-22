@@ -49,6 +49,7 @@ impl Server {
             .ok()?;
         // Only the owner can tighten it: someone else's folder is refused.
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).ok()?;
+        super::bridge::check_dir(&dir).ok()?;
         let path = dir.join(super::bridge::socket_name(std::process::id()));
         let _ = std::fs::remove_file(&path);
         let listener = UnixListener::bind(&path).ok()?;
@@ -88,6 +89,10 @@ impl Server {
 fn serve(stream: std::os::unix::net::UnixStream, tx: Sender<Request>, ctx: egui::Context) {
     use std::io::{BufRead, BufReader, Write};
 
+    // Only this user's own programs may drive the window.
+    if super::bridge::check_peer(&stream).is_err() {
+        return;
+    }
     let Ok(mut out) = stream.try_clone() else {
         return;
     };
