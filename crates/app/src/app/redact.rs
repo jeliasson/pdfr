@@ -19,7 +19,7 @@ pub struct RedactMark {
 }
 
 /// What a finished redaction says: where it went and what to tell.
-type JobResult = Result<(PathBuf, String), String>;
+pub(super) type JobResult = Result<(PathBuf, String), String>;
 
 #[derive(Default)]
 pub(super) struct RedactState {
@@ -27,8 +27,8 @@ pub(super) struct RedactState {
     pub query: String,
     /// The "apply?" dialog is open.
     pub confirm: bool,
-    /// The redaction being written.
-    job: Option<Receiver<JobResult>>,
+    /// The redaction being written, and the document (`Doc::id`) it is of.
+    job: Option<(u64, Receiver<JobResult>)>,
 }
 
 const RED: Color32 = Color32::from_rgb(0xd0, 0x2a, 0x2a);
@@ -206,7 +206,7 @@ impl App {
         let c = Colors::new(&pal);
         let n = self.doc.as_ref().map_or(0, |d| d.redactions.len());
         let has_sel = self.text_sel.is_some();
-        let busy = self.redact.job.is_some();
+        let busy = self.redacting();
         let (mut mark_sel, mut mark_all, mut apply, mut close) = (false, false, false, false);
         let pos = self.viewport.right_top() + vec2(-16.0, 12.0);
         egui::Area::new(Id::unique("pdfr-redact-panel"))
@@ -323,6 +323,10 @@ impl App {
                     .color(c.text),
                 );
                 ui.label(
+                    RichText::new("Bookmarks, attachments and document details are removed too.")
+                        .color(c.text),
+                );
+                ui.label(
                     RichText::new(
                         "pdfr saves the result as a new file and opens it. The original stays as it is.",
                     )
@@ -367,12 +371,11 @@ impl App {
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "document".into());
         let name = format!("{stem} (redacted).pdf");
-        let generation = doc.generation;
+        let doc_id = doc.id;
         if !super::files::native_dialogs() {
             let mut d = super::files::builtin::dialog(doc.path.parent(), Some(&name));
             d.save_file();
-            self.builtin_dialog =
-                Some((d, super::files::builtin::Purpose::RedactedSave(generation)));
+            self.builtin_dialog = Some((d, super::files::builtin::Purpose::RedactedSave(doc_id)));
             return;
         }
         let mut dlg = self
@@ -387,26 +390,23 @@ impl App {
         self.wait_for_dialog(async move {
             super::files::DialogResult::RedactedSave(
                 task.await.map(|h| h.path().to_path_buf()),
-                generation,
+                doc_id,
             )
         });
     }
 
     /// The file for the redacted copy was chosen (or not): redact and save
     /// on a background thread, then open the copy.
-    pub(super) fn redacted_save(&mut self, target: Option<PathBuf>, generation: u64) {
+    pub(super) fn redacted_save(&mut self, target: Option<PathBuf>, doc_id: u64) {
         let Some(target) = target else {
             self.status = "Not redacted.".into();
             return;
         };
-        let Some(doc) = self.doc.as_ref().filter(|d| d.generation == generation) else {
+        let Some(doc) = self.doc.as_ref().filter(|d| d.id == doc_id) else {
             self.status = "Not redacted: another document was opened meanwhile.".into();
             return;
         };
-        let same = |a: &std::path::Path, b: &std::path::Path| {
-            a == b || matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y)
-        };
-        if same(&target, &doc.path) {
+        if super::files::same_file(&target, &doc.path) {
             self.status = "Not redacted: choose a new name, so the original stays as it is.".into();
             return;
         }
@@ -429,19 +429,30 @@ impl App {
             let _ = tx.send(redact_job(&form, &fields, &marks, &target));
             ctx.request_repaint();
         });
-        self.redact.job = Some(rx);
+        self.redact.job = Some((doc_id, rx));
     }
 
-    fn redact_poll(&mut self) {
-        let Some(rx) = &self.redact.job else { return };
-        let Ok(res) = rx.try_recv() else { return };
+    pub(super) fn redact_poll(&mut self) {
+        let Some((doc_id, rx)) = &self.redact.job else {
+            return;
+        };
+        let doc_id = *doc_id;
+        let res = match rx.try_recv() {
+            Ok(res) => res,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            // The job ended without an answer (it crashed).
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                Err("the redaction stopped unexpectedly. Nothing was saved.".into())
+            }
+        };
         self.redact.job = None;
         match res {
             Ok((path, msg)) => {
-                self.tool = Tool::None;
-                // The marks are done with; unsaved field changes of the
-                // original are still asked about.
-                if let Some(doc) = self.doc.as_mut() {
+                // The marks are done with, if they are still the open
+                // document's; unsaved field changes of the original are
+                // still asked about.
+                if let Some(doc) = self.doc.as_mut().filter(|d| d.id == doc_id) {
+                    self.tool = Tool::None;
                     doc.redactions.clear();
                 }
                 self.request_open(path);
@@ -449,6 +460,17 @@ impl App {
             }
             Err(e) => self.status = format!("Could not redact: {e}"),
         }
+    }
+
+    /// A redaction is being written ("Redacting…").
+    pub(super) fn redacting(&self) -> bool {
+        self.redact.job.is_some()
+    }
+
+    /// Tests: a redaction job of document `doc_id` that answers on `rx`.
+    #[cfg(test)]
+    pub(super) fn set_redact_job(&mut self, doc_id: u64, rx: Receiver<JobResult>) {
+        self.redact.job = Some((doc_id, rx));
     }
 }
 
@@ -461,7 +483,7 @@ fn redact_job(
 ) -> JobResult {
     let bytes = pdfr_core::save::save(form, fields).map_err(|e| e.to_string())?;
     let out = pdfr_core::redact::redact(&bytes, marks)?;
-    std::fs::write(target, &out.bytes).map_err(|e| e.to_string())?;
+    pdfr_core::fsx::write_atomic(target, &out.bytes).map_err(|e| e.to_string())?;
     let name = target
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())

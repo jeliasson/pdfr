@@ -157,8 +157,7 @@ impl App {
         {
             self.focus = None;
         }
-        self.side_sel = self.side_sel.iter().filter_map(|&p| new_page(p)).collect();
-        self.side_anchor = self.side_anchor.and_then(new_page);
+        // (The sidebar's selection follows its pages in `apply_form`.)
         self.ctx_field = None;
         self.choice_open = None;
         self.apply_form(form);
@@ -251,11 +250,11 @@ impl App {
             [p] => format!("{stem}-page-{}.pdf", p + 1),
             _ => format!("{stem}-pages.pdf"),
         };
-        let generation = doc.generation;
+        let doc_id = doc.id;
         if !native_dialogs() {
             let mut d = builtin::dialog(doc.path.parent(), Some(&name));
             d.save_file();
-            self.builtin_dialog = Some((d, builtin::Purpose::Extract(pages, generation)));
+            self.builtin_dialog = Some((d, builtin::Purpose::Extract(pages, doc_id)));
             return;
         }
         let mut dlg = self
@@ -267,22 +266,24 @@ impl App {
         }
         let task = dlg.save_file();
         self.wait_for_dialog(async move {
-            DialogResult::Extract(
-                task.await.map(|h| h.path().to_path_buf()),
-                pages,
-                generation,
-            )
+            DialogResult::Extract(task.await.map(|h| h.path().to_path_buf()), pages, doc_id)
         });
     }
 
     /// Writes `pages` (with what is filled in on them) to `target`.
-    pub(super) fn extract_to(&mut self, target: PathBuf, pages: &[usize], generation: u64) {
-        let Some(doc) = self.doc.as_ref().filter(|d| d.generation == generation) else {
-            self.status = "Not extracted: the document changed meanwhile.".into();
+    pub(super) fn extract_to(&mut self, target: PathBuf, pages: &[usize], doc_id: u64) {
+        let Some(doc) = self.doc.as_ref().filter(|d| d.id == doc_id) else {
+            self.status = "Not extracted: another document was opened meanwhile.".into();
             return;
         };
+        // The open file would lose its other pages, with no undo.
+        if super::files::same_file(&target, &doc.path) {
+            self.status =
+                "Not extracted: choose a new name, so the original stays as it is.".into();
+            return;
+        }
         let res = pdfr_core::pages::extract(&doc.form, &doc.fields(), &doc.mark_list(), pages)
-            .and_then(|b| std::fs::write(&target, b).map_err(|e| e.to_string()));
+            .and_then(|b| pdfr_core::fsx::write_atomic(&target, &b).map_err(|e| e.to_string()));
         self.status = match res {
             Ok(()) => format!("Saved {} as {}.", pages_text(pages), target.display()),
             Err(e) => format!("Could not extract: {e}"),

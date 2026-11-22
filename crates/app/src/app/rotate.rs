@@ -106,6 +106,7 @@ impl App {
                 old_to_new[o] = Some(i);
             }
         }
+        let old_count = doc.form.pages.len();
         let moved =
             map.len() != old_to_new.len() || map.iter().enumerate().any(|(i, o)| *o != Some(i));
         let render = form.render_bytes();
@@ -120,13 +121,19 @@ impl App {
             })
             .collect();
         doc.form = form;
+        remap_keys(&mut doc.text, &old_to_new);
+        // Pages changed, and pages whose detection or text has not arrived
+        // (an answer on its way is dropped as out of date): done again.
+        let redo: Vec<usize> = (0..doc.sizes.len())
+            .filter(|&i| changed.contains(&i) || !doc.detected[i] || !doc.text.contains_key(&i))
+            .collect();
         doc.generation = self
             .worker
-            .replace_document(render, &changed, editable, &old_to_new);
+            .replace_document(render, &redo, editable, &old_to_new);
+        doc.content = doc.generation;
         doc.pending.clear();
         remap_keys(&mut doc.tex, &old_to_new);
         remap_keys(&mut doc.thumbs, &old_to_new);
-        remap_keys(&mut doc.text, &old_to_new);
         remap_keys(&mut doc.text_links, &old_to_new);
         for links in doc.text_links.values_mut() {
             for l in links.iter_mut() {
@@ -138,6 +145,23 @@ impl App {
         doc.reorder();
         self.thumbs_asked.clear();
         self.side_follow = None;
+        // Pages selected in the sidebar follow their pages (turned ones
+        // too); those of pages that are gone are let go. Undo and redo come
+        // here as well as page changes.
+        let mut sel_map = vec![None; old_count];
+        for (i, o) in map.iter().enumerate() {
+            if let Some(o) = *o
+                && let Some(slot) = sel_map.get_mut(o)
+            {
+                *slot = Some(i);
+            }
+        }
+        let follow = |p: usize| sel_map.get(p).copied().flatten();
+        self.side_sel = self.side_sel.iter().filter_map(|&p| follow(p)).collect();
+        self.side_anchor = self.side_anchor.and_then(follow);
+        self.side_drag = None;
+        // A page change waiting for an answer was about the old pages.
+        self.page_confirm = None;
         if self
             .text_sel
             .as_ref()

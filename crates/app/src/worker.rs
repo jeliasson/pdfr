@@ -40,8 +40,11 @@ pub enum Msg {
         page: usize,
         tex: Option<TextureHandle>,
     },
+    /// Detection and text answers carry the content epoch (`content`), not
+    /// the render generation: drawing pages dark does not change what is on
+    /// them, so an answer made before the switch is still good.
     Detected {
-        generation: u64,
+        content: u64,
         page: usize,
         fields: Vec<Field>,
         text: Vec<pdfr_core::text::TextRun>,
@@ -49,13 +52,13 @@ pub enum Msg {
     },
     /// A page's text, for documents without detection (search, copy).
     Text {
-        generation: u64,
+        content: u64,
         page: usize,
         text: Vec<pdfr_core::text::TextRun>,
         scan: Scan,
     },
     /// Reading a scanned page's text has started (it takes a while).
-    Reading { generation: u64 },
+    Reading { content: u64 },
 }
 
 /// Where a page's text came from.
@@ -71,7 +74,10 @@ pub enum Scan {
 
 #[derive(Default)]
 struct State {
+    /// The render epoch: a new document, changed pages, dark on or off.
     generation: u64,
+    /// The generation at which the pages last changed (not by dark).
+    content: u64,
     bytes: Option<Arc<Vec<u8>>>,
     /// page -> (scale, priority); lower priority value is served first.
     renders: HashMap<usize, (f32, f32)>,
@@ -136,9 +142,11 @@ impl Worker {
     }
 
     /// Switches to a new document. Returns its generation number.
+    /// It is also the document's content epoch (see [`Msg::Detected`]).
     pub fn set_document(&self, bytes: Arc<Vec<u8>>, pages: usize, detect: bool) -> u64 {
         let mut s = self.shared.state.lock().unwrap();
         s.generation += 1;
+        s.content = s.generation;
         s.bytes = Some(bytes);
         s.renders.clear();
         s.thumbs.clear();
@@ -165,6 +173,7 @@ impl Worker {
     ) -> u64 {
         let mut s = self.shared.state.lock().unwrap();
         s.generation += 1;
+        s.content = s.generation;
         s.bytes = Some(bytes);
         s.renders.clear();
         s.thumbs.clear();
@@ -198,7 +207,8 @@ impl Worker {
     }
 
     /// Shows pages dark (or light again). Images in the making are dropped:
-    /// returns the new generation number. Detection carries on.
+    /// returns the new generation number. Detection carries on, and its
+    /// answers stay good (the content epoch does not change).
     pub fn set_dark(&self, dark: bool) -> u64 {
         let mut s = self.shared.state.lock().unwrap();
         s.dark = dark;
@@ -264,9 +274,17 @@ fn run(shared: Arc<Shared>, tx: Sender<Msg>, ctx: egui::Context, pictures_only: 
                 return;
             }
             generation = s.generation;
-            s.bytes.clone().unwrap()
+            (s.bytes.clone().unwrap(), s.content)
         };
-        serve(&shared, &tx, &ctx, generation, &bytes, pictures_only);
+        let (bytes, content) = bytes;
+        serve(
+            &shared,
+            &tx,
+            &ctx,
+            (generation, content),
+            &bytes,
+            pictures_only,
+        );
     }
 }
 
@@ -306,7 +324,7 @@ fn serve(
     shared: &Shared,
     tx: &Sender<Msg>,
     ctx: &egui::Context,
-    generation: u64,
+    (generation, content): (u64, u64),
     bytes: &Arc<Vec<u8>>,
     pictures_only: bool,
 ) {
@@ -317,14 +335,14 @@ fn serve(
             let msg = match job {
                 Job::Render(page, _) => Msg::RenderFailed { generation, page },
                 Job::Detect(page) => Msg::Detected {
-                    generation,
+                    content,
                     page,
                     fields: vec![],
                     text: vec![],
                     scan: Scan::Digital,
                 },
                 Job::Text(page) => Msg::Text {
-                    generation,
+                    content,
                     page,
                     text: vec![],
                     scan: Scan::Digital,
@@ -357,7 +375,12 @@ fn serve(
                     continue;
                 };
                 let (w, h) = page_geom(p).display_size();
-                let scale = requested.min(MAX_TEX_SIDE / w.max(h)).max(0.05);
+                let Some(scale) = render_scale(requested, w, h) else {
+                    if !failed(tx) {
+                        return;
+                    }
+                    continue;
+                };
                 let res = catch_unwind(AssertUnwindSafe(|| render_page(p, &cache, scale)));
                 let Ok(mut img) = res else {
                     cache = RenderCache::new();
@@ -391,7 +414,11 @@ fn serve(
             Job::Thumb(page) => {
                 let tex = pages.get(page).and_then(|p| {
                     let (w, h) = page_geom(p).display_size();
-                    let scale = (THUMB_PX / w.max(1.0)).min(THUMB_PX * 2.0 / h.max(1.0));
+                    let scale = render_scale(
+                        (THUMB_PX / w.max(1.0)).min(THUMB_PX * 2.0 / h.max(1.0)),
+                        w,
+                        h,
+                    )?;
                     let mut img =
                         catch_unwind(AssertUnwindSafe(|| render_page(p, &cache, scale))).ok()?;
                     if dark(shared) {
@@ -421,14 +448,19 @@ fn serve(
                     .and_then(|p| {
                         catch_unwind(AssertUnwindSafe(|| {
                             let mut text = pdfr_core::text::extract(p, &text_cache);
-                            let scan = read_scan(shared, tx, generation, &mut text, || {
-                                let img = render_page(p, &cache, DETECT_SCALE);
-                                PageGray {
-                                    w: img.width as usize,
-                                    h: img.height as usize,
-                                    px: img.to_gray(),
-                                }
-                            });
+                            let (w, h) = page_geom(p).display_size();
+                            // A page too large to draw is not read either.
+                            let scan = match render_scale(DETECT_SCALE, w, h) {
+                                Some(scale) => read_scan(shared, tx, content, &mut text, || {
+                                    let img = render_page(p, &cache, scale);
+                                    PageGray {
+                                        w: img.width as usize,
+                                        h: img.height as usize,
+                                        px: img.to_gray(),
+                                    }
+                                }),
+                                None => Scan::Digital,
+                            };
                             (text, scan)
                         }))
                         .ok()
@@ -436,7 +468,7 @@ fn serve(
                     .unwrap_or((vec![], Scan::Digital));
                 if tx
                     .send(Msg::Text {
-                        generation,
+                        content,
                         page,
                         text,
                         scan,
@@ -451,7 +483,7 @@ fn serve(
                 let Some(p) = pages.get(page) else {
                     if tx
                         .send(Msg::Detected {
-                            generation,
+                            content,
                             page,
                             fields: vec![],
                             text: vec![],
@@ -479,14 +511,14 @@ fn serve(
                 .unwrap_or_default();
                 let mut scan = Scan::Digital;
                 if let Some(gray) = gray {
-                    scan = read_scan(shared, tx, generation, &mut text, || gray);
+                    scan = read_scan(shared, tx, content, &mut text, || gray);
                     if scan == Scan::Read {
                         pdfr_core::detect::fit_scan_words(&mut fields, &mut text);
                     }
                 }
                 if tx
                     .send(Msg::Detected {
-                        generation,
+                        content,
                         page,
                         fields,
                         text,
@@ -502,12 +534,26 @@ fn serve(
     }
 }
 
+/// The scale to render a `w` × `h` point page at, `wanted` capped so that
+/// neither side passes [`MAX_TEX_SIDE`] pixels. `None` for a page too large
+/// to show at any useful size (or with a broken size).
+fn render_scale(wanted: f32, w: f32, h: f32) -> Option<f32> {
+    /// Below this, a page is a smudge of a few pixels: not worth drawing.
+    const MIN_SCALE: f32 = 0.01;
+    let side = w.max(h);
+    if !side.is_finite() || side <= 0.0 || !wanted.is_finite() || wanted <= 0.0 {
+        return None;
+    }
+    let scale = wanted.min(MAX_TEX_SIDE / side);
+    (scale >= MIN_SCALE).then_some(scale)
+}
+
 /// On a page without a text layer, reads its text from the picture (made
 /// by `gray` only then) while reading scans is on and its models load.
 fn read_scan(
     shared: &Shared,
     tx: &Sender<Msg>,
-    generation: u64,
+    content: u64,
     text: &mut Vec<TextRun>,
     gray: impl FnOnce() -> PageGray,
 ) -> Scan {
@@ -520,7 +566,7 @@ fn read_scan(
     let gray = gray();
     let mut reader = shared.reader.lock().unwrap_or_else(|e| e.into_inner());
     // Waited while another page was read: the document may have changed.
-    if shared.state.lock().unwrap().generation != generation {
+    if shared.state.lock().unwrap().content != content {
         return Scan::Unread;
     }
     if reader.as_ref().is_none_or(|(d, _)| *d != dir) {
@@ -529,7 +575,7 @@ fn read_scan(
     let Some((_, r)) = reader.as_ref() else {
         return Scan::Unread;
     };
-    let _ = tx.send(Msg::Reading { generation });
+    let _ = tx.send(Msg::Reading { content });
     let res = catch_unwind(AssertUnwindSafe(|| r.read(&gray)));
     match res {
         Ok(words) => {
@@ -537,5 +583,55 @@ fn read_scan(
             Scan::Read
         }
         Err(_) => Scan::Unread,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn render_scale_is_capped() {
+        assert_eq!(render_scale(2.0, 612.0, 792.0), Some(2.0));
+        // A huge page: the cap holds (there is no floor above it).
+        let s = render_scale(1.0, 200_000.0, 100.0).unwrap();
+        assert!(s * 200_000.0 <= MAX_TEX_SIDE + 0.5);
+        // Absurd or broken sizes are not drawn at all.
+        assert_eq!(render_scale(1.0, 2_000_000.0, 100.0), None);
+        assert_eq!(render_scale(1.0, f32::INFINITY, 100.0), None);
+        assert_eq!(render_scale(1.0, 0.0, 0.0), None);
+        assert_eq!(render_scale(f32::NAN, 100.0, 100.0), None);
+    }
+
+    /// Switching dark pages on and off while pages are being detected:
+    /// every answer still counts, so every page ends up detected.
+    #[test]
+    fn detection_survives_dark_switches() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../samples/links.pdf");
+        let form = pdfr_core::forms::FormDoc::open(std::fs::read(path).unwrap()).unwrap();
+        let n = form.pages.len();
+        let w = Worker::new(egui::Context::default());
+        let current = w.set_document(form.render_bytes(), n, true);
+        let mut done = vec![false; n];
+        let start = std::time::Instant::now();
+        let mut flips = 0;
+        while !done.iter().all(|d| *d) {
+            if flips < 40 {
+                w.set_dark(flips % 2 == 0);
+                flips += 1;
+            }
+            while let Ok(m) = w.rx.try_recv() {
+                if let Msg::Detected { content, page, .. } = m
+                    && content == current
+                {
+                    done[page] = true;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+            assert!(
+                start.elapsed() < std::time::Duration::from_secs(60),
+                "pages never detected: {done:?}"
+            );
+        }
     }
 }

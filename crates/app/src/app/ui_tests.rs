@@ -1597,12 +1597,12 @@ fn redact_mark_remove_undo_and_apply() {
     key(&mut h, Key::Escape);
     assert!(!h.state().redact.confirm);
     // The original is never the target.
-    let generation = h.state().doc.as_ref().unwrap().generation;
+    let doc_id = h.state().doc.as_ref().unwrap().id;
     h.state_mut()
-        .redacted_save(Some(sample("flat_form.pdf")), generation);
+        .redacted_save(Some(sample("flat_form.pdf")), doc_id);
     assert!(h.state().status.contains("choose a new name"));
     let out = dir.join("flat_form (redacted).pdf");
-    h.state_mut().redacted_save(Some(out.clone()), generation);
+    h.state_mut().redacted_save(Some(out.clone()), doc_id);
     // The copy is written and opened, without the marked text.
     let start = Instant::now();
     loop {
@@ -2248,11 +2248,11 @@ fn what_an_agent_clicks_through_is_asked_about_too() {
     agent(&mut h, "fill", json!({"ref": name, "value": "Anna"}));
     let other = dir.join("existing.pdf");
     std::fs::write(&other, b"someone else's file").unwrap();
-    let generation = h.state().doc.as_ref().unwrap().generation;
+    let doc_id = h.state().doc.as_ref().unwrap().id;
     // The agent got a save dialog to name a file that is already there.
     h.state_mut().handle_dialog(files::DialogResult::Save(
         Some(other.clone()),
-        generation,
+        doc_id,
         files::AfterSave::Nothing,
     ));
     h.run_steps(2);
@@ -2438,6 +2438,235 @@ fn closing_the_window_closes_settings_first() {
     type_text(&mut h, "Anna");
     close(&mut h);
     assert!(matches!(h.state().confirm, Some(Confirm::Close)));
+}
+
+// ------------------------------------------------------------ saving and document state
+
+/// Saving over a private file through a symlink: the link stays a link,
+/// the file it points at gets the PDF and keeps its 0600 mode.
+#[cfg(unix)]
+#[test]
+fn saving_keeps_the_file_mode_and_symlinks() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = data_dir("save-mode", None);
+    let mut h = harness("flat_form.pdf", dir.clone());
+    click_doc(&mut h, 300.0, 178.0);
+    type_text(&mut h, "Anna");
+    let real = dir.join("private.pdf");
+    std::fs::write(&real, b"old").unwrap();
+    std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let link = dir.join("link.pdf");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    assert!(h.state_mut().save_to(link.clone()), "{}", h.state().status);
+    assert!(
+        std::fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert!(std::fs::read(&real).unwrap().starts_with(b"%PDF"));
+    let mode = std::fs::metadata(&real).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600);
+    // A new file is private too.
+    let fresh = dir.join("fresh.pdf");
+    assert!(h.state_mut().save_to(fresh.clone()));
+    let mode = std::fs::metadata(&fresh).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600);
+}
+
+/// Typing while another file loads: the loaded file waits behind "Save
+/// changes?" instead of replacing the typing.
+#[test]
+fn typing_during_a_slow_open_asks_before_discarding() {
+    use egui_kittest::kittest::Queryable;
+    let mut h = harness("flat_form.pdf", data_dir("slow-open", None));
+    h.state_mut().open_delay = Duration::from_millis(300);
+    h.state_mut().request_open(sample("real_form.pdf"));
+    assert!(h.state().confirm.is_none(), "nothing to ask yet");
+    click_doc(&mut h, 300.0, 178.0);
+    type_text(&mut h, "Anna");
+    let start = Instant::now();
+    while h.state().confirm.is_none() {
+        h.run_steps(1);
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(start.elapsed() < BG_WAIT, "never asked");
+    }
+    assert!(matches!(h.state().confirm, Some(Confirm::Open(_))));
+    assert!(
+        h.state()
+            .doc
+            .as_ref()
+            .unwrap()
+            .path
+            .ends_with("flat_form.pdf")
+    );
+    assert_eq!(entry_at(&h, 150.0, 168.0).f.value, "Anna");
+    // "Don't save" opens the file already loaded.
+    h.run_steps(2);
+    h.get_by_label("Don't save").click();
+    let start = Instant::now();
+    while !h
+        .state()
+        .doc
+        .as_ref()
+        .unwrap()
+        .path
+        .ends_with("real_form.pdf")
+    {
+        h.run_steps(1);
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(start.elapsed() < BG_WAIT, "not opened");
+    }
+}
+
+/// Only the newest open request's file is shown: a slow older one that
+/// arrives last does not replace it.
+#[test]
+fn an_older_open_finishing_late_is_dropped() {
+    let mut h = harness("flat_form.pdf", data_dir("open-order", None));
+    h.state_mut().open_delay = Duration::from_millis(400);
+    h.state_mut().open(sample("links.pdf"));
+    h.state_mut().open_delay = Duration::ZERO;
+    h.state_mut().open(sample("real_form.pdf"));
+    let start = Instant::now();
+    while h.state().opens_in_flight > 0 {
+        h.run_steps(1);
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(start.elapsed() < BG_WAIT);
+    }
+    h.run_steps(2);
+    assert!(
+        h.state()
+            .doc
+            .as_ref()
+            .unwrap()
+            .path
+            .ends_with("real_form.pdf")
+    );
+}
+
+/// Boxes picked in one document are let go when another opens: Delete
+/// there removes nothing.
+#[test]
+fn picks_are_cleared_on_open() {
+    let mut h = harness("flat_form.pdf", data_dir("picks-open", None));
+    ctrl_shift(&mut h, Key::B);
+    click_doc(&mut h, 300.0, 178.0);
+    assert_eq!(h.state().picks.len(), 1);
+    open_and_wait(&mut h, "flat_form.pdf");
+    assert!(h.state().picks.is_empty());
+    assert!(h.state().pick_drag.is_none() && h.state().last_nudge.is_none());
+    let n = h.state().doc.as_ref().unwrap().entries.len();
+    key(&mut h, Key::Delete);
+    assert_eq!(h.state().doc.as_ref().unwrap().entries.len(), n);
+}
+
+/// Undo and redo of a page move: the sidebar's selection follows its page,
+/// and a waiting page question is dropped.
+#[test]
+fn undo_of_a_page_move_fixes_the_selection() {
+    let mut h = harness("links.pdf", data_dir("side-undo", None));
+    h.state_mut().side_sel = vec![0];
+    h.state_mut().side_anchor = Some(0);
+    h.state_mut().move_pages(&[0], 3);
+    h.run_steps(2);
+    assert_eq!(h.state().side_sel, vec![2]);
+    assert_eq!(h.state().side_anchor, Some(2));
+    h.state_mut().page_confirm = Some(pages::PageOp::Blank { at: 0, like: 0 });
+    h.state_mut().undo(false);
+    assert_eq!(h.state().side_sel, vec![0]);
+    assert_eq!(h.state().side_anchor, Some(0));
+    assert!(h.state().page_confirm.is_none());
+    h.state_mut().undo(true);
+    assert_eq!(h.state().side_sel, vec![2]);
+    // A deleted page is no longer selected.
+    h.state_mut().delete_pages(&[2]);
+    h.run_steps(2);
+    assert!(h.state().side_sel.is_empty());
+    assert_eq!(h.state().side_anchor, None);
+}
+
+/// Save dialogs belong to the document, not to its render epoch: turning
+/// pages dark while the dialog is open still saves.
+#[test]
+fn dialogs_follow_the_document_not_the_render_epoch() {
+    let dir = data_dir("doc-id", None);
+    let mut h = harness("flat_form.pdf", dir.clone());
+    let id = h.state().doc.as_ref().unwrap().id;
+    let generation = h.state().doc.as_ref().unwrap().generation;
+    ctrl(&mut h, Key::M);
+    assert_ne!(h.state().doc.as_ref().unwrap().generation, generation);
+    let out = dir.join("saved.pdf");
+    h.state_mut().handle_dialog(files::DialogResult::Save(
+        Some(out.clone()),
+        id,
+        files::AfterSave::Nothing,
+    ));
+    assert!(std::fs::read(&out).unwrap().starts_with(b"%PDF"));
+    // Another document opened meanwhile: not saved.
+    open_and_wait(&mut h, "real_form.pdf");
+    let other = dir.join("other.pdf");
+    h.state_mut().handle_dialog(files::DialogResult::Save(
+        Some(other.clone()),
+        id,
+        files::AfterSave::Nothing,
+    ));
+    assert!(!other.exists());
+}
+
+/// Extracting pages over the open file is refused.
+#[test]
+fn extract_refuses_the_open_document() {
+    let dir = data_dir("extract-self", None);
+    let copy = dir.join("copy.pdf");
+    std::fs::copy(sample("links.pdf"), &copy).unwrap();
+    let mut h = harness("links.pdf", dir.clone());
+    h.state_mut().open(copy.clone());
+    let start = Instant::now();
+    while !h.state().doc.as_ref().unwrap().path.ends_with("copy.pdf") {
+        h.run_steps(1);
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(start.elapsed() < BG_WAIT);
+    }
+    let before = std::fs::read(&copy).unwrap();
+    let id = h.state().doc.as_ref().unwrap().id;
+    h.state_mut().extract_to(copy.clone(), &[0], id);
+    assert!(h.state().status.contains("choose a new name"));
+    assert_eq!(std::fs::read(&copy).unwrap(), before);
+    let out = dir.join("page1.pdf");
+    h.state_mut().extract_to(out.clone(), &[0], id);
+    assert!(std::fs::read(&out).unwrap().starts_with(b"%PDF"));
+}
+
+/// A redaction that finishes after another document was opened leaves that
+/// document's marks alone; a redaction that dies says so.
+#[test]
+fn redaction_results_only_touch_their_own_document() {
+    let mut h = harness("flat_form.pdf", data_dir("redact-other", None));
+    h.state_mut().add_redactions(vec![redact::RedactMark {
+        page: 0,
+        rect: PRect::new(40.0, 170.0, 120.0, 190.0),
+    }]);
+    let id = h.state().doc.as_ref().unwrap().id;
+    h.state_mut().open_delay = Duration::from_millis(500);
+    let (tx, rx) = channel();
+    h.state_mut().set_redact_job(id + 1000, rx);
+    tx.send(Ok((sample("real_form.pdf"), "Redacted.".into())))
+        .unwrap();
+    h.run_steps(1);
+    assert!(!h.state().redacting());
+    assert_eq!(h.state().doc.as_ref().unwrap().redactions.len(), 1);
+    // The job ends without an answer: an error, no "Redacting…" forever.
+    let (tx, rx) = channel::<redact::JobResult>();
+    h.state_mut().set_redact_job(id, rx);
+    drop(tx);
+    h.run_steps(1);
+    assert!(!h.state().redacting());
+    assert!(
+        h.state().status.starts_with("Could not redact"),
+        "{}",
+        h.state().status
+    );
 }
 
 fn ctrl_click(h: &mut Harness<'_, App>, p: Pos2) {

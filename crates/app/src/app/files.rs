@@ -41,7 +41,7 @@ impl raw_window_handle::HasDisplayHandle for ParentWindow {
 pub(super) enum DialogResult {
     /// The file picked, and whether it opens in a new window.
     Open(Option<PathBuf>, bool),
-    /// Save target, for the document opened as `generation`.
+    /// Save target, for the document `Doc::id`.
     Save(Option<PathBuf>, u64, AfterSave),
     /// Print result: `Ok(true)` printed, `Ok(false)` cancelled. (macOS
     /// prints from a sheet on the window instead.)
@@ -55,9 +55,9 @@ pub(super) enum DialogResult {
     PickImage(Option<PathBuf>),
     /// A PDF or picture to insert at a page.
     InsertFile(Option<PathBuf>, usize),
-    /// Where extracted pages go, for the document `generation`.
+    /// Where extracted pages go, for the document `Doc::id`.
     Extract(Option<PathBuf>, Vec<usize>, u64),
-    /// Where the redacted copy goes, for the document `generation`.
+    /// Where the redacted copy goes, for the document `Doc::id`.
     RedactedSave(Option<PathBuf>, u64),
 }
 
@@ -77,6 +77,26 @@ pub enum OpenFail {
         wrong: bool,
     },
     Other(String),
+}
+
+/// Whether two paths name the same file.
+pub(super) fn same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
+    a == b || matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y)
+}
+
+/// A new number for every document opened (`Doc::id`).
+fn next_doc_id() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// A file read in the background, and the request it answers.
+pub(super) struct OpenResult {
+    /// The request's number: only the newest request's file is shown.
+    pub seq: u64,
+    pub path: PathBuf,
+    pub res: Result<Opened, OpenFail>,
+    pub started: Instant,
 }
 
 /// Asking for a protected file's password.
@@ -120,13 +140,36 @@ impl App {
     }
 
     /// Opens a file in the background, with its password if it has one.
+    /// Each request gets a number; only the newest one's file is shown.
     pub(super) fn open_with(&mut self, path: PathBuf, password: Option<String>) {
         self.status = format!("Opening {}…", path.display());
         self.opens_in_flight += 1;
+        self.open_seq += 1;
+        let seq = self.open_seq;
+        // Changes made before now were already asked about (or there were
+        // none); changes made while the file loads are asked about then.
+        self.open_dirty = self.doc.as_ref().is_some_and(|d| d.dirty);
+        // A file that was loaded already and held while the user was asked.
+        if let Some((p, opened, started)) = self.held_open.take()
+            && p == path
+            && password.is_none()
+        {
+            let _ = self.open_tx.send(OpenResult {
+                seq,
+                path: p,
+                res: Ok(opened),
+                started,
+            });
+            return;
+        }
         let tx = self.open_tx.clone();
         let started = Instant::now();
+        #[cfg(test)]
+        let delay = self.open_delay;
         std::thread::spawn(move || {
             use pdfr_core::forms::OpenError;
+            #[cfg(test)]
+            std::thread::sleep(delay);
             let res = std::fs::read(&path)
                 .map_err(|e| OpenFail::Other(e.to_string()))
                 .and_then(|b| {
@@ -140,8 +183,50 @@ impl App {
                     let render = form.render_bytes();
                     Opened { form, render }
                 });
-            let _ = tx.send((path, res, started));
+            let _ = tx.send(OpenResult {
+                seq,
+                path,
+                res,
+                started,
+            });
         });
+    }
+
+    /// A file finished loading in the background.
+    pub(super) fn opened(&mut self, r: OpenResult, ctx: &egui::Context) {
+        self.opens_in_flight = self.opens_in_flight.saturating_sub(1);
+        // Another file was asked for since: this one is not wanted.
+        if r.seq != self.open_seq {
+            return;
+        }
+        let OpenResult {
+            path, res, started, ..
+        } = r;
+        match res {
+            // Changes were made while it loaded: ask before they go.
+            Ok(opened)
+                if !self.open_dirty
+                    && self.doc.as_ref().is_some_and(|d| d.dirty)
+                    && !self.automated() =>
+            {
+                self.status = format!("{} is ready to open.", path.display());
+                self.held_open = Some((path.clone(), opened, started));
+                self.confirm = Some(Confirm::Open(path));
+            }
+            Ok(opened) => self.finish_open(path, opened, started, ctx),
+            // Automated runs (screenshots, --save) cannot ask: they stop.
+            Err(e) if self.automated() => {
+                eprintln!("pdfr: could not open {}: {e:?}", path.display());
+                std::process::exit(1);
+            }
+            Err(OpenFail::Password { wrong }) => {
+                self.status = "This PDF is protected with a password.".into();
+                self.password = Some(PasswordAsk::new(path, wrong));
+            }
+            Err(OpenFail::Other(e)) => {
+                self.status = format!("Could not open {}: {e}", path.display())
+            }
+        }
     }
 
     /// The question for a protected file's password, while open.
@@ -238,6 +323,7 @@ impl App {
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
         let mut doc = Doc {
+            id: next_doc_id(),
             path,
             name,
             form: form.clone(),
@@ -249,6 +335,7 @@ impl App {
             tex: HashMap::new(),
             pending: HashMap::new(),
             generation,
+            content: generation,
             detected: vec![!editable; n],
             save_path: None,
             dirty: false,
@@ -278,6 +365,10 @@ impl App {
         self.ctx_field = None;
         self.typing_run = None;
         self.drag_start = None;
+        self.picks.clear();
+        self.pick_drag = None;
+        self.last_nudge = None;
+        self.held_open = None;
         self.tool = Tool::None;
         self.marks_ui = Default::default();
         self.assist.close_list();
@@ -460,12 +551,8 @@ impl App {
         match res {
             DialogResult::Open(Some(p), false) => self.request_open(p),
             DialogResult::Open(Some(p), true) => self.open_in_new_window(p),
-            DialogResult::Save(Some(p), generation, after) => {
-                if self
-                    .doc
-                    .as_ref()
-                    .is_some_and(|d| d.generation == generation)
-                {
+            DialogResult::Save(Some(p), doc_id, after) => {
+                if self.doc.as_ref().is_some_and(|d| d.id == doc_id) {
                     if self.save_to(p) {
                         self.after_save(after);
                     }
@@ -477,7 +564,7 @@ impl App {
             DialogResult::Printed(Ok(false)) => self.status = "Printing cancelled.".into(),
             DialogResult::Printed(Err(e)) => self.status = format!("Could not print: {e}"),
             DialogResult::SignedSave(p, generation) => self.digital_save(p, generation),
-            DialogResult::RedactedSave(p, generation) => self.redacted_save(p, generation),
+            DialogResult::RedactedSave(p, doc_id) => self.redacted_save(p, doc_id),
             DialogResult::PickCert(Some(p)) => self.digital_file_picked(p),
             DialogResult::PickImage(Some(p)) => self.signature_image_picked(p),
             DialogResult::InsertFile(Some(p), at) => {
@@ -532,11 +619,11 @@ impl App {
         if self.dialog_open() {
             return;
         }
-        let generation = doc.generation;
+        let doc_id = doc.id;
         if !native_dialogs() {
             let mut d = builtin::dialog(doc.path.parent(), Some(&Self::suggested_name(doc)));
             d.save_file();
-            self.builtin_dialog = Some((d, builtin::Purpose::Save(generation, after)));
+            self.builtin_dialog = Some((d, builtin::Purpose::Save(doc_id, after)));
             return;
         }
         let mut dlg = self
@@ -548,11 +635,7 @@ impl App {
         }
         let task = dlg.save_file();
         self.wait_for_dialog(async move {
-            DialogResult::Save(
-                task.await.map(|h| h.path().to_path_buf()),
-                generation,
-                after,
-            )
+            DialogResult::Save(task.await.map(|h| h.path().to_path_buf()), doc_id, after)
         });
     }
 
@@ -562,32 +645,27 @@ impl App {
         };
         let fields = doc.fields();
         match pdfr_core::save::save_with(&doc.form, &fields, &doc.mark_list()) {
-            Ok(bytes) => {
-                let tmp = target.with_extension("pdf.pdfr-tmp");
-                let res = std::fs::write(&tmp, &bytes).and_then(|_| std::fs::rename(&tmp, &target));
-                match res {
-                    Ok(()) => {
-                        doc.save_path = Some(target.clone());
-                        doc.dirty = false;
-                        self.status = if doc.form.was_protected {
-                            format!(
-                                "Saved {}. The saved copy is not password-protected.",
-                                target.display()
-                            )
-                        } else {
-                            format!("Saved {}.", target.display())
-                        };
-                        self.assist.on_save(doc);
-                        self.license.on_save();
-                        true
-                    }
-                    Err(e) => {
-                        let _ = std::fs::remove_file(&tmp);
-                        self.status = format!("Could not save: {e}");
-                        false
-                    }
+            Ok(bytes) => match pdfr_core::fsx::write_atomic(&target, &bytes) {
+                Ok(()) => {
+                    doc.save_path = Some(target.clone());
+                    doc.dirty = false;
+                    self.status = if doc.form.was_protected {
+                        format!(
+                            "Saved {}. The saved copy is not password-protected.",
+                            target.display()
+                        )
+                    } else {
+                        format!("Saved {}.", target.display())
+                    };
+                    self.assist.on_save(doc);
+                    self.license.on_save();
+                    true
                 }
-            }
+                Err(e) => {
+                    self.status = format!("Could not save: {e}");
+                    false
+                }
+            },
             Err(e) => {
                 self.status = format!("Could not save: {e}");
                 false
@@ -672,6 +750,7 @@ pub(super) mod builtin {
     pub enum Purpose {
         /// Open a file (in a new window when `true`).
         Open(bool),
+        /// Saving document `Doc::id`.
         Save(u64, AfterSave),
         /// The digitally signed copy of document `generation`.
         SignedSave(u64),
@@ -679,9 +758,9 @@ pub(super) mod builtin {
         PickImage,
         /// A file to insert at a page.
         InsertFile(usize),
-        /// Where these pages of document `generation` are extracted to.
+        /// Where these pages of document `Doc::id` are extracted to.
         Extract(Vec<usize>, u64),
-        /// The redacted copy of document `generation`.
+        /// The redacted copy of document `Doc::id`.
         RedactedSave(u64),
     }
 

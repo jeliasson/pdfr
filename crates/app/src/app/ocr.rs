@@ -204,12 +204,9 @@ impl App {
             self.focus = None;
         }
         let editable = doc.form.editable();
-        // Same pages, same places: only these are read again.
+        // Same pages, same places: these are read again, and so are pages
+        // whose answer has not arrived (it would be dropped as out of date).
         let same: Vec<Option<usize>> = (0..doc.sizes.len()).map(Some).collect();
-        doc.generation =
-            self.worker
-                .replace_document(doc.form.render_bytes(), &pages, editable, &same);
-        doc.pending.clear();
         for &p in &pages {
             doc.text.remove(&p);
             doc.text_links.remove(&p);
@@ -217,6 +214,14 @@ impl App {
                 *d = !editable;
             }
         }
+        let redo: Vec<usize> = (0..doc.sizes.len())
+            .filter(|&i| pages.contains(&i) || !doc.detected[i] || !doc.text.contains_key(&i))
+            .collect();
+        doc.generation =
+            self.worker
+                .replace_document(doc.form.render_bytes(), &redo, editable, &same);
+        doc.content = doc.generation;
+        doc.pending.clear();
         doc.reorder();
         self.assist.invalidate();
     }

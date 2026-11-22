@@ -67,6 +67,9 @@ struct PageTex {
 }
 
 pub struct Doc {
+    /// Which document this is: new for every file opened, the same while
+    /// it is changed (unlike `generation`).
+    pub id: u64,
     pub path: PathBuf,
     pub name: String,
     pub form: Arc<FormDoc>,
@@ -79,7 +82,12 @@ pub struct Doc {
     tex: HashMap<usize, PageTex>,
     /// page -> scale requested and not yet delivered.
     pending: HashMap<usize, f32>,
+    /// The render epoch: changes with the pages, the dark setting and
+    /// reading scans again; worker pictures of an older one are dropped.
     generation: u64,
+    /// The content epoch: the generation at which the pages last changed
+    /// (not by the dark setting); older detection and text are dropped.
+    content: u64,
     pub detected: Vec<bool>,
     pub save_path: Option<PathBuf>,
     pub dirty: bool,
@@ -273,8 +281,17 @@ pub struct App {
     pub palette: Palette,
     omarchy_active: bool,
     theme_rx: Receiver<Option<Palette>>,
-    open_rx: Receiver<(PathBuf, Result<Opened, files::OpenFail>, Instant)>,
-    open_tx: Sender<(PathBuf, Result<Opened, files::OpenFail>, Instant)>,
+    open_rx: Receiver<files::OpenResult>,
+    open_tx: Sender<files::OpenResult>,
+    /// The newest open request's number.
+    open_seq: u64,
+    /// Whether the document had unsaved changes when it was asked for.
+    open_dirty: bool,
+    /// A file loaded while changes were made, waiting for "Save changes?".
+    held_open: Option<(PathBuf, Opened, Instant)>,
+    /// Tests: how long opening a file takes at least.
+    #[cfg(test)]
+    open_delay: std::time::Duration,
     /// A protected file waiting for its password.
     password: Option<files::PasswordAsk>,
     pub status: String,
@@ -396,6 +413,11 @@ impl App {
             theme_rx,
             open_rx,
             open_tx,
+            open_seq: 0,
+            open_dirty: false,
+            held_open: None,
+            #[cfg(test)]
+            open_delay: std::time::Duration::ZERO,
             password: None,
             status: "Open a PDF (Ctrl+O) or drop one here. F1 shows every shortcut.".into(),
             undo: vec![],
@@ -444,23 +466,8 @@ impl App {
         for p in crate::system::take_opened() {
             self.open_from_system(p);
         }
-        while let Ok((path, res, started)) = self.open_rx.try_recv() {
-            self.opens_in_flight = self.opens_in_flight.saturating_sub(1);
-            match res {
-                Ok(form) => self.finish_open(path, form, started, ctx),
-                // Automated runs (screenshots, --save) cannot ask: they stop.
-                Err(e) if self.automated() => {
-                    eprintln!("pdfr: could not open {}: {e:?}", path.display());
-                    std::process::exit(1);
-                }
-                Err(files::OpenFail::Password { wrong }) => {
-                    self.status = "This PDF is protected with a password.".into();
-                    self.password = Some(files::PasswordAsk::new(path, wrong));
-                }
-                Err(files::OpenFail::Other(e)) => {
-                    self.status = format!("Could not open {}: {e}", path.display())
-                }
-            }
+        while let Ok(r) = self.open_rx.try_recv() {
+            self.opened(r, ctx);
         }
         while let Ok(p) = self.theme_rx.try_recv() {
             self.omarchy_active = p.is_some();
@@ -513,26 +520,26 @@ impl App {
                     }
                     self.thumbs_asked.retain(|p| *p != page);
                 }
-                Msg::Reading { generation } if generation == doc.generation => {
+                Msg::Reading { content } if content == doc.content => {
                     doc.reading = true;
                 }
                 Msg::Text {
-                    generation,
+                    content,
                     page,
                     text,
                     scan,
-                } if generation == doc.generation => {
+                } if content == doc.content => {
                     unread |= Self::note_scan(doc, page, scan);
                     doc.text.insert(page, text);
                     Self::add_text_links(doc, page);
                 }
                 Msg::Detected {
-                    generation,
+                    content,
                     page,
                     fields,
                     text,
                     scan,
-                } if generation == doc.generation => {
+                } if content == doc.content => {
                     doc.detected[page] = true;
                     unread |= Self::note_scan(doc, page, scan);
                     // Panels that already hold printed answers start with
@@ -823,6 +830,7 @@ impl eframe::App for App {
             });
             if cancel {
                 self.confirm = None;
+                self.held_open = None;
             }
             let pal = self.palette.clone();
             let c = crate::assist_ui::widgets::Colors::new(&pal);
@@ -888,6 +896,7 @@ impl eframe::App for App {
                 self.confirm = None;
             } else if dismiss {
                 self.confirm = None;
+                self.held_open = None;
             }
             if proceed {
                 match what {
