@@ -184,16 +184,25 @@ mod tests {
         let d = temp_dir("mode");
         let f = d.join("new.pdf");
         write_atomic(&f, b"x").unwrap();
-        assert_eq!(fs::metadata(&f).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(
+            fs::metadata(&f).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
         let g = d.join("shared.pdf");
         fs::write(&g, b"old").unwrap();
         fs::set_permissions(&g, fs::Permissions::from_mode(0o640)).unwrap();
         write_atomic(&g, b"new").unwrap();
-        assert_eq!(fs::metadata(&g).unwrap().permissions().mode() & 0o777, 0o640);
+        assert_eq!(
+            fs::metadata(&g).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
         fs::set_permissions(&g, fs::Permissions::from_mode(0o666)).unwrap();
         write_atomic(&g, b"newer").unwrap();
         // Not reduced by the umask either.
-        assert_eq!(fs::metadata(&g).unwrap().permissions().mode() & 0o777, 0o666);
+        assert_eq!(
+            fs::metadata(&g).unwrap().permissions().mode() & 0o777,
+            0o666
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 
@@ -206,7 +215,12 @@ mod tests {
         let link = d.join("link.list");
         std::os::unix::fs::symlink("real.list", &link).unwrap();
         write_atomic(&link, b"new").unwrap();
-        assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        assert!(
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
         assert_eq!(fs::read(&real).unwrap(), b"new");
         // A link to a file that does not exist yet creates that file.
         let dangling = d.join("dangling");
