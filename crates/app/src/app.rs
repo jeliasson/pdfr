@@ -699,15 +699,28 @@ impl eframe::App for App {
             self.last_title = Some(title);
         }
 
-        // Cmd+W minimises on macOS (the window stays open, as with other
-        // single-window Mac apps); quitting is Cmd+Q.
+        // Cmd+W closes Settings if open, else minimises on macOS (the window
+        // stays open, as with other single-window Mac apps); quitting is Cmd+Q.
         #[cfg(target_os = "macos")]
         if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::W)) {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+            if self.assist.settings_open {
+                self.assist.close_settings();
+            } else {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+            }
         }
 
-        // Unsaved changes on close.
-        if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close {
+        // Closing the window (Super+W, the title bar's ×) while Settings is
+        // open closes Settings, which looks like a window of its own.
+        if ctx.input(|i| i.viewport().close_requested())
+            && !self.allow_close
+            && self.assist.settings_open
+            && !self.assist.restarting()
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.assist.close_settings();
+        } else if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close {
+            // Unsaved changes on close.
             if self.doc.as_ref().is_some_and(|d| d.dirty) {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                 self.confirm = Some(Confirm::Close);

@@ -101,6 +101,11 @@ impl AssistState {
         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
     }
 
+    /// Quitting to start the updated pdfr ("Restart").
+    pub fn restarting(&self) -> bool {
+        self.sys.restart.is_some()
+    }
+
     /// The pdfr to start once this one has quit, after "Restart".
     pub fn take_restart(&mut self) -> Option<std::path::PathBuf> {
         self.sys.restart.take()

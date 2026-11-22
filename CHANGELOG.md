@@ -5,6 +5,11 @@ version's section into its GitHub release notes.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Super+W (Cmd+W on a Mac) closes Settings** when it is open, instead of
+  closing pdfr.
+
 ## [0.6.1] - 2026-11-22
 
 Your AI agent can fill in forms with pdfr, and the AI helper works with

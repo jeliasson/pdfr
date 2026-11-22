@@ -1021,14 +1021,19 @@ impl AssistState {
             self.stale = true;
         }
         if act.close {
-            self.settings_open = false;
-            self.refresh_system();
-            self.settings_ui.confirm_clear = false;
-            // Looked for again the next time Settings opens.
-            self.settings_ui.ai_found = None;
-            self.settings_ui.ai_models = None;
-            self.settings_ui.ai_model_edit = None;
+            self.close_settings();
         }
+    }
+
+    /// Closes Settings (Done, Esc, or the window's close: Super/Cmd+W).
+    pub fn close_settings(&mut self) {
+        self.settings_open = false;
+        self.refresh_system();
+        self.settings_ui.confirm_clear = false;
+        // Looked for again the next time Settings opens.
+        self.settings_ui.ai_found = None;
+        self.settings_ui.ai_models = None;
+        self.settings_ui.ai_model_edit = None;
     }
 }
 

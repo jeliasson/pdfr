@@ -2413,3 +2413,29 @@ fn select_boxes_move_remove_and_undo() {
     assert!(h.state().tool == Tool::None);
     assert_eq!(count(&h), n0);
 }
+
+/// Closing the window (Super+W, the title bar's ×) while Settings is open
+/// closes Settings, not pdfr; the next close is the window's own.
+#[test]
+fn closing_the_window_closes_settings_first() {
+    let mut h = harness("flat_form.pdf", data_dir("close-settings", None));
+    let close = |h: &mut Harness<'_, App>| {
+        h.input_mut()
+            .viewports
+            .entry(egui::ViewportId::ROOT)
+            .or_default()
+            .events
+            .push(egui::ViewportEvent::Close);
+        h.run_steps(1);
+    };
+    h.state_mut().assist.open_settings("general");
+    h.run_steps(2);
+    close(&mut h);
+    assert!(!h.state().assist.settings_open, "Settings closed");
+    assert!(!h.state().allow_close);
+    // Unsaved changes: the next close asks first, as before.
+    click_doc(&mut h, 300.0, 178.0);
+    type_text(&mut h, "Anna");
+    close(&mut h);
+    assert!(matches!(h.state().confirm, Some(Confirm::Close)));
+}
