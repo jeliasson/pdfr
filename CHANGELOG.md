@@ -5,12 +5,13 @@ version's section into its GitHub release notes.
 
 ## [Unreleased]
 
-## [0.6.0] - 2026-11-22
+## [0.6.1] - 2026-11-22
 
 Your AI agent can fill in forms with pdfr, and the AI helper works with
 more tools, including models on your own computer. Select boxes to remove
 or move several at once, certificate signatures look formal, and scanned
-and printed text is read more cleanly.
+and printed text is read more cleanly. (0.6.0 was tagged but never
+published: its macOS build failed.)
 
 ### Added
 

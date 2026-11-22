@@ -3569,7 +3569,7 @@ dependencies = [
 
 [[package]]
 name = "pdfr"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "base64 0.23.1",
  "eframe",
@@ -3607,7 +3607,7 @@ dependencies = [
 
 [[package]]
 name = "pdfr-assist"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "dirs",
  "libc",
@@ -3619,7 +3619,7 @@ dependencies = [
 
 [[package]]
 name = "pdfr-core"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "base64 0.23.1",
  "hayro",
@@ -3633,7 +3633,7 @@ dependencies = [
 
 [[package]]
 name = "pdfr-license"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "base64 0.23.1",
  "dirs",
@@ -3645,7 +3645,7 @@ dependencies = [
 
 [[package]]
 name = "pdfr-ocr"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "ocrs",
  "pdfr-assist",
@@ -3657,7 +3657,7 @@ dependencies = [
 
 [[package]]
 name = "pdfr-sign"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "base64 0.23.1",
  "cmpv2",
