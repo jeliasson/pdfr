@@ -5,6 +5,13 @@ version's section into its GitHub release notes.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-22
+
+Your AI agent can fill in forms with pdfr, and the AI helper works with
+more tools, including models on your own computer. Select boxes to remove
+or move several at once, certificate signatures look formal, and scanned
+and printed text is read more cleanly.
+
 ### Added
 
 - **Your AI agent can use pdfr.** Connect Claude Code, Claude Desktop,
@@ -42,7 +49,6 @@ version's section into its GitHub release notes.
 - **Certificate signatures look formal**, like Adobe Acrobat's: your name in
   plain type beside "Digitally signed by", the date and the reason, instead
   of handwriting. A drawn signature is still an option under "Looks like".
-
 - **The text reader downloads from pdfr's own release** on GitHub instead
   of a third-party server (the same files, checked the same way).
 - **The Sign dialog stays put** near the top of the window when you switch
@@ -59,7 +65,7 @@ version's section into its GitHub release notes.
   into a box (the C of "CORRECT") is no longer offered as a checkbox.
 - **No stray spaces around wide letters.** Printed text with a wide letter
   (W, M, @) was read with a space on either side of it, so editing
-  "RK@WKEQUITY.COM" showed "RK@ W KEQUITY.COM". pdfr now uses each letter's
+  "ANNA@WEBMAIL.COM" showed "ANNA@ W EBMAIL.COM". pdfr now uses each letter's
   real width.
 
 ## [0.5.0] - 2026-11-21
