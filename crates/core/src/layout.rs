@@ -19,6 +19,13 @@ pub const LINE_BASELINE_GAP: f32 = 2.0;
 /// Line height as a multiple of the font size in multi-line fields.
 pub const LINE_SPACING: f32 = 1.15;
 
+/// A field's fixed font size, if it is one layout can use (finite, above
+/// 0, at most [`crate::forms::MAX_FONT_SIZE`]); otherwise the size is
+/// automatic.
+fn usable_size(size: Option<f32>) -> Option<f32> {
+    size.filter(|s| s.is_finite() && *s > 0.0 && *s <= crate::forms::MAX_FONT_SIZE)
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Glyph {
     /// The character drawn (a bullet for password fields).
@@ -85,7 +92,7 @@ pub fn layout(field: &Field, text: &str) -> Layout {
                 .collect();
             let avail = (r.width() - 2.0 * PAD).max(1.0);
             let width_at = |s: f32| flat.iter().map(|&c| f.advance(c, s)).sum::<f32>();
-            let size = match field.font_size {
+            let size = match usable_size(field.font_size) {
                 Some(s) => s.min(max_size_for_height(f, r.height())).max(1.0),
                 None => {
                     let mut s = (r.height() * AUTO_FRACTION).clamp(AUTO_MIN, AUTO_MAX);
@@ -124,7 +131,7 @@ pub fn layout(field: &Field, text: &str) -> Layout {
                 .max(1.0);
             // Reference width: a capital M must fit its cell with a little air.
             let m_em = f.advance('M', 1.0);
-            let size = match field.font_size {
+            let size = match usable_size(field.font_size) {
                 Some(s) => s.min(max_size_for_height(f, r.height())).max(1.0),
                 None => (r.height() * AUTO_FRACTION).clamp(AUTO_MIN, AUTO_MAX),
             }
@@ -163,7 +170,7 @@ pub fn layout(field: &Field, text: &str) -> Layout {
         TextMode::Multi => {
             let avail = (r.width() - 2.0 * PAD).max(1.0);
             let avail_h = (r.height() - 2.0 * PAD).max(1.0);
-            let size = match field.font_size {
+            let size = match usable_size(field.font_size) {
                 Some(s) => s,
                 None => {
                     let mut s = AUTO_MAX;

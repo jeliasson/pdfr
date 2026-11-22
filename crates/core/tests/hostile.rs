@@ -5,6 +5,7 @@
 //! UTF-8.
 
 use lopdf::{Dictionary, Document, Object, Stream, StringFormat, dictionary};
+use pdfr_core::field::FieldKind;
 use pdfr_core::forms::FormDoc;
 use pdfr_core::geom::Rect;
 use pdfr_core::redact::{Mark, redact};
@@ -370,4 +371,99 @@ fn shared_field_tree_redacts_quickly() {
     .unwrap();
     assert!(t.elapsed().as_secs() < 5, "{:?}", t.elapsed());
     assert_eq!(out.annotations_removed, 1);
+}
+
+// ---------------------------------------------------------------------------
+// C5 and C6: field details.
+
+fn one_field(field: Dictionary) -> Vec<u8> {
+    doc(
+        [0, 0, 612, 792],
+        Vec::new(),
+        move |d, page_id, page, cat| {
+            let mut field = field;
+            field.set("P", page_id);
+            let w = d.add_object(field);
+            page.set("Annots", vec![w.into()]);
+            cat.set("AcroForm", dictionary! {"Fields"=>vec![w.into()]});
+        },
+    )
+}
+
+#[test]
+fn absurd_font_sizes_are_ignored() {
+    for da in [
+        "/Helv inf Tf 0 g",
+        "/Helv NaN Tf",
+        "/Helv 1e30 Tf",
+        "/Helv -5 Tf",
+    ] {
+        let bytes = one_field(dictionary! {
+            "Type"=>"Annot","Subtype"=>"Widget","FT"=>"Tx","T"=>s("t"),"V"=>s("hello"),
+            "DA"=>s(da),"Rect"=>rect([100,600,200,620]),
+        });
+        let fd = FormDoc::open(bytes).unwrap();
+        assert_eq!(fd.fields[0].font_size, None, "{da}");
+        let out = pdfr_core::save::save(&fd, &fd.fields).unwrap();
+        FormDoc::open(out).unwrap();
+    }
+    assert_eq!(pdfr_core::forms::da_font_size("/Helv inf Tf"), None);
+    assert_eq!(pdfr_core::forms::da_font_size("/Helv 12 Tf"), Some(12.0));
+    for mode in [
+        pdfr_core::field::TextMode::Single,
+        pdfr_core::field::TextMode::Multi,
+    ] {
+        let mut f = pdfr_core::field::Field::new_text(
+            0,
+            Rect::new(0.0, 0.0, 100.0, 20.0),
+            mode,
+            pdfr_core::field::Origin::Manual,
+        );
+        f.font_size = Some(f32::INFINITY);
+        let l = pdfr_core::layout::layout(&f, "abc");
+        assert!(l.lines.iter().all(|l| l.baseline.is_finite()));
+    }
+}
+
+#[test]
+fn latin1_checkbox_state_survives_a_round_trip() {
+    let on = b"J\xe4".to_vec();
+    let bytes = doc([0, 0, 612, 792], Vec::new(), |d, page_id, page, cat| {
+        let on_ap = d.add_object(Stream::new(
+            dictionary! {"Type"=>"XObject","Subtype"=>"Form","BBox"=>rect([0,0,10,10])},
+            b"0 0 10 10 re f".to_vec(),
+        ));
+        let off_ap = d.add_object(Stream::new(
+            dictionary! {"Type"=>"XObject","Subtype"=>"Form","BBox"=>rect([0,0,10,10])},
+            Vec::new(),
+        ));
+        let mut n = Dictionary::new();
+        n.set(on.clone(), on_ap);
+        n.set("Off", off_ap);
+        let w = d.add_object(dictionary! {
+            "Type"=>"Annot","Subtype"=>"Widget","FT"=>"Btn","T"=>s("c"),
+            "V"=>"Off","AS"=>"Off","Rect"=>rect([100,600,110,610]),"P"=>page_id,
+            "AP"=>dictionary!{"N"=>n},
+        });
+        page.set("Annots", vec![w.into()]);
+        cat.set("AcroForm", dictionary! {"Fields"=>vec![w.into()]});
+    });
+    let fd = FormDoc::open(bytes).unwrap();
+    match &fd.fields[0].kind {
+        FieldKind::Checkbox { on_state } => assert_eq!(on_state, &on),
+        k => panic!("{k:?}"),
+    }
+    assert!(!fd.fields[0].checked);
+    let mut fields = fd.fields.clone();
+    fields[0].checked = true;
+    let out = pdfr_core::save::save(&fd, &fields).unwrap();
+    let back = FormDoc::open(out.clone()).unwrap();
+    assert!(back.fields[0].checked, "checked after a round trip");
+    let d = Document::load_mem(&out).unwrap();
+    let page = *d.get_pages().values().next().unwrap();
+    let annots = d.get_dictionary(page).unwrap().get(b"Annots").unwrap();
+    let w = annots.as_array().unwrap()[0].as_reference().unwrap();
+    let w = d.get_dictionary(w).unwrap();
+    assert_eq!(w.get(b"AS").unwrap().as_name().unwrap(), on.as_slice());
+    assert_eq!(w.get(b"V").unwrap().as_name().unwrap(), on.as_slice());
 }

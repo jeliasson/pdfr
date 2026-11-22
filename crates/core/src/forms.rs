@@ -437,20 +437,35 @@ pub(crate) fn inherited<'a>(chain: &[(ObjId, &'a Dictionary)], key: &[u8]) -> Op
     chain.iter().find_map(|(_, d)| d.get(key).ok())
 }
 
-/// Font size from a `/DA` string (`/Helv 0 Tf 0 g` -> `Some(0.0)`).
+/// The largest font size taken from a file (points); anything larger (or
+/// not a number, like `inf`) is ignored.
+pub const MAX_FONT_SIZE: f32 = 1000.0;
+
+/// Font size from a `/DA` string (`/Helv 0 Tf 0 g` -> `Some(0.0)`): only
+/// a finite size from 0 to [`MAX_FONT_SIZE`].
 pub fn da_font_size(da: &str) -> Option<f32> {
     let toks: Vec<&str> = da.split_whitespace().collect();
     let i = toks.iter().rposition(|t| *t == "Tf")?;
-    toks.get(i.checked_sub(1)?)?.parse().ok()
+    let s: f32 = toks.get(i.checked_sub(1)?)?.parse().ok()?;
+    (s.is_finite() && (0.0..=MAX_FONT_SIZE).contains(&s)).then_some(s)
 }
 
 /// The appearance state names of a widget's `/AP /N` dictionary other than Off.
-fn on_state(d: &Document, w: &Dictionary) -> Option<String> {
+/// Kept as raw bytes: a name need not be UTF-8 (`/J#E4` in Latin-1).
+fn on_state(d: &Document, w: &Dictionary) -> Option<Vec<u8>> {
     let ap = deref(d, w.get(b"AP").ok()?)?.as_dict().ok()?;
     let n = deref(d, ap.get(b"N").ok()?)?.as_dict().ok()?;
     n.iter()
-        .map(|(k, _)| String::from_utf8_lossy(k).into_owned())
-        .find(|k| k != "Off")
+        .map(|(k, _)| k.clone())
+        .find(|k| k.as_slice() != b"Off")
+}
+
+/// A name's raw bytes.
+fn get_name_bytes(d: &Document, dict: &Dictionary, key: &[u8]) -> Option<Vec<u8>> {
+    match deref(d, dict.get(key).ok()?)? {
+        Object::Name(n) => Some(n.clone()),
+        _ => None,
+    }
 }
 
 fn read_fields(doc: &Document, page_ids: &[ObjId], geoms: &[PageGeom]) -> Vec<Field> {
@@ -559,7 +574,7 @@ fn read_widget(doc: &Document, wid: ObjId, page: usize, geom: &PageGeom) -> Opti
             if ff & FF_PUSHBUTTON != 0 {
                 return None;
             }
-            let on = on_state(doc, w).unwrap_or_else(|| "Yes".into());
+            let on = on_state(doc, w).unwrap_or_else(|| b"Yes".to_vec());
             if ff & FF_RADIO != 0 {
                 FieldKind::Radio {
                     on_state: on,
@@ -602,10 +617,14 @@ fn read_widget(doc: &Document, wid: ObjId, page: usize, geom: &PageGeom) -> Opti
     };
     let checked = match &kind {
         FieldKind::Checkbox { on_state } | FieldKind::Radio { on_state, .. } => {
-            let as_ = get_name(doc, w, b"AS");
-            match as_ {
+            match get_name_bytes(doc, w, b"AS") {
                 Some(s) => &s == on_state,
-                None => &value == on_state,
+                None => {
+                    let v = value_owner
+                        .iter()
+                        .find_map(|(_, d)| get_name_bytes(doc, d, b"V"));
+                    v.as_ref().unwrap_or(&value.clone().into_bytes()) == on_state
+                }
             }
         }
         _ => false,

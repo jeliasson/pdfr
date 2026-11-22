@@ -297,7 +297,7 @@ pub fn check_paths(w: f32, h: f32) -> String {
 pub const CROSS_INSET: f32 = 0.22;
 pub const CROSS_WIDTH: f32 = 0.11;
 
-fn toggle_appearances(d: &mut Document, field: &Field, geom: &PageGeom, on: &str) -> Object {
+fn toggle_appearances(d: &mut Document, field: &Field, geom: &PageGeom, on: &[u8]) -> Object {
     let (w, h) = (field.rect.width(), field.rect.height());
     let mk = |content: String| {
         let mut dict = dictionary! {
@@ -314,12 +314,12 @@ fn toggle_appearances(d: &mut Document, field: &Field, geom: &PageGeom, on: &str
     let on_id = d.add_object(mk(check_paths(w, h)));
     let off_id = d.add_object(mk(String::new()));
     let mut n = Dictionary::new();
-    n.set(on.as_bytes().to_vec(), Object::Reference(on_id));
+    n.set(on.to_vec(), Object::Reference(on_id));
     n.set("Off", Object::Reference(off_id));
     Object::Dictionary(dictionary! { "N" => Object::Dictionary(n) })
 }
 
-fn has_on_appearance(d: &Document, widget: ObjId, on: &str) -> bool {
+fn has_on_appearance(d: &Document, widget: ObjId, on: &[u8]) -> bool {
     let Ok(w) = d.get_dictionary(widget) else {
         return false;
     };
@@ -335,7 +335,7 @@ fn has_on_appearance(d: &Document, widget: ObjId, on: &str) -> bool {
         .ok()
         .and_then(|o| deref(d, o))
         .and_then(|o| o.as_dict().ok())
-        .is_some_and(|n| n.has(on.as_bytes()))
+        .is_some_and(|n| n.has(on))
 }
 
 /// The `/AcroForm` dictionary id, creating it (as an indirect object) if needed.
@@ -560,7 +560,7 @@ fn build_fields(fd: &FormDoc, fields: &[Field]) -> Result<Document, SaveError> {
     }
 
     // Checkbox and radio fields -> on-state of a checked widget, if any.
-    let mut radio_values: HashMap<ObjId, Option<String>> = HashMap::new();
+    let mut radio_values: HashMap<ObjId, Option<Vec<u8>>> = HashMap::new();
     let mut written_v: HashSet<ObjId> = HashSet::new();
     let mut new_count = 0usize;
     // Names already in the file: new fields never reuse one (fields with the
@@ -596,7 +596,7 @@ fn build_fields(fd: &FormDoc, fields: &[Field]) -> Result<Document, SaveError> {
                         let state = if f.checked {
                             on_state.clone()
                         } else {
-                            "Off".into()
+                            b"Off".to_vec()
                         };
                         if f.checked && !has_on_appearance(&d, widget, on_state) {
                             let ap = toggle_appearances(&mut d, f, &geom, on_state);
@@ -605,7 +605,7 @@ fn build_fields(fd: &FormDoc, fields: &[Field]) -> Result<Document, SaveError> {
                             }
                         }
                         if let Ok(w) = d.get_dictionary_mut(widget) {
-                            w.set("AS", Object::Name(state.clone().into_bytes()));
+                            w.set("AS", Object::Name(state.clone()));
                         }
                         // One field may have several widgets: its value is the
                         // on-state of a checked one, written after the loop.
@@ -678,7 +678,12 @@ fn build_fields(fd: &FormDoc, fields: &[Field]) -> Result<Document, SaveError> {
                         if *password {
                             ff |= FF_PASSWORD;
                         }
-                        let size = f.font_size.unwrap_or(0.0);
+                        let size = f
+                            .font_size
+                            .filter(|s| {
+                                s.is_finite() && *s > 0.0 && *s <= crate::forms::MAX_FONT_SIZE
+                            })
+                            .unwrap_or(0.0);
                         match mode {
                             TextMode::Multi => ff |= FF_MULTILINE,
                             TextMode::Comb(cells) => {
@@ -720,8 +725,8 @@ fn build_fields(fd: &FormDoc, fields: &[Field]) -> Result<Document, SaveError> {
                     }
                     FieldKind::Checkbox { on_state } => {
                         w.set("FT", "Btn");
-                        w.set("V", Object::Name(on_state.clone().into_bytes()));
-                        w.set("AS", Object::Name(on_state.clone().into_bytes()));
+                        w.set("V", Object::Name(on_state.clone()));
+                        w.set("AS", Object::Name(on_state.clone()));
                         w.set(
                             "DA",
                             Object::String(b"/ZaDb 0 Tf 0 g".to_vec(), StringFormat::Literal),
@@ -743,10 +748,7 @@ fn build_fields(fd: &FormDoc, fields: &[Field]) -> Result<Document, SaveError> {
     }
     for (fid, v) in radio_values {
         if let Ok(fdict) = d.get_dictionary_mut(fid) {
-            fdict.set(
-                "V",
-                Object::Name(v.unwrap_or_else(|| "Off".into()).into_bytes()),
-            );
+            fdict.set("V", Object::Name(v.unwrap_or_else(|| b"Off".to_vec())));
         }
     }
     if new_count > 0 {

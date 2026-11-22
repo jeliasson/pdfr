@@ -50,11 +50,13 @@ pub enum FieldKind {
         max_len: Option<usize>,
     },
     Checkbox {
-        /// The appearance state name used for "on" (e.g. `Yes`).
-        on_state: String,
+        /// The appearance state name used for "on" (e.g. `Yes`), as the
+        /// name's bytes: it need not be UTF-8, and must be written back
+        /// exactly.
+        on_state: Vec<u8>,
     },
     Radio {
-        on_state: String,
+        on_state: Vec<u8>,
         /// Fields with the same group are mutually exclusive.
         group: String,
     },
