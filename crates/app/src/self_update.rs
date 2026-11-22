@@ -2,8 +2,9 @@
 //!
 //! - Installed from the archive or disk image (`install.sh`, a `.tar.gz` or
 //!   the `.dmg`): pdfr downloads the release file from GitHub, checks it
-//!   against the release's `SHA256SUMS` (as `install.sh` does), and swaps
-//!   it in. The old copy is kept until the new one is in place.
+//!   against the release's `SHA256SUMS`, whose signature (`SHA256SUMS.sig`,
+//!   made by pdfr's CI) must match the pinned release key, and swaps it in.
+//!   The old copy is kept until the new one is in place.
 //! - Homebrew: `brew upgrade pdfr`.
 //! - apt / dnf / zypper: the system asks for the administrator password
 //!   (`pkexec`), then the package manager updates pdfr.
@@ -409,12 +410,33 @@ fn expected_sum(sums: &str, name: &str) -> Option<[u8; 32]> {
     })
 }
 
+/// `SHA256SUMS` as text, once its signature (`SHA256SUMS.sig`) checks out
+/// against the release-signing key `public`. No signature, no update: the
+/// checksums alone would only prove the files match each other.
+fn verified_sums(sums: &[u8], sig: Option<&[u8]>, public: &[u8; 32]) -> Result<String, String> {
+    let sig = sig.ok_or("the release is not signed (no SHA256SUMS.sig); nothing was changed")?;
+    if !pdfr_license::release::verify(public, sums, sig) {
+        return Err(
+            "the release's signature does not match (SHA256SUMS.sig); nothing was changed".into(),
+        );
+    }
+    String::from_utf8(sums.to_vec()).map_err(|_| "the release's SHA256SUMS is not text".into())
+}
+
 /// Downloads, checks and swaps in the release.
 fn replace(dest: &Path, version: &str, say: &dyn Fn(String)) -> Result<(), String> {
+    if !crate::updates::valid_version(version) {
+        return Err(format!("{version:?} is not a pdfr version"));
+    }
     let name = asset(version).ok_or("there is no pdfr download for this computer")?;
+    // Unpack next to the old copy, so the swap is a rename.
+    let parent = dest.parent().ok_or("bad install folder")?;
+    check_parent(parent)?;
     let base = format!("{REPO}/v{version}");
     let sums = download(&format!("{base}/SHA256SUMS"))?;
-    let want = expected_sum(&String::from_utf8_lossy(&sums), &name)
+    let sig = download(&format!("{base}/SHA256SUMS.sig")).ok();
+    let sums = verified_sums(&sums, sig.as_deref(), &pdfr_license::release::PUBLIC_KEY)?;
+    let want = expected_sum(&sums, &name)
         .ok_or_else(|| format!("the release lists no checksum for {name}"))?;
     let data = download(&format!("{base}/{name}"))?;
     if pdfr_sign::sha256(&data) != want {
@@ -423,21 +445,125 @@ fn replace(dest: &Path, version: &str, say: &dyn Fn(String)) -> Result<(), Strin
         ));
     }
     say("Installing\u{2026}".into());
-    // Unpack next to the old copy, so the swap is a rename.
-    let parent = dest.parent().ok_or("bad install folder")?;
-    let work = parent.join(format!(".pdfr-update-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&work);
-    std::fs::create_dir_all(&work)
-        .map_err(|e| format!("could not write {}: {e}", parent.display()))?;
-    let r = unpack_and_swap(&work, &name, &data, dest);
+    let work = make_work(parent)?;
+    let r = unpack_and_swap(&work, &name, &data, &want, dest);
     let _ = std::fs::remove_dir_all(&work);
     r
 }
 
-fn unpack_and_swap(work: &Path, name: &str, data: &[u8], dest: &Path) -> Result<(), String> {
+/// Refuses an install folder's parent that anyone may write to: another
+/// user could swap files in under pdfr's feet.
+fn check_parent(parent: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let meta = std::fs::metadata(parent)
+            .map_err(|e| format!("could not read {}: {e}", parent.display()))?;
+        if meta.permissions().mode() & 0o002 != 0 {
+            return Err(format!(
+                "{} can be changed by anyone; reinstall pdfr somewhere private to update it",
+                parent.display()
+            ));
+        }
+    }
+    let _ = parent;
+    Ok(())
+}
+
+/// A new, private (0700), randomly named work folder in `parent`.
+fn make_work(parent: &Path) -> Result<PathBuf, String> {
+    let mut r = [0u8; 8];
+    getrandom::fill(&mut r).map_err(|e| format!("no randomness: {e}"))?;
+    let hex: String = r.iter().map(|b| format!("{b:02x}")).collect();
+    let work = parent.join(format!(".pdfr-update-{hex}"));
+    create_private_dir(&work)?;
+    Ok(work)
+}
+
+/// Creates `dir`, which must not exist yet (not even as a link), as a
+/// folder only this user can open.
+fn create_private_dir(dir: &Path) -> Result<(), String> {
+    let fail = |e: &dyn std::fmt::Display| format!("could not create {}: {e}", dir.display());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(dir)
+            .map_err(|e| fail(&e))?;
+        let meta = std::fs::symlink_metadata(dir).map_err(|e| fail(&e))?;
+        // SAFETY: geteuid has no preconditions and cannot fail.
+        let me = unsafe { libc::geteuid() };
+        if !meta.is_dir() || meta.uid() != me || meta.mode() & 0o077 != 0 {
+            return Err(fail(&"it is not a private folder of this user"));
+        }
+    }
+    #[cfg(not(unix))]
+    std::fs::create_dir(dir).map_err(|e| fail(&e))?;
+    Ok(())
+}
+
+/// The Apple Developer Team ID pdfr.app is signed by. `None` while
+/// releases are signed ad hoc: then only the signature's integrity is
+/// checked. TODO: set this once the Developer ID certificate is in CI.
+const MAC_TEAM_ID: Option<&str> = None;
+
+/// The Team ID in `codesign -dv` output.
+fn team_id(codesign_dv: &str) -> Option<&str> {
+    codesign_dv
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("TeamIdentifier="))
+        .map(str::trim)
+        .filter(|t| *t != "not set")
+}
+
+/// Checks pdfr.app's code signature (and its Team ID, when known).
+fn check_mac_signature(app: &Path) -> Result<(), String> {
+    let out = Command::new("/usr/bin/codesign")
+        .args(["--verify", "--deep", "--strict"])
+        .arg(app)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("could not check the download's signature: {e}"))?;
+    if !out.status.success() {
+        return Err("the downloaded pdfr.app's signature is not valid; nothing was changed".into());
+    }
+    if let Some(want) = MAC_TEAM_ID {
+        let out = Command::new("/usr/bin/codesign")
+            .args(["-dv", "--verbose=2"])
+            .arg(app)
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|e| format!("could not check the download's signature: {e}"))?;
+        // codesign -d writes to stderr.
+        let text = String::from_utf8_lossy(&out.stderr);
+        if team_id(&text) != Some(want) {
+            return Err(
+                "the downloaded pdfr.app is not signed by pdfr; nothing was changed".into(),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn unpack_and_swap(
+    work: &Path,
+    name: &str,
+    data: &[u8],
+    want: &[u8; 32],
+    dest: &Path,
+) -> Result<(), String> {
     let archive = work.join(name);
     std::fs::write(&archive, data)
         .map_err(|e| format!("could not write {}: {e}", archive.display()))?;
+    // Unpack exactly the file that was checked: read it back from disk.
+    let written = std::fs::read(&archive)
+        .map_err(|e| format!("could not read {}: {e}", archive.display()))?;
+    if pdfr_sign::sha256(&written) != *want {
+        return Err(format!(
+            "{name} changed on disk (checksum mismatch); nothing was changed"
+        ));
+    }
     let (new, check) = if cfg!(target_os = "macos") {
         let out = work.join("app");
         run_ok(
@@ -464,6 +590,9 @@ fn unpack_and_swap(work: &Path, name: &str, data: &[u8], dest: &Path) -> Result<
     };
     if !check.is_file() {
         return Err("the download has no pdfr in it".into());
+    }
+    if cfg!(target_os = "macos") {
+        check_mac_signature(&new)?;
     }
     swap(&new, dest)?;
     if cfg!(target_os = "macos") {
@@ -649,6 +778,85 @@ mod tests {
         assert!(app.join("marker").is_file() && !app.join("pdfr").exists());
         assert!(!dir.join("app.old").exists() && !new.exists());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn checks_the_signature() {
+        use pdfr_license::release;
+        let seed = [42u8; 32];
+        let public = pdfr_license::public_key(&seed);
+        let sums = format!("{}  pdfr-v1.0.0-macos.zip\n", "ab".repeat(32));
+        let sig = release::sign(&seed, sums.as_bytes());
+        // Good.
+        assert_eq!(
+            verified_sums(sums.as_bytes(), Some(sig.as_bytes()), &public).as_deref(),
+            Ok(sums.as_str())
+        );
+        // Missing.
+        assert!(
+            verified_sums(sums.as_bytes(), None, &public)
+                .unwrap_err()
+                .contains("not signed")
+        );
+        // Tampered checksums, a tampered signature, another key.
+        let evil = sums.replace("ab", "cd");
+        assert!(verified_sums(evil.as_bytes(), Some(sig.as_bytes()), &public).is_err());
+        let mut bad = sig.clone().into_bytes();
+        bad[3] = if bad[3] == b'A' { b'B' } else { b'A' };
+        assert!(verified_sums(sums.as_bytes(), Some(&bad), &public).is_err());
+        assert!(verified_sums(sums.as_bytes(), Some(b"<html>404</html>"), &public).is_err());
+        assert!(
+            verified_sums(sums.as_bytes(), Some(sig.as_bytes()), &release::PUBLIC_KEY).is_err()
+        );
+    }
+
+    /// install.sh checks the same key as pdfr.
+    #[test]
+    fn installer_pins_the_same_key() {
+        let script = include_str!("../../../packaging/install.sh");
+        let pem = pdfr_license::release::public_pem(&pdfr_license::release::PUBLIC_KEY);
+        let line = pem.lines().nth(1).unwrap();
+        assert!(script.contains(line), "install.sh lacks {line}");
+    }
+
+    #[test]
+    fn refuses_bad_versions() {
+        for v in ["0.6.2-$(id)", "0.6.2-../../x", "0.6.2-", "0.6.2 ", "1.0+x"] {
+            let r = replace(Path::new("/nonexistent/pdfr"), v, &|_| {});
+            assert!(r.unwrap_err().contains("not a pdfr version"), "{v}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn work_folder_is_new_and_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("pdfr-selfupd-work-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let work = make_work(&dir).unwrap();
+        let mode = std::fs::metadata(&work).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+        assert_ne!(make_work(&dir).unwrap(), work);
+        // An existing folder, or a link planted in its place, is refused.
+        assert!(create_private_dir(&work).is_err());
+        let link = dir.join(".pdfr-update-planted");
+        std::os::unix::fs::symlink(&work, &link).unwrap();
+        assert!(create_private_dir(&link).is_err());
+        // A parent anyone can write to is refused.
+        assert!(check_parent(&dir).is_ok());
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(check_parent(&dir).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn reads_the_team_id() {
+        let out = "Executable=/x/pdfr.app/Contents/MacOS/pdfr\nAuthority=Developer ID Application: X (ABCDE12345)\nTeamIdentifier=ABCDE12345\n";
+        assert_eq!(team_id(out), Some("ABCDE12345"));
+        assert_eq!(team_id("Signature=adhoc\nTeamIdentifier=not set\n"), None);
+        assert_eq!(team_id(""), None);
     }
 
     #[test]
