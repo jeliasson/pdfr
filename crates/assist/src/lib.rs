@@ -166,7 +166,18 @@ pub struct Assistant {
     base: Store,
     path: Option<PathBuf>,
     backend: Option<Arc<dyn Backend>>,
+    /// When the file was last looked at for another window's changes.
+    checked_at: Option<std::time::Instant>,
+    /// The file's modification time when it was last read or written.
+    seen_mtime: Option<std::time::SystemTime>,
 }
+
+fn mtime(path: Option<&PathBuf>) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path?).and_then(|m| m.modified()).ok()
+}
+
+/// How often the file is looked at for another window's changes.
+const RELOAD_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// FNV-1a: a stable hash for fingerprints.
 fn fnv(s: &str) -> String {
@@ -292,26 +303,75 @@ impl Assistant {
         let store = path.as_deref().map(Store::load).unwrap_or_default();
         let st = &store.settings;
         let backend = ai::detect(&st.ai_tool, &st.model, &st.ai_tool_model);
-        Assistant {
-            base: store.clone(),
-            store,
-            path,
-            backend,
-        }
+        Assistant::new(store, path, backend)
     }
 
-    /// For tests: a given store, optional file path and backend.
+    /// A given store, optional file path and backend (tests use this).
     pub fn new(
         store: Store,
         path: Option<PathBuf>,
         backend: Option<Arc<dyn Backend>>,
     ) -> Assistant {
-        Assistant {
+        let mut a = Assistant {
             base: store.clone(),
             store,
+            seen_mtime: mtime(path.as_ref()),
             path,
             backend,
+            checked_at: None,
+        };
+        // Consent kept by an older pdfr names no tool: it was given for the
+        // tool found then, which is taken to be the one found now. Written
+        // down once, so the user is not asked again for nothing.
+        let st = &a.store.settings;
+        if st.ai_consent == Some(true)
+            && st.ai_consent_tool.is_empty()
+            && let Some(id) = a.backend.as_ref().map(|b| b.tool_id())
+            && !id.is_empty()
+        {
+            a.store.settings.ai_consent_tool = id.to_string();
+            a.save();
         }
+        a
+    }
+
+    /// Takes in what another running pdfr (a second window) saved to the
+    /// file since it was last read, keeping this window's own unsaved
+    /// changes. Looks at the file's time at most once a second; reads it
+    /// only when that changed. True when something changed here.
+    pub fn reload_if_changed(&mut self) -> bool {
+        let Some(path) = &self.path else {
+            return false;
+        };
+        if self
+            .checked_at
+            .is_some_and(|at| at.elapsed() < RELOAD_EVERY)
+        {
+            return false;
+        }
+        self.checked_at = Some(std::time::Instant::now());
+        let now = mtime(Some(path));
+        if now.is_none() || now == self.seen_mtime {
+            return false;
+        }
+        self.seen_mtime = now;
+        let Some(disk) = std::fs::read(path)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Store>(&b).ok())
+        else {
+            return false;
+        };
+        if disk == self.base {
+            return false;
+        }
+        let before = self.store.settings.clone();
+        self.store.merge_from(&self.base, &disk);
+        self.base = disk;
+        let (a, b) = (&before, &self.store.settings);
+        if (&a.ai_tool, &a.model, &a.ai_tool_model) != (&b.ai_tool, &b.model, &b.ai_tool_model) {
+            self.redetect_backend();
+        }
+        true
     }
 
     pub fn set_backend(&mut self, b: Option<Arc<dyn Backend>>) {
@@ -332,6 +392,7 @@ impl Assistant {
     pub fn save(&mut self) {
         if let Some(p) = &self.path {
             let _ = self.store.save_merged(p, &mut self.base);
+            self.seen_mtime = mtime(Some(p));
         }
     }
 
@@ -341,16 +402,42 @@ impl Assistant {
 
     /// AI may be called now (enabled, consented, tool present).
     pub fn ai_allowed(&self) -> bool {
-        self.store.settings.ai_enabled
-            && self.store.settings.ai_consent == Some(true)
-            && self.backend.is_some()
+        self.store.settings.ai_enabled && self.consent_covers_tool()
     }
 
-    /// A call would be made but the user has not been asked yet.
+    /// The user allowed labels to be sent to the tool in use now (not just
+    /// to some tool: the one found can change when tools are installed or
+    /// started).
+    fn consent_covers_tool(&self) -> bool {
+        let st = &self.store.settings;
+        st.ai_consent == Some(true)
+            && self
+                .backend
+                .as_ref()
+                .is_some_and(|b| b.tool_id() == st.ai_consent_tool)
+    }
+
+    /// A call would be made but the user has not been asked yet, or was
+    /// asked about another tool than the one in use now. "Never" is never
+    /// asked again.
     pub fn needs_consent(&self) -> bool {
         self.store.settings.ai_enabled
-            && self.store.settings.ai_consent.is_none()
+            && self.store.settings.ai_consent != Some(false)
             && self.backend.is_some()
+            && !self.consent_covers_tool()
+    }
+
+    /// The user allowed the tool in use now. It is also made the chosen
+    /// tool, so no other is used in its place later without asking.
+    pub fn give_consent(&mut self) {
+        let id = self.backend.as_ref().map_or("", |b| b.tool_id());
+        let st = &mut self.store.settings;
+        st.ai_consent = Some(true);
+        st.ai_consent_tool = id.to_string();
+        if !id.is_empty() && st.ai_tool != id {
+            st.ai_tool = id.to_string();
+            st.ai_tool_model.clear();
+        }
     }
 
     fn resolve(&self, label: &str) -> Option<Option<Meaning>> {

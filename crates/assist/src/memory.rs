@@ -21,6 +21,11 @@ pub struct Settings {
     /// `None`: not asked yet.
     #[serde(default)]
     pub ai_consent: Option<bool>,
+    /// The tool (`ai::Tool::id`) the user allowed labels to be sent to. A
+    /// different tool is asked about again. Empty with `ai_consent` set: a
+    /// file from before this was kept (see `Assistant::open_at`).
+    #[serde(default)]
+    pub ai_consent_tool: String,
     /// Model name override for Claude Code; empty means its cheapest model.
     #[serde(default)]
     pub model: String,
@@ -156,11 +161,106 @@ fn yes() -> bool {
     true
 }
 
+/// Settings that only mean something together: one writer's change to any
+/// of them takes the whole group from that writer.
+const SETTING_GROUPS: &[&[&str]] = &[
+    // Consent is for one tool.
+    &["ai_consent", "ai_consent_tool"],
+    // A model name belongs to its tool.
+    &["ai_tool", "ai_tool_model"],
+    &["sign_reason", "sign_location"],
+    &["update_check", "update_checked_at", "latest_version"],
+];
+
+impl Settings {
+    /// Three-way merge, setting by setting: `disk` is `base` plus another
+    /// writer's (a second pdfr window's) changes. What this writer changed
+    /// since `base` is kept; everything else comes from `disk`. So turning
+    /// something off in one window is never undone by another window that
+    /// changed some other setting.
+    pub fn merge_from(&mut self, base: &Settings, disk: &Settings) {
+        use serde_json::{Map, Value};
+        let as_map = |s: &Settings| match serde_json::to_value(s) {
+            Ok(Value::Object(m)) => m,
+            _ => Map::new(),
+        };
+        // The lists are merged item by item below.
+        const LISTS: [&str; 3] = ["recent", "link_hosts", "cert_files"];
+        let as_map = |s: &Settings| {
+            let mut m = as_map(s);
+            for k in LISTS {
+                m.remove(k);
+            }
+            m
+        };
+        let (b, d) = (as_map(base), as_map(disk));
+        let mut ours = as_map(self);
+        let group_of = |k: &str| -> Vec<String> {
+            SETTING_GROUPS
+                .iter()
+                .find(|g| g.contains(&k))
+                .map(|g| g.iter().map(|s| s.to_string()).collect())
+                .unwrap_or_else(|| vec![k.to_string()])
+        };
+        let keys: Vec<String> = ours.keys().chain(d.keys()).cloned().collect();
+        for k in keys {
+            let group = group_of(&k);
+            let changed_here = group.iter().any(|g| ours.get(g) != b.get(g));
+            if !changed_here {
+                for g in &group {
+                    match d.get(g) {
+                        Some(v) => ours.insert(g.clone(), v.clone()),
+                        None => ours.remove(g),
+                    };
+                }
+            }
+        }
+        if let Ok(merged) = serde_json::from_value::<Settings>(Value::Object(ours)) {
+            let recent = std::mem::take(&mut self.recent);
+            let hosts = std::mem::take(&mut self.link_hosts);
+            let certs = std::mem::take(&mut self.cert_files);
+            *self = Settings {
+                recent,
+                link_hosts: hosts,
+                cert_files: certs,
+                ..merged
+            };
+        }
+        // Lists: what the other writer added is added, what it removed is
+        // removed.
+        merge_list(&mut self.link_hosts, &base.link_hosts, &disk.link_hosts);
+        merge_list(&mut self.cert_files, &base.cert_files, &disk.cert_files);
+        // Recent files: both windows' lists, newest first.
+        let mut all = self.recent.clone();
+        for r in &disk.recent {
+            match all.iter_mut().find(|a| a.path == r.path) {
+                Some(a) if r.opened_at > a.opened_at => *a = r.clone(),
+                Some(_) => {}
+                None => all.push(r.clone()),
+            }
+        }
+        all.sort_by_key(|r| std::cmp::Reverse(r.opened_at));
+        all.truncate(RECENT_MAX);
+        self.recent = all;
+    }
+}
+
+/// Three-way merge of a list of distinct items.
+fn merge_list<T: PartialEq + Clone>(ours: &mut Vec<T>, base: &[T], disk: &[T]) {
+    for x in disk {
+        if !base.contains(x) && !ours.contains(x) {
+            ours.push(x.clone());
+        }
+    }
+    ours.retain(|x| !base.contains(x) || disk.contains(x));
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Settings {
             ai_enabled: true,
             ai_consent: None,
+            ai_consent_tool: String::new(),
             model: String::new(),
             ai_tool: String::new(),
             ai_tool_model: String::new(),
@@ -388,23 +488,7 @@ impl Store {
                 self.extra_keys.push(k.clone());
             }
         }
-        // Settings: the other writer's, unless we changed ours.
-        if self.settings == base.settings {
-            self.settings = disk.settings.clone();
-        } else {
-            // Recent files: both windows' lists, newest first.
-            let mut all = self.settings.recent.clone();
-            for r in &disk.settings.recent {
-                match all.iter_mut().find(|a| a.path == r.path) {
-                    Some(a) if r.opened_at > a.opened_at => *a = r.clone(),
-                    Some(_) => {}
-                    None => all.push(r.clone()),
-                }
-            }
-            all.sort_by_key(|r| std::cmp::Reverse(r.opened_at));
-            all.truncate(RECENT_MAX);
-            self.settings.recent = all;
-        }
+        self.settings.merge_from(&base.settings, &disk.settings);
         let u = &mut self.usage;
         u.calls = u.calls.max(disk.usage.calls);
         u.input_tokens = u.input_tokens.max(disk.usage.input_tokens);
@@ -659,6 +743,84 @@ mod merge_tests {
         assert!(disk.signatures.is_empty(), "A's delete is not undone by B");
         assert!(disk.settings.dark_pages);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Turning something off in one window is not undone by another window
+    /// that changed some other setting: settings merge one by one.
+    #[test]
+    fn settings_merge_one_by_one() {
+        let dir = std::env::temp_dir().join(format!("pdfr-merge-settings-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("memory.json");
+        let mut start = Store::default();
+        start.settings.ai_consent = Some(true);
+        start.settings.ai_consent_tool = "claude".into();
+        start.settings.link_hosts = vec!["a.example".into(), "b.example".into()];
+        start.save_merged(&path, &mut Store::default()).unwrap();
+
+        let (mut a, mut a_base) = (Store::load(&path), Store::load(&path));
+        let (mut b, mut b_base) = (Store::load(&path), Store::load(&path));
+        // A: agents off, AI "Never", one link host removed.
+        a.settings.agents_enabled = false;
+        a.settings.ai_consent = Some(false);
+        a.settings.ai_consent_tool.clear();
+        a.settings.link_hosts.retain(|h| h != "a.example");
+        a.save_merged(&path, &mut a_base).unwrap();
+        // B, still holding the old settings, changes others.
+        b.settings.dark_pages = true;
+        b.settings.ai_tool = "ollama".into();
+        b.settings.link_hosts.push("c.example".into());
+        b.save_merged(&path, &mut b_base).unwrap();
+
+        let s = Store::load(&path).settings;
+        assert!(!s.agents_enabled, "A's switch stays off");
+        assert_eq!(s.ai_consent, Some(false), "A's Never stays");
+        assert!(s.ai_consent_tool.is_empty());
+        assert!(s.dark_pages && s.ai_tool == "ollama", "B's changes kept");
+        assert_eq!(
+            s.link_hosts,
+            vec!["b.example".to_string(), "c.example".to_string()]
+        );
+        // Both changed the same setting: the later writer's wins.
+        let mut c_base = Store::load(&path);
+        let mut c = c_base.clone();
+        let mut d_base = Store::load(&path);
+        let mut d = d_base.clone();
+        c.settings.tsa_url = "https://c.example".into();
+        c.settings.agents_enabled = true;
+        c.save_merged(&path, &mut c_base).unwrap();
+        d.settings.tsa_url = "https://d.example".into();
+        d.save_merged(&path, &mut d_base).unwrap();
+        let s = Store::load(&path).settings;
+        assert_eq!(s.tsa_url, "https://d.example");
+        assert!(
+            s.agents_enabled,
+            "C turned agents back on; D did not touch it"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Consent and the tool it was given for move together.
+    #[test]
+    fn consent_and_its_tool_move_together() {
+        let base = Settings {
+            ai_consent: Some(true),
+            ai_consent_tool: "claude".into(),
+            ..Settings::default()
+        };
+        // The other window changed the answer, this one the tool: the pair
+        // comes whole from this window, never half from each.
+        let disk = Settings {
+            ai_consent: Some(false),
+            ..base.clone()
+        };
+        let mut ours = Settings {
+            ai_consent_tool: "pi".into(),
+            ..base.clone()
+        };
+        ours.merge_from(&base, &disk);
+        assert_eq!(ours.ai_consent, Some(true));
+        assert_eq!(ours.ai_consent_tool, "pi");
     }
 }
 

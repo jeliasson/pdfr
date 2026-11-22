@@ -47,6 +47,10 @@ pub struct Reply {
 pub trait Backend: Send + Sync {
     /// Human-readable tool name for the consent dialog ("Claude Code (claude)").
     fn name(&self) -> String;
+    /// The tool's id (`Tool::id`), which consent is given for.
+    fn tool_id(&self) -> &'static str {
+        ""
+    }
     fn run(&self, instruction: &str, prompt: &str) -> Result<Reply, String>;
 }
 
@@ -235,17 +239,59 @@ impl Tool {
     }
 
     /// Whether the tool can be used right now: its command is installed and
-    /// has been run, or its server is listening.
+    /// has been run, or its server is listening and answers as that server
+    /// does (any program can listen on its port).
     pub fn available(self) -> bool {
-        if let Some((port, _)) = self.server() {
+        if let Some((port, base)) = self.server() {
             let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-            return std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok();
+            if std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_err() {
+                return false;
+            }
+            return self.server_answers(base, Duration::from_millis(600));
         }
         which(self.binary()).is_some()
             && self.home_dir().is_none_or(|d| {
                 std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
                     .is_some_and(|h| PathBuf::from(h).join(d).is_dir())
             })
+    }
+}
+
+impl Tool {
+    /// The model server at `base` (its `/v1` address) is the one this tool
+    /// names: Ollama tells its version at `/api/version`, LM Studio lists
+    /// its models at `/v1/models`.
+    fn server_answers(self, base: &str, timeout: Duration) -> bool {
+        let url = match self {
+            Tool::Ollama => format!("{}/api/version", base.trim_end_matches("/v1")),
+            Tool::LmStudio => format!("{base}/models"),
+            _ => return false,
+        };
+        let Ok(mut resp) = http_agent(timeout).get(url).call() else {
+            return false;
+        };
+        let Ok(body) = resp
+            .body_mut()
+            .with_config()
+            .limit(64 * 1024)
+            .read_to_string()
+        else {
+            return false;
+        };
+        server_reply_fits(self, &body)
+    }
+}
+
+/// Whether a model server's reply to `Tool::server_answers` is what that
+/// server sends.
+fn server_reply_fits(tool: Tool, body: &str) -> bool {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(body) else {
+        return false;
+    };
+    match tool {
+        Tool::Ollama => v["version"].is_string(),
+        Tool::LmStudio => v["data"].is_array(),
+        _ => false,
     }
 }
 
@@ -392,6 +438,10 @@ pub fn parse_chat_json(out: &str) -> Result<Reply, String> {
 }
 
 impl Backend for HttpBackend {
+    fn tool_id(&self) -> &'static str {
+        self.tool.id()
+    }
+
     fn name(&self) -> String {
         match self.model.as_str() {
             "" => format!("{} (on this computer)", self.tool.name()),
@@ -529,6 +579,10 @@ fn run_with_timeout(mut cmd: Command, input: &str, timeout: Duration) -> Result<
 }
 
 impl Backend for CliBackend {
+    fn tool_id(&self) -> &'static str {
+        self.tool.id()
+    }
+
     fn name(&self) -> String {
         match self.model.as_str() {
             "" => format!("{} ({})", self.tool.name(), self.tool.binary()),
@@ -795,6 +849,30 @@ mod tests {
             }
         });
         (base, rx)
+    }
+
+    /// Something else listening on a model server's port is not taken for
+    /// it: the server has to answer the way that server does.
+    #[test]
+    fn a_model_server_is_known_by_its_answer() {
+        let t = Duration::from_secs(5);
+        let (base, _) = fake_server(vec![
+            ("/api/version", r#"{"version":"0.12.3"}"#.into()),
+            ("/v1/models", r#"{"data":[{"id":"qwen3"}]}"#.into()),
+        ]);
+        assert!(Tool::Ollama.server_answers(&base, t));
+        assert!(Tool::LmStudio.server_answers(&base, t));
+        // Another program: answers, but not like either.
+        let (other, _) = fake_server(vec![]);
+        assert!(!Tool::Ollama.server_answers(&other, t));
+        assert!(!Tool::LmStudio.server_answers(&other, t));
+        assert!(!server_reply_fits(Tool::Ollama, "<html>hello</html>"));
+        assert!(!server_reply_fits(Tool::LmStudio, r#"{"data": "x"}"#));
+        // Nothing there at all.
+        let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let gone = format!("http://{}/v1", free.local_addr().unwrap());
+        drop(free);
+        assert!(!Tool::Ollama.server_answers(&gone, Duration::from_millis(300)));
     }
 
     #[test]

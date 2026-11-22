@@ -856,3 +856,90 @@ fn forgetting_removes_value_as_typed_and_two_surnames_keep_order() {
         Some("García López, Ana")
     );
 }
+
+/// A backend that only says which tool it is.
+struct Named(&'static str);
+
+impl Backend for Named {
+    fn name(&self) -> String {
+        self.0.into()
+    }
+    fn tool_id(&self) -> &'static str {
+        self.0
+    }
+    fn run(&self, _: &str, _: &str) -> Result<Reply, String> {
+        Err("not called".into())
+    }
+}
+
+/// Consent is for one tool: another tool found later is asked about again,
+/// and allowing it also makes it the chosen tool.
+#[test]
+fn consent_is_for_the_tool_it_was_given_for() {
+    let mut store = Store::default();
+    store.settings.ai_consent = Some(true);
+    store.settings.ai_consent_tool = "claude".into();
+    let mut a = Assistant::new(store, None, Some(Arc::new(Named("claude"))));
+    assert!(a.ai_allowed() && !a.needs_consent());
+    // Ollama started, and is the tool found now: asked again.
+    a.set_backend(Some(Arc::new(Named("ollama"))));
+    assert!(!a.ai_allowed() && a.needs_consent());
+    a.give_consent();
+    assert!(a.ai_allowed() && !a.needs_consent());
+    assert_eq!(a.store.settings.ai_consent_tool, "ollama");
+    assert_eq!(a.store.settings.ai_tool, "ollama");
+    // "Never" stays never, whatever tool is found.
+    a.store.settings.ai_consent = Some(false);
+    a.set_backend(Some(Arc::new(Named("pi"))));
+    assert!(!a.ai_allowed() && !a.needs_consent());
+}
+
+/// A file from before consent named its tool: the consent counts for the
+/// tool found now, and that is written down once.
+#[test]
+fn old_consent_counts_for_the_tool_found_now() {
+    let dir = std::env::temp_dir().join(format!("pdfr-consent-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("memory.json");
+    std::fs::write(&path, r#"{"settings": {"ai_consent": true}}"#).unwrap();
+    let a = Assistant::new(
+        Store::load(&path),
+        Some(path.clone()),
+        Some(Arc::new(Named("pi"))),
+    );
+    assert!(a.ai_allowed() && !a.needs_consent());
+    let saved = Store::load(&path);
+    assert_eq!(saved.settings.ai_consent, Some(true));
+    assert_eq!(saved.settings.ai_consent_tool, "pi");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Another window's saved changes reach this one without a save of its
+/// own, and this window's unsaved changes are kept.
+#[test]
+fn settings_another_window_saved_are_taken_in() {
+    let dir = std::env::temp_dir().join(format!("pdfr-reload-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("memory.json");
+    Store::default().save(&path).unwrap();
+    let mut a = Assistant::new(Store::load(&path), Some(path.clone()), None);
+    let mut b = Assistant::new(Store::load(&path), Some(path.clone()), None);
+    a.store.settings.dark_pages = true; // not saved yet
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    b.store.settings.agents_enabled = false;
+    b.save();
+    assert!(a.reload_if_changed());
+    assert!(!a.store.settings.agents_enabled, "B's switch reached A");
+    assert!(a.store.settings.dark_pages, "A's own change kept");
+    // Looked at no more than once a second.
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    b.store.settings.agent_ask_print = true;
+    b.save();
+    assert!(!a.reload_if_changed());
+    std::thread::sleep(std::time::Duration::from_millis(1050));
+    assert!(a.reload_if_changed());
+    assert!(a.store.settings.agent_ask_print);
+    let _ = std::fs::remove_dir_all(&dir);
+}

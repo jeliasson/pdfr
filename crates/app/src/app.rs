@@ -686,6 +686,9 @@ impl eframe::App for App {
     /// handled here, so an agent is answered whether or not the window shows.
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll(ctx);
+        // Settings another pdfr window saved (agents turned off, AI
+        // "Never") apply here too, before any agent request is taken.
+        self.assist.a.reload_if_changed();
         self.agent_tick(ctx);
     }
 

@@ -593,8 +593,10 @@ impl AssistState {
                 |ui| {
                     if toggle(ui, c, &mut on).changed() {
                         self.a.store.settings.ai_enabled = on;
+                        // Turning AI back on after "Never" allows the tool
+                        // shown here.
                         if on && self.a.store.settings.ai_consent == Some(false) {
-                            self.a.store.settings.ai_consent = Some(true);
+                            self.a.give_consent();
                         }
                         act.changed = true;
                     }

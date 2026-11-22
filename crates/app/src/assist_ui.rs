@@ -626,7 +626,7 @@ impl AssistState {
         }
         match decided {
             Some(Some(true)) => {
-                self.a.store.settings.ai_consent = Some(true);
+                self.a.give_consent();
                 self.a.save();
                 if let Some(ask) = self.consent.take() {
                     self.start_ai(ask);
@@ -634,6 +634,7 @@ impl AssistState {
             }
             Some(Some(false)) => {
                 self.a.store.settings.ai_consent = Some(false);
+                self.a.store.settings.ai_consent_tool.clear();
                 self.a.store.settings.ai_enabled = false;
                 self.a.save();
                 self.consent = None;
