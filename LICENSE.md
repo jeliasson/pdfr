@@ -8,7 +8,7 @@ below without changes. In short:
   institutions. You don't need a licence key for this. pdfr will ask you to
   register your copy with a free Personal key from https://pdfr.app; doing so
   is welcome but is not a condition of this licence.
-- **Commercial use needs a Business or Founder licence key**, bought at
+- **Commercial use needs a Business or Sponsor licence key**, bought at
   https://pdfr.app. Those keys grant the additional rights described in their
   terms (https://pdfr.app/terms). They are sold by WK Operations Ltd (Malta)
   on behalf of the licensor.

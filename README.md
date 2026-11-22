@@ -376,7 +376,7 @@ then (after the first week) to register. Keys come from
 |---|---|---|
 | **Personal** | free | One lifetime key per account, for non-commercial use |
 | **Business** | $39 per key, once | Use pdfr at work: one key per person, up to 3 computers |
-| **Founder** | $499, once | 100 keys to use, give away or resell, and your name below |
+| **Sponsor** | $499, once | 100 keys to use, give away or resell, and your name below |
 
 Paste the key in pdfr (click *Unregistered* in the status bar, or Settings →
 License). It's checked on your computer, offline. When it has internet, a
@@ -384,18 +384,18 @@ registered copy checks its licence once a day by sending the licence id and a
 random install id, nothing else, so a key can be limited to its computers and
 revoked after a refund. Terms: [pdfr.app/terms](https://pdfr.app/terms).
 
-### Founders
+### Sponsors
 
 The people and companies who keep pdfr's development going. Thank you.
 
-<!-- founders:start -->
+<!-- sponsors:start -->
 <p>
-<a href="https://unblockingapi.com"><img src="https://pdfr.app/founders/unblockingapi.png" alt="UnblockingAPI" height="28"></a>&nbsp;&nbsp;&nbsp;
-<a href="https://cashloans.nu"><img src="https://pdfr.app/founders/cashloans.svg" alt="Cashloans.nu" height="28"></a>
+<a href="https://unblockingapi.com"><img src="https://pdfr.app/sponsors/unblockingapi.png" alt="UnblockingAPI" height="28"></a>&nbsp;&nbsp;&nbsp;
+<a href="https://cashloans.nu"><img src="https://pdfr.app/sponsors/cashloans.svg" alt="Cashloans.nu" height="28"></a>
 </p>
 
-*[Become a Founder](https://pdfr.app/buy/founder).*
-<!-- founders:end -->
+*[Become a Sponsor](https://pdfr.app/buy/sponsor).*
+<!-- sponsors:end -->
 
 The full terms are in [LICENSE.md](LICENSE.md) (PolyForm Strict 1.0.0).
 

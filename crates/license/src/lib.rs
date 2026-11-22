@@ -48,7 +48,7 @@ pub struct Payload {
     pub kid: u8,
     /// The licence's id on pdfr.app (a UUID).
     pub id: String,
-    /// "personal", "business", "founder", or a later plan.
+    /// "personal", "business", "sponsor", or a later plan.
     pub plan: String,
     /// Who it is registered to.
     pub name: String,
@@ -60,7 +60,7 @@ pub struct Payload {
 pub enum Plan {
     Personal,
     Business,
-    Founder,
+    Sponsor,
     /// A plan this version of pdfr doesn't know yet.
     Other(String),
 }
@@ -70,7 +70,8 @@ impl Plan {
         match s {
             "personal" => Plan::Personal,
             "business" => Plan::Business,
-            "founder" => Plan::Founder,
+            // "founder" is what the plan was called in the first keys.
+            "sponsor" | "founder" => Plan::Sponsor,
             other => Plan::Other(other.to_string()),
         }
     }
@@ -79,7 +80,7 @@ impl Plan {
         match self {
             Plan::Personal => "Personal".into(),
             Plan::Business => "Business".into(),
-            Plan::Founder => "Founder".into(),
+            Plan::Sponsor => "Sponsor".into(),
             Plan::Other(s) => {
                 let mut c = s.chars();
                 c.next()
@@ -429,8 +430,11 @@ mod tests {
         let l = verify(&key("personal", "Jane"), &test_keys()).unwrap();
         assert_eq!(l.plan, Plan::Personal);
         assert!(!l.plan.commercial());
-        let l = verify(&key("founder", "Acme"), &test_keys()).unwrap();
+        let l = verify(&key("sponsor", "Acme"), &test_keys()).unwrap();
         assert!(l.plan.commercial());
+        // A key from before the plan was renamed.
+        let l = verify(&key("founder", "Acme"), &test_keys()).unwrap();
+        assert_eq!(l.plan, Plan::Sponsor);
         let l = verify(&key("team", "Acme"), &test_keys()).unwrap();
         assert_eq!(l.plan, Plan::Other("team".into()));
         assert_eq!(l.plan.label(), "Team");
@@ -465,7 +469,7 @@ mod tests {
         );
         assert_eq!(verify(&k, &[]), Err(Error::UnknownSigner(TEST_KID)));
         // Another payload under the same signature.
-        let other = key("founder", "Jane");
+        let other = key("sponsor", "Jane");
         let forged = format!(
             "{}.{}",
             other.rsplit_once('.').unwrap().0,

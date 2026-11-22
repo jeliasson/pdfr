@@ -512,7 +512,7 @@ impl LicenseUi {
                     setting_row(
                         ui,
                         c,
-                        "Founder",
+                        "Sponsor",
                         "100 keys to use, give away or resell, and your name on pdfr.app.",
                         |ui| {
                             ui.label(RichText::new("$499 once").color(c.text));

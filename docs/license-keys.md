@@ -23,7 +23,7 @@ the signature, and only then trusts the rest.
 | `v` | number | Format version: `1` |
 | `kid` | number 1–254 | Which signing key made it (255 is the test key) |
 | `id` | string | The licence's UUID in pdfr.app |
-| `plan` | string | `personal`, `business`, `founder` (pdfr accepts unknown plans, which allows future plans) |
+| `plan` | string | `personal`, `business`, `sponsor` (pdfr accepts unknown plans, which allows future plans) |
 | `name` | string | Who it is registered to, shown as "Registered to …" |
 | `issued` | string | `YYYY-MM-DD` |
 

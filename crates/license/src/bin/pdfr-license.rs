@@ -11,7 +11,7 @@ use std::process::exit;
 use pdfr_license as lic;
 
 const USAGE: &str = "pdfr-license keygen --kid <n> --out <file>
-pdfr-license issue --key <file> --name <name> [--plan personal|business|founder] [--id <uuid>]
+pdfr-license issue --key <file> --name <name> [--plan personal|business|sponsor] [--id <uuid>]
 pdfr-license verify <key> [--public <kid>:<base64url>]";
 
 fn arg(args: &[String], name: &str) -> Option<String> {

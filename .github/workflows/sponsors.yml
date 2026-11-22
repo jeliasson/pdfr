@@ -1,6 +1,6 @@
-# Keeps the README's Founders section in step with pdfr.app/founders:
+# Keeps the README's Sponsors section in step with pdfr.app/sponsors:
 # weekly, and on demand. Commits to main only when the list changed.
-name: Founders
+name: Sponsors
 
 on:
   schedule:
@@ -15,18 +15,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Rewrite the Founders section
+      - name: Rewrite the Sponsors section
         run: |
-          curl -fsSL https://pdfr.app/api/founders.json -o founders.json
+          curl -fsSL https://pdfr.app/api/sponsors.json -o sponsors.json
           python3 - <<'EOF'
           import html, json, re
-          founders = json.load(open("founders.json"))["founders"]
+          sponsors = json.load(open("sponsors.json"))["sponsors"]
           def esc(s):
               return re.sub(r"([\[\]<>*_`|\\])", r"\\\1", s)
           def ok(u):
               return isinstance(u, str) and u.startswith(("https://", "http://"))
           logos, names = [], []
-          for f in founders:
+          for f in sponsors:
               url = f.get("url") if ok(f.get("url")) else None
               if ok(f.get("logo")):
                   img = f'<img src="{html.escape(f["logo"])}" alt="{html.escape(f["name"])}" height="28">'
@@ -41,21 +41,21 @@ jobs:
               parts.append("<p>\n" + "&nbsp;&nbsp;&nbsp;\n".join(logos) + "\n</p>")
           if names:
               parts.append("\n".join(names))
-          if founders:
-              parts.append("*[Become a Founder](https://pdfr.app/buy/founder).*")
+          if sponsors:
+              parts.append("*[Become a Sponsor](https://pdfr.app/buy/sponsor).*")
           else:
-              parts.append("*Be the first: [become a Founder](https://pdfr.app/buy/founder).*")
+              parts.append("*Be the first: [become a Sponsor](https://pdfr.app/buy/sponsor).*")
           body = "\n\n".join(parts)
           readme = open("README.md").read()
-          new = re.sub(r"(<!-- founders:start -->\n).*?(\n<!-- founders:end -->)",
+          new = re.sub(r"(<!-- sponsors:start -->\n).*?(\n<!-- sponsors:end -->)",
                        lambda m: m.group(1) + body + m.group(2), readme, flags=re.S)
           open("README.md", "w").write(new)
           EOF
-          rm founders.json
+          rm sponsors.json
       - name: Commit if changed
         run: |
           if git diff --quiet README.md; then echo "No change."; exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
-          git commit -am "README: update the Founders"
+          git commit -am "README: update the Sponsors"
           git push origin HEAD:main
