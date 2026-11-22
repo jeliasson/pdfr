@@ -467,6 +467,40 @@ impl AssistState {
                 }
             }
         });
+        card(ui, c, Some("Links in documents"), |ui| {
+            let hosts = &mut self.a.store.settings.link_hosts;
+            if hosts.is_empty() {
+                setting_row(
+                    ui,
+                    c,
+                    "Ask before opening a link",
+                    "Web sites you choose to always open appear here.",
+                    |_| {},
+                );
+                return;
+            }
+            let mut remove = None;
+            for (i, host) in hosts.iter().enumerate() {
+                if i > 0 {
+                    row_divider(ui, c);
+                }
+                setting_row(
+                    ui,
+                    c,
+                    host,
+                    "Links to this site open without asking.",
+                    |ui| {
+                        if secondary_button(ui, c, "Remove").clicked() {
+                            remove = Some(i);
+                        }
+                    },
+                );
+            }
+            if let Some(i) = remove {
+                hosts.remove(i);
+                changed = true;
+            }
+        });
         card(ui, c, Some("Signatures"), |ui| {
             let lock = &mut self.a.store.settings.lock_signatures;
             let options = [

@@ -2850,3 +2850,33 @@ fn remembered_details_stay_hidden_from_an_agent_when_turned_off() {
         Some("Anna Lindqvist")
     );
 }
+
+/// Settings → General lists the web sites whose links open without
+/// asking, and each can be removed.
+#[test]
+fn allowed_link_sites_can_be_removed_in_settings() {
+    use egui_kittest::kittest::Queryable;
+    let mut store = Store::default();
+    store.settings.link_hosts = vec!["example.org".into(), "help.example".into()];
+    let dir = data_dir("link-hosts", Some(store));
+    let mut h = harness("flat_form.pdf", dir.clone());
+    h.state_mut().assist.open_settings("general");
+    h.run_steps(3);
+    h.get_by_label("Links in documents");
+    h.get_by_label("example.org");
+    h.get_by_label("help.example");
+    // The card is near the end of the section: scrolled to first.
+    h.get_all_by_label("Remove").next().unwrap().scroll_to_me();
+    h.run_steps(5);
+    h.get_all_by_label("Remove").next().unwrap().click();
+    h.run_steps(3);
+    assert_eq!(
+        h.state().assist.a.store.settings.link_hosts,
+        vec!["help.example".to_string()]
+    );
+    assert!(h.query_by_label("example.org").is_none());
+    assert_eq!(
+        Store::load(&dir.join("memory.json")).settings.link_hosts,
+        vec!["help.example".to_string()]
+    );
+}
