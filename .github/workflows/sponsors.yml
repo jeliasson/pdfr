@@ -14,7 +14,7 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Rewrite the Sponsors section
         run: |
           curl -fsSL https://pdfr.app/api/sponsors.json -o sponsors.json
@@ -24,7 +24,12 @@ jobs:
           def esc(s):
               return re.sub(r"([\[\]<>*_`|\\])", r"\\\1", s)
           def ok(u):
-              return isinstance(u, str) and u.startswith(("https://", "http://"))
+              # https only, and nothing that could end the link or the tag.
+              return (isinstance(u, str) and u.startswith("https://")
+                      and not re.search(r"[\s\"'<>\\`]", u))
+          def link(u):
+              # A ")" or "(" would end or break a Markdown link.
+              return u.replace("(", "%28").replace(")", "%29")
           logos, names = [], []
           for f in sponsors:
               url = f.get("url") if ok(f.get("url")) else None
@@ -32,7 +37,7 @@ jobs:
                   img = f'<img src="{html.escape(f["logo"])}" alt="{html.escape(f["name"])}" height="28">'
                   logos.append(f'<a href="{html.escape(url)}">{img}</a>' if url else img)
               else:
-                  entry = f"[{esc(f['name'])}]({url})" if url else esc(f["name"])
+                  entry = f"[{esc(f['name'])}]({link(url)})" if url else esc(f["name"])
                   if f.get("blurb"):
                       entry += f": {esc(f['blurb'])}"
                   names.append(f"- {entry}")
