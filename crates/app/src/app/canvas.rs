@@ -190,7 +190,10 @@ impl App {
                         let fo = self.focus.as_ref().unwrap();
                         // Browsing alternatives previews the highlighted one.
                         let preview = self.assist.list_choice(e.id).filter(|_| f.value.is_empty());
-                        if let Some(g) = preview.or(fo.ghost.as_deref()) {
+                        let shown = preview
+                            .or(fo.ghost.as_deref())
+                            .filter(|_| !self.memory_hidden_from_agent());
+                        if let Some(g) = shown {
                             let gl = layout(f, g);
                             draw::text(&pclip, &xf, &gl, Color32::from_gray(150));
                         }
@@ -494,7 +497,9 @@ impl App {
             if filled {
                 self.replace_value(id, &f, "");
                 self.refresh_ghost();
-            } else if let Some(doc) = &self.doc {
+            } else if let Some(doc) = &self.doc
+                && !self.memory_hidden_from_agent()
+            {
                 self.assist.open_list(doc, id, false);
             }
         }

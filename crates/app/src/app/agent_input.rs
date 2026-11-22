@@ -142,6 +142,23 @@ fn typed_with(key: Key, mods: Modifiers) -> Option<String> {
 }
 
 impl App {
+    /// Why an agent's clicks and keys are not let through now, if they are
+    /// not: Settings, the question whether AI may be used and the licence
+    /// dialog are the user's alone.
+    pub(super) fn agent_kept_out(&self) -> Option<&'static str> {
+        if self.assist.settings_open {
+            Some(
+                "pdfr's Settings are open. They are the user's to change; ask them to close Settings.",
+            )
+        } else if self.assist.consent_open() {
+            Some("pdfr is asking the user whether it may use AI. Only they can answer.")
+        } else if self.license.modal_open() {
+            Some("pdfr's licence dialog is open. It is the user's; ask them to close it.")
+        } else {
+            None
+        }
+    }
+
     /// `computer`: queues the steps of one action; the request is answered
     /// when they have all taken effect.
     pub(super) fn agent_computer(&mut self, args: &Value, ctx: &egui::Context) -> Outcome {
@@ -151,11 +168,8 @@ impl App {
                 "pdfr is waiting for the user to answer a question; it cannot be clicked away.",
             );
         }
-        if self.assist.agents_section_open() {
-            return fail(
-                "busy",
-                "pdfr's AI agents settings are open. They are the user's to change; ask them to close Settings.",
-            );
+        if let Some(why) = self.agent_kept_out() {
+            return fail("busy", why);
         }
         if !self.viewport.is_positive() {
             return fail(
@@ -322,8 +336,9 @@ impl App {
         if self.agent.paused || self.agent.ask.is_some() {
             return;
         }
-        // Nor into the switches that say what agents may do.
-        if self.assist.agents_section_open() {
+        // Nor into Settings (the switches that say what agents and AI may
+        // do, what pdfr remembers), the AI question or the licence.
+        if self.agent_kept_out().is_some() {
             self.agent.input.clear();
             return;
         }

@@ -388,12 +388,6 @@ impl AssistState {
         );
     }
 
-    /// The AI agents section is showing. Agents' own clicks and keys are
-    /// not let through meanwhile: these switches are the user's.
-    pub fn agents_section_open(&self) -> bool {
-        self.settings_open && self.settings_ui.section == Section::Agents
-    }
-
     /// AI agents: whether they may control pdfr, what they must ask the
     /// user first, and how to connect one.
     fn agents(&mut self, ui: &mut Ui, c: &Colors, act: &mut Actions) {

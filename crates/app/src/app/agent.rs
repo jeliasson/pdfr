@@ -101,6 +101,11 @@ pub(super) enum Action {
     Dialog(files::DialogResult),
     /// Signing with a certificate, into this file.
     SignedSave(PathBuf, u64),
+    /// Closing the window, unsaved changes and all.
+    DiscardClose,
+    /// Opening this file (with this password) in place of the document
+    /// with unsaved changes.
+    DiscardOpen(PathBuf, Option<String>),
 }
 
 /// A widget of the window (not of the page) as the accessibility tree
@@ -579,6 +584,13 @@ impl App {
             return Outcome::Done(Err(paused()));
         }
         self.agent.last_request = Some(Instant::now());
+        // Settings show what pdfr remembers about the user, and are theirs.
+        if matches!(op, "read_ui" | "screenshot") && self.assist.settings_open {
+            return fail(
+                "busy",
+                "pdfr's Settings are open. They are the user's; ask them to close Settings, then try again.",
+            );
+        }
         match op {
             "computer" => self.agent_computer(args, ctx),
             "read_ui" => Outcome::Wait(
@@ -589,17 +601,22 @@ impl App {
             ),
             "open" => self.agent_open(args),
             "close" => {
-                if self.doc.as_ref().is_some_and(|d| d.dirty)
-                    && args["discard"].as_bool() != Some(true)
-                {
-                    return fail(
-                        "needs_confirmation",
-                        "There are unsaved changes. Save first, or pass discard: true.",
+                if self.doc.as_ref().is_some_and(|d| d.dirty) {
+                    if args["discard"].as_bool() != Some(true) {
+                        return fail(
+                            "needs_confirmation",
+                            "There are unsaved changes. Save first, or pass discard: true.",
+                        );
+                    }
+                    // Throwing changes away is the user's call.
+                    return self.agent_ask(
+                        "Let the AI agent close without saving?",
+                        "The changes to this document that have not been saved will be lost."
+                            .into(),
+                        Action::DiscardClose,
                     );
                 }
-                self.allow_close = true;
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                ok(json!({"closed": true}))
+                Outcome::Done(self.agent_do(Action::DiscardClose))
             }
             "wait_idle" => {
                 let ms = args["timeout_ms"].as_u64().unwrap_or(30_000).min(120_000);
@@ -654,16 +671,31 @@ impl App {
                 format!("There is no file at {}.", path.display()),
             );
         }
-        if self.doc.as_ref().is_some_and(|d| d.dirty) && args["discard"].as_bool() != Some(true) {
-            return fail(
-                "needs_confirmation",
-                "The open document has unsaved changes. Save it first, pass discard: true, \
-                 or pass new_window: true.",
+        let password = args["password"].as_str().map(str::to_string);
+        if self.doc.as_ref().is_some_and(|d| d.dirty) {
+            if args["discard"].as_bool() != Some(true) {
+                return fail(
+                    "needs_confirmation",
+                    "The open document has unsaved changes. Save it first, pass discard: true, \
+                     or pass new_window: true.",
+                );
+            }
+            // Throwing changes away is the user's call.
+            let name = path.file_name().map_or_else(
+                || path.display().to_string(),
+                |n| n.to_string_lossy().into_owned(),
+            );
+            return self.agent_ask(
+                "Let the AI agent open another file without saving?",
+                format!(
+                    "The changes to this document that have not been saved will be lost, and {name} opens in its place."
+                ),
+                Action::DiscardOpen(path, password),
             );
         }
         self.confirm = None;
         self.password = None;
-        self.open_with(path.clone(), args["password"].as_str().map(str::to_string));
+        self.open_with(path.clone(), password);
         Outcome::Wait(Wait::Idle(Then::Opened(path)), LOAD_WAIT)
     }
 
@@ -1110,6 +1142,16 @@ impl App {
             );
         }
         match c {
+            // Settings and the licence are the user's.
+            Command::Settings | Command::Register => {
+                return fail(
+                    "not_now",
+                    format!(
+                        "{} is for the user only. Ask them if something there needs changing.",
+                        c.spec().label
+                    ),
+                );
+            }
             // These have rules of their own for agents.
             Command::Print => return self.agent_print(),
             Command::Save => {
@@ -1171,6 +1213,21 @@ impl App {
             Action::SignedSave(path, generation) => {
                 self.digital_save(Some(path), generation);
                 Ok(json!({"signing": self.status}))
+            }
+            Action::DiscardClose => {
+                self.allow_close = true;
+                self.egui_ctx
+                    .send_viewport_cmd(egui::ViewportCommand::Close);
+                Ok(json!({"closed": true}))
+            }
+            Action::DiscardOpen(path, password) => {
+                self.confirm = None;
+                self.password = None;
+                self.open_with(path.clone(), password);
+                Ok(json!({
+                    "opening": path,
+                    "note": "Call wait_idle before reading the form.",
+                }))
             }
         }
     }

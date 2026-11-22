@@ -57,18 +57,31 @@ impl App {
         self.scroll_to_field(id);
     }
 
+    /// The user turned off remembered details for agents and one is at
+    /// work: what pdfr remembers is not shown in the window either (an
+    /// agent can see the window).
+    pub(super) fn memory_hidden_from_agent(&self) -> bool {
+        // Paused, the agent cannot look: the user is at work.
+        !self.assist.a.store.settings.agent_use_memory && self.agent_recent() && !self.agent.paused
+    }
+
     pub(super) fn refresh_ghost(&mut self) {
+        let hidden = self.memory_hidden_from_agent();
         let (Some(doc), Some(f)) = (&self.doc, &mut self.focus) else {
             return;
         };
         let Some(i) = doc.index_of(f.id) else { return };
         let e = &doc.entries[i];
-        f.ghost =
-            if e.f.value.is_empty() && !f.ghost_dismissed && e.f.kind.is_text() && !e.f.read_only {
-                self.assist.best(doc, i)
-            } else {
-                None
-            };
+        f.ghost = if e.f.value.is_empty()
+            && !f.ghost_dismissed
+            && !hidden
+            && e.f.kind.is_text()
+            && !e.f.read_only
+        {
+            self.assist.best(doc, i)
+        } else {
+            None
+        };
     }
 
     pub(super) fn editable_ids(&self) -> Vec<u64> {
@@ -375,6 +388,7 @@ impl App {
                 }
                 // Up or Down in a one-line field browses its alternatives.
                 if !field.kind.is_multiline()
+                    && !self.memory_hidden_from_agent()
                     && self
                         .assist
                         .open_list(self.doc.as_ref().unwrap(), fid, !down)
@@ -596,6 +610,9 @@ impl App {
     }
 
     pub fn accept_ghost(&mut self, ctx: &egui::Context) {
+        if self.memory_hidden_from_agent() {
+            return;
+        }
         let Some(g) = self.focus.as_mut().and_then(|f| f.ghost.take()) else {
             return;
         };

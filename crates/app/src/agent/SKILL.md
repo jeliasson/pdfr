@@ -80,5 +80,8 @@ a signature, moving or resizing something on the page.
   in the middle of something: `wait_idle`, then try again.
 - `needs_confirmation` on `open` or `close` means the document has unsaved
   changes. Save it first. Pass `discard` only if the user said those changes
-  can go.
+  can go; pdfr then asks them in the window too.
+- pdfr's Settings, its licence dialog and its question about using AI are
+  the user's. While they are open, clicks, keys and screenshots are refused
+  with `busy`: ask the user to close them.
 - `print` opens the print dialog for the user to finish.

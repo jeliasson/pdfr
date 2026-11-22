@@ -1996,11 +1996,38 @@ fn agent_opens_reads_and_saves() {
     agent(&mut h, "fill", json!({"ref": name_ref, "value": "Unsaved"}));
     let a = agent(&mut h, "open", json!({"path": sample("real_form.pdf")}));
     assert_eq!(a["error"]["code"], "needs_confirmation");
-    let a = agent(
-        &mut h,
-        "open",
-        json!({"path": sample("real_form.pdf"), "discard": true}),
-    );
+    // With discard: true the user is asked first, and can say no.
+    let rx = h
+        .state_mut()
+        .agent_request(
+            "open",
+            &json!({"path": sample("real_form.pdf"), "discard": true}),
+            &ctx,
+        )
+        .expect_err("waits for the user");
+    h.run_steps(2);
+    assert_eq!(h.state().agent_state()["dialog"], "asking_the_user");
+    h.state_mut().agent_answer_ask(false);
+    h.run_steps(2);
+    assert_eq!(rx.try_recv().unwrap()["error"]["code"], "declined");
+    assert_eq!(h.state().doc.as_ref().unwrap().name, "flat_form.pdf");
+    assert!(h.state().doc.as_ref().unwrap().dirty, "nothing was lost");
+    // Allowed: the other file opens in its place.
+    let rx = h
+        .state_mut()
+        .agent_request(
+            "open",
+            &json!({"path": sample("real_form.pdf"), "discard": true}),
+            &ctx,
+        )
+        .expect_err("waits for the user");
+    h.run_steps(2);
+    h.state_mut().agent_answer_ask(true);
+    h.run_steps(2);
+    assert_eq!(rx.try_recv().unwrap()["ok"], true);
+    let a = agent(&mut h, "wait_idle", json!({}));
+    assert_eq!(a["state"]["file"], json!(sample("real_form.pdf")));
+    let a = agent(&mut h, "open", json!({"path": sample("real_form.pdf")}));
     assert_eq!(a["ok"], true, "{a}");
     assert_eq!(a["result"]["opened"], "real_form.pdf");
     assert_eq!(a["state"]["loading"], false);
@@ -2730,4 +2757,96 @@ fn clicking_a_link_asks_and_ctrl_click_opens() {
         "an allowed site opens at once"
     );
     assert_eq!(launched().len(), 3);
+}
+
+/// Settings (what pdfr remembers, the switches for agents and AI), the
+/// question whether AI may be used and the licence dialog are the user's:
+/// an agent can neither click in them nor open or look at Settings.
+#[test]
+fn agents_are_kept_out_of_settings_and_the_users_questions() {
+    use egui_kittest::kittest::Queryable;
+    use serde_json::json;
+    let mut store = Store::default();
+    store.learn("full_name", "Anna Lindqvist");
+    let mut h = harness("flat_form.pdf", data_dir("agent-kept-out", Some(store)));
+    // Settings cannot be opened by command, nor the licence dialog.
+    for name in ["Settings", "Register"] {
+        let a = agent(&mut h, "run_command", json!({"name": name}));
+        assert_eq!(a["error"]["code"], "not_now", "{name}: {a}");
+    }
+    assert!(!h.state().assist.settings_open);
+    // The user has Settings open at Memory: the agent's clicks, keys,
+    // screenshots and reading of the widgets are all refused.
+    h.state_mut().assist.open_settings("memory");
+    h.run_steps(3);
+    h.get_by_label("Anna Lindqvist");
+    let at = h.get_by_label("Memory").rect().center();
+    let a = agent_computer(&mut h, json!({"action": "click", "x": at.x, "y": at.y}));
+    assert_eq!(a["error"]["code"], "busy", "{a}");
+    let a = agent_computer(&mut h, json!({"action": "key", "keys": "Escape"}));
+    assert_eq!(a["error"]["code"], "busy");
+    h.run_steps(3);
+    assert!(h.state().assist.settings_open, "still open");
+    h.get_by_label("Anna Lindqvist");
+    for op in ["screenshot", "read_ui"] {
+        let a = agent(&mut h, op, json!({}));
+        assert_eq!(a["error"]["code"], "busy", "{op}: {a}");
+        assert_eq!(a["state"]["dialog"], "settings");
+    }
+    h.state_mut().assist.settings_open = false;
+    h.run_steps(2);
+
+    // The question whether AI may be used: only the user answers it.
+    h.state_mut().assist.ask_consent(&["Pet's name"]);
+    h.run_steps(2);
+    h.get_by_label("Recognise more fields with AI?");
+    let a = agent_computer(&mut h, json!({"action": "key", "keys": "Enter"}));
+    assert_eq!(a["error"]["code"], "busy");
+    let allow = h.get_by_label("Allow").rect().center();
+    let a = agent_computer(
+        &mut h,
+        json!({"action": "click", "x": allow.x, "y": allow.y}),
+    );
+    assert_eq!(a["error"]["code"], "busy");
+    h.run_steps(2);
+    assert!(h.state().assist.consent_open());
+    assert_eq!(h.state().assist.a.store.settings.ai_consent, None);
+    key(&mut h, Key::Escape);
+    assert!(!h.state().assist.consent_open());
+
+    // The licence dialog likewise.
+    h.state_mut().license.open_register();
+    h.run_steps(2);
+    let a = agent_computer(&mut h, json!({"action": "type", "text": "x"}));
+    assert_eq!(a["error"]["code"], "busy");
+}
+
+/// With remembered details turned off for agents, an agent at work sees
+/// none of them in the window either: no ghost text, no list, and Tab
+/// does not fill one in.
+#[test]
+fn remembered_details_stay_hidden_from_an_agent_when_turned_off() {
+    use serde_json::json;
+    let mut store = Store::default();
+    store.learn("full_name", "Anna Lindqvist");
+    store.settings.agent_use_memory = false;
+    let mut h = harness("flat_form.pdf", data_dir("agent-no-memory", Some(store)));
+    let name = agent_ref(&h, 150.0, 168.0);
+    let a = agent(&mut h, "view", json!({"ref": name}));
+    assert_eq!(a["state"]["focused"], name);
+    h.run_steps(2);
+    assert!(h.state().focus.as_ref().unwrap().ghost.is_none());
+    let a = agent_computer(&mut h, json!({"action": "key", "keys": "Down"}));
+    assert_eq!(a["ok"], true, "{a}");
+    assert!(!h.state().assist.list_open());
+    let a = agent_computer(&mut h, json!({"action": "key", "keys": "Tab"}));
+    assert_eq!(a["ok"], true, "{a}");
+    assert_eq!(entry_at(&h, 150.0, 168.0).f.value, "");
+    // Turned on: the ghost text is back.
+    h.state_mut().assist.a.store.settings.agent_use_memory = true;
+    agent(&mut h, "view", json!({"ref": name}));
+    assert_eq!(
+        h.state().focus.as_ref().unwrap().ghost.as_deref(),
+        Some("Anna Lindqvist")
+    );
 }

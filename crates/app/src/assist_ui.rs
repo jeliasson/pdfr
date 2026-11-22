@@ -378,6 +378,19 @@ impl AssistState {
         self.a.store.settings.remember = setting;
     }
 
+    /// The question whether AI may be used is showing.
+    pub fn consent_open(&self) -> bool {
+        self.consent.is_some()
+    }
+
+    /// Tests: shows the question whether AI may be used.
+    #[cfg(test)]
+    pub fn ask_consent(&mut self, labels: &[&str]) {
+        self.consent = Some(AiAsk::Labels(
+            labels.iter().map(|l| l.to_string()).collect(),
+        ));
+    }
+
     /// A dialog of ours is open (it takes the keyboard).
     pub fn modal_open(&self) -> bool {
         self.consent.is_some() || self.pending_learn.is_some()

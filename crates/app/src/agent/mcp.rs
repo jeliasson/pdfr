@@ -325,14 +325,14 @@ pub fn tools() -> Vec<Value> {
                 "path": {"type": "string", "description": "Absolute path of the PDF. Leave out to just start pdfr."},
                 "password": {"type": "string", "description": "For a password-protected PDF."},
                 "new_window": {"type": "boolean", "description": "Open in a new window instead of the current one."},
-                "discard": {"type": "boolean", "description": "Replace the open document even if it has unsaved changes."},
+                "discard": {"type": "boolean", "description": "Replace the open document even if it has unsaved changes (the user is asked first)."},
             }),
             &[],
         ),
         tool(
             "close",
             "Close the pdfr window.",
-            json!({"discard": {"type": "boolean", "description": "Close even if there are unsaved changes."}}),
+            json!({"discard": {"type": "boolean", "description": "Close even if there are unsaved changes (the user is asked first)."}}),
             &[],
         ),
         tool(
