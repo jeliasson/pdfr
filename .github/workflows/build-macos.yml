@@ -43,7 +43,10 @@ jobs:
         run: |
           set -euo pipefail
           v=${{ inputs.version }}
-          mnt=$(hdiutil attach "dist/pdfr-v$v-macos.dmg" -nobrowse | tail -1 | awk -F'\t' '{print $NF}')
+          # Our own mount point: hdiutil's printed table changes between
+          # macOS versions.
+          mnt=$(mktemp -d)
+          hdiutil attach "dist/pdfr-v$v-macos.dmg" -nobrowse -mountpoint "$mnt"
           app="$mnt/pdfr.app"
           lipo -archs "$app/Contents/MacOS/pdfr"
           lipo -archs "$app/Contents/MacOS/pdfr" | grep -q arm64
