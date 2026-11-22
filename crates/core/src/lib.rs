@@ -24,3 +24,7 @@ pub mod search;
 pub mod signature;
 pub mod text;
 pub mod xfa;
+
+/// The most bytes one stream may decompress to (64 MiB). A small file can
+/// hold a stream that inflates to gigabytes; anything over this is refused.
+pub const MAX_STREAM_BYTES: usize = 64 << 20;

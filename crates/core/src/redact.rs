@@ -9,10 +9,16 @@
 //! - drawings entirely inside a box are dropped (overlapping ones stay,
 //!   drawn over);
 //! - a black box is drawn on top;
-//! - annotations and form fields touching a box are removed.
+//! - annotations and form fields touching a box are removed, with their
+//!   popups and replies;
+//! - what cannot be read safely (a Form XObject that does not decode, or is
+//!   nested too deep; text in a vertical or unknown font) goes whole when it
+//!   may reach a box.
 //!
 //! The result is always a full rewrite: no earlier revisions, thumbnails or
-//! page piece info that could still hold the text.
+//! page piece info that could still hold the text. Document-wide text that
+//! is not drawn (document details, XMP metadata, the structure tree with its
+//! alternate text, bookmarks, attachments) is removed too.
 
 use hayro::hayro_interpret::font::GlyphRun;
 use hayro::hayro_interpret::hayro_syntax::object::{Dict, ObjectIdentifier};
@@ -23,7 +29,7 @@ use hayro::hayro_interpret::{
 };
 use hayro::kurbo::{Affine, BezPath, Point, Rect as KRect};
 use lopdf::content::{Content, Operation};
-use lopdf::{Dictionary, Document, Object, ObjectId, Stream, StringFormat};
+use lopdf::{Dictionary, Document, Object, ObjectId, Stream, StringFormat, dictionary};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -51,6 +57,9 @@ pub struct Redacted {
     pub images_blacked: usize,
     pub paths_removed: usize,
     pub annotations_removed: usize,
+    /// Form XObjects that could not be read (or were nested too deep),
+    /// replaced by black over their bounds.
+    pub forms_blacked: usize,
 }
 
 /// Redacts `marks` in the PDF `bytes` and returns the new file.
@@ -83,6 +92,7 @@ pub fn redact(bytes: &[u8], marks: &[Mark]) -> Result<Redacted, String> {
     pages.sort_by_key(|(p, _)| *p);
     let cache = InterpreterCache::new();
     let mut removed_annots = HashSet::new();
+    let mut inline_removed = 0;
     for (p, rects) in pages {
         let images = decode_images(&hpages[p], &cache, &rects);
         let mut w = Walker {
@@ -92,12 +102,22 @@ pub fn redact(bytes: &[u8], marks: &[Mark]) -> Result<Redacted, String> {
             rects,
             out: &mut out,
             names: 0,
+            form_visits: 0,
+            form_cache: HashMap::new(),
         };
         w.page(page_ids[p], p)?;
-        removed_annots.extend(w.annotations(page_ids[p]));
+        let (ids, inline) = w.annotations(page_ids[p]);
+        removed_annots.extend(ids);
+        inline_removed += inline;
     }
+    remove_dependents(&mut doc, &page_ids, &mut removed_annots);
     remove_fields(&mut doc, &removed_annots);
-    out.annotations_removed = removed_annots.len();
+    out.annotations_removed = removed_annots.len() + inline_removed;
+    // Whatever else still points at a removed annotation (the structure
+    // tree, a reply, a field) lets go of it, and the object itself goes:
+    // pruning alone would keep anything still referred to.
+    forget(&mut doc, &removed_annots);
+    strip_document_text(&mut doc);
     // A full rewrite: no previous revisions, and no object that only an
     // old revision (or the original page content) used.
     doc.trailer.remove(b"Prev");
@@ -123,6 +143,163 @@ pub fn is_signed(doc: &Document) -> bool {
             || name(b"Type") == Some(b"DocTimeStamp".as_slice())
             || (name(b"FT") == Some(b"Sig".as_slice()) && d.has(b"V"))
     })
+}
+
+/// Adds to `removed` the annotations that belong to a removed one (its
+/// popup, replies to it, replies to those) on any page, and takes them all
+/// out of every page's `/Annots`.
+fn remove_dependents(doc: &mut Document, page_ids: &[ObjectId], removed: &mut HashSet<ObjectId>) {
+    if removed.is_empty() {
+        return;
+    }
+    let annots_of = |doc: &Document, p: ObjectId| -> Vec<Object> {
+        doc.get_dictionary(p)
+            .ok()
+            .and_then(|d| d.get(b"Annots").ok())
+            .and_then(|a| match a {
+                Object::Reference(id) => doc.get_object(*id).ok(),
+                o => Some(o),
+            })
+            .and_then(|a| a.as_array().ok())
+            .cloned()
+            .unwrap_or_default()
+    };
+    let all: Vec<ObjectId> = page_ids
+        .iter()
+        .flat_map(|&p| annots_of(doc, p))
+        .filter_map(|a| a.as_reference().ok())
+        .collect();
+    loop {
+        let before = removed.len();
+        for &id in &all {
+            let Ok(d) = doc.get_dictionary(id) else {
+                continue;
+            };
+            let refers = |k: &[u8]| {
+                d.get(k)
+                    .and_then(Object::as_reference)
+                    .is_ok_and(|r| removed.contains(&r))
+            };
+            let popup = d.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Popup");
+            if refers(b"IRT") || (popup && refers(b"Parent")) {
+                removed.insert(id);
+            }
+        }
+        if removed.len() == before {
+            break;
+        }
+    }
+    for &p in page_ids {
+        let annots = annots_of(doc, p);
+        let n = annots.len();
+        let keep: Vec<Object> = annots
+            .into_iter()
+            .filter(|a| !matches!(a, Object::Reference(id) if removed.contains(id)))
+            .collect();
+        if keep.len() != n
+            && let Ok(d) = doc.get_dictionary_mut(p)
+        {
+            d.set("Annots", Object::Array(keep));
+        }
+    }
+}
+
+/// Deletes the objects `dead` and every reference to them: dictionary
+/// entries pointing at them go, array items become `null`.
+pub(crate) fn forget(doc: &mut Document, dead: &HashSet<ObjectId>) {
+    if dead.is_empty() {
+        return;
+    }
+    fn fix(o: &mut Object, dead: &HashSet<ObjectId>, depth: u32) {
+        if depth > 256 {
+            return;
+        }
+        match o {
+            Object::Array(a) => {
+                for x in a.iter_mut() {
+                    match x {
+                        Object::Reference(id) if dead.contains(id) => *x = Object::Null,
+                        _ => fix(x, dead, depth + 1),
+                    }
+                }
+            }
+            Object::Dictionary(d) => fix_dict(d, dead, depth),
+            Object::Stream(s) => fix_dict(&mut s.dict, dead, depth),
+            _ => {}
+        }
+    }
+    fn fix_dict(d: &mut Dictionary, dead: &HashSet<ObjectId>, depth: u32) {
+        let gone: Vec<Vec<u8>> = d
+            .iter()
+            .filter(|(_, v)| matches!(v, Object::Reference(id) if dead.contains(id)))
+            .map(|(k, _)| k.clone())
+            .collect();
+        for k in gone {
+            d.remove(&k);
+        }
+        for (_, v) in d.iter_mut() {
+            fix(v, dead, depth + 1);
+        }
+    }
+    for id in dead {
+        doc.objects.remove(id);
+    }
+    for o in doc.objects.values_mut() {
+        fix(o, dead, 0);
+    }
+    fix_dict(&mut doc.trailer, dead, 0);
+}
+
+/// Removes the text a document carries beside its pages: document details
+/// (only Producer is kept), XMP metadata (of the document and of any
+/// object), the structure tree (alternate text, actual text), bookmarks,
+/// attachments, associated files and the document's private application
+/// data (pages not redacted keep theirs).
+fn strip_document_text(doc: &mut Document) {
+    let info = doc.add_object(dictionary! { "Producer" => Object::string_literal("pdfr") });
+    doc.trailer.set("Info", Object::Reference(info));
+    let names = doc
+        .catalog()
+        .ok()
+        .and_then(|c| c.get(b"Names").ok())
+        .cloned();
+    if let Ok(cat) = doc.catalog_mut() {
+        for k in [
+            &b"Metadata"[..],
+            b"StructTreeRoot",
+            b"MarkInfo",
+            b"Outlines",
+            b"AF",
+            b"PieceInfo",
+            b"SpiderInfo",
+            b"Threads",
+        ] {
+            cat.remove(k);
+        }
+    }
+    match names {
+        Some(Object::Reference(id)) => {
+            if let Ok(n) = doc.get_dictionary_mut(id) {
+                n.remove(b"EmbeddedFiles");
+            }
+        }
+        Some(Object::Dictionary(_)) => {
+            if let Ok(Object::Dictionary(n)) = doc.catalog_mut().and_then(|c| c.get_mut(b"Names")) {
+                n.remove(b"EmbeddedFiles");
+            }
+        }
+        _ => {}
+    }
+    for o in doc.objects.values_mut() {
+        let d = match o {
+            Object::Dictionary(d) => d,
+            Object::Stream(s) => &mut s.dict,
+            _ => continue,
+        };
+        for k in [&b"Metadata"[..], b"AF"] {
+            d.remove(k);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -335,6 +512,23 @@ enum ImgOut {
     Black,
 }
 
+/// What to do with one `Do` of a Form XObject.
+#[derive(Clone)]
+enum FormOut {
+    Keep,
+    Replace(ObjectId),
+    /// Unreadable: drawn as these operations (black over its bounds).
+    Black(Vec<Operation>),
+}
+
+/// Form XObjects nested deeper than this are not followed (blacked when
+/// they reach a box).
+const MAX_FORM_DEPTH: u32 = 12;
+/// Form XObjects rewritten per page at most; the rest that reach a box are
+/// blacked, so a file drawing forms from forms many times over can't make
+/// the walk take forever.
+const MAX_FORM_VISITS: usize = 10_000;
+
 struct Walker<'d, 'p> {
     doc: &'d mut Document,
     fonts: Fonts<'p>,
@@ -342,6 +536,10 @@ struct Walker<'d, 'p> {
     rects: Vec<KRect>,
     out: &'d mut Redacted,
     names: usize,
+    form_visits: usize,
+    /// Each Form XObject's result per placement (its id and the matrix it
+    /// is drawn with), so one drawn many times is rewritten once.
+    form_cache: HashMap<(ObjectId, [u64; 6]), FormOut>,
 }
 
 fn overlaps(a: &KRect, b: &KRect) -> bool {
@@ -426,7 +624,10 @@ impl<'p> Walker<'_, 'p> {
 
     /// Rewrites one page.
     fn page(&mut self, page_id: ObjectId, index: usize) -> Result<(), String> {
-        let content = self.doc.get_page_content(page_id);
+        let content = self
+            .doc
+            .get_page_content_with_limit(page_id, crate::MAX_STREAM_BYTES)
+            .map_err(|_| format!("page {} is too large to redact", index + 1))?;
         let ops = Content::decode(&content)
             .map_err(|e| format!("could not read page {} ({e})", index + 1))?
             .operations;
@@ -501,6 +702,10 @@ impl<'p> Walker<'_, 'p> {
         depth: u32,
     ) -> (Vec<Operation>, bool) {
         let fonts = self.sub(res, b"Font");
+        let props = self.sub(res, b"Properties");
+        // Named marked-content properties written inline instead (so their
+        // alternate text can go with the text), to drop from `res`.
+        let mut inlined: HashSet<Vec<u8>> = HashSet::new();
         let mut out: Vec<Operation> = Vec::with_capacity(ops.len());
         let mut changed = false;
         let mut gs = Gs::new(ctm);
@@ -521,7 +726,7 @@ impl<'p> Walker<'_, 'p> {
             *path = Some(path.map_or(r, |q| q.union(r)));
         };
 
-        for o in ops {
+        for mut o in ops {
             let v = nums(&o);
             let a = |i: usize| v.get(i).copied().unwrap_or(0.0);
             match o.operator.as_str() {
@@ -557,6 +762,7 @@ impl<'p> Walker<'_, 'p> {
                         // Ending the path without painting keeps any clip.
                         out.push(op("n", vec![]));
                         self.out.paths_removed += 1;
+                        touched.extend(marked.iter().flatten().copied());
                         changed = true;
                         continue;
                     }
@@ -597,6 +803,11 @@ impl<'p> Walker<'_, 'p> {
                     tlm *= Affine::translate((0.0, -gs.tl));
                     tm = tlm;
                 }
+                // `"` without its three operands is malformed: dropped.
+                "\"" if o.operands.len() < 3 => {
+                    changed = true;
+                    continue;
+                }
                 "Tj" | "TJ" | "'" | "\"" => {
                     let mut pre = Vec::new();
                     if o.operator == "\"" {
@@ -625,6 +836,18 @@ impl<'p> Walker<'_, 'p> {
                 }
                 // Marked content: alternate text of removed text goes too.
                 "BDC" => {
+                    // A named property list that is not an optional-content
+                    // layer is written inline, so its alternate text can go.
+                    if let Some(Object::Name(n)) = o.operands.get(1)
+                        && let Ok(p) = props.get(n)
+                        && let Ok(d) = self.resolve(p).as_dict()
+                    {
+                        let ty = d.get(b"Type").and_then(Object::as_name).ok();
+                        if !matches!(ty, Some(b"OCG") | Some(b"OCMD")) {
+                            inlined.insert(n.clone());
+                            o.operands[1] = Object::Dictionary(d.clone());
+                        }
+                    }
                     let inline = matches!(o.operands.get(1), Some(Object::Dictionary(_)));
                     marked.push(inline.then_some(out.len()));
                 }
@@ -639,6 +862,7 @@ impl<'p> Walker<'_, 'p> {
                             replaced.insert(n.to_vec());
                         }
                         out.extend(new);
+                        touched.extend(marked.iter().flatten().copied());
                         changed = true;
                         continue;
                     }
@@ -649,6 +873,7 @@ impl<'p> Walker<'_, 'p> {
                         // Inline images are small; not decoded, made black.
                         out.extend(black_square());
                         self.out.images_blacked += 1;
+                        touched.extend(marked.iter().flatten().copied());
                         changed = true;
                         continue;
                     }
@@ -658,6 +883,13 @@ impl<'p> Walker<'_, 'p> {
             out.push(o);
         }
         self.drop_unused(res, &out, replaced);
+        if !inlined.is_empty() {
+            let mut props = props;
+            for n in &inlined {
+                props.remove(n);
+            }
+            res.set("Properties", Object::Dictionary(props));
+        }
         for i in touched {
             if let Some(Object::Dictionary(d)) = out[i].operands.get_mut(1) {
                 for k in [&b"ActualText"[..], b"Alt", b"E"] {
@@ -691,9 +923,22 @@ impl<'p> Walker<'_, 'p> {
     /// A text show's elements (strings and adjustments) with the glyphs
     /// under a box replaced by moves, or `None` when nothing is removed.
     /// Advances `tm` past the text.
+    ///
+    /// In a vertical font, or one whose widths are unknown (not found, or
+    /// written inline), glyph positions are only estimates: a string whose
+    /// widest possible extent touches a box goes whole.
     fn show(&mut self, gs: &Gs<'p>, tm: &mut Affine, elems: &[Object]) -> Option<Vec<Object>> {
-        let exact = gs.font.as_ref().is_some_and(|f| f.is_horizontal());
-        let scale = gs.size * gs.th;
+        let vertical = gs.font.as_ref().is_some_and(|f| !f.is_horizontal());
+        let exact = gs.font.is_some() && !vertical;
+        // Text space units per thousandth of an adjustment.
+        let scale = if vertical { gs.size } else { gs.size * gs.th };
+        let step = |d: f64| {
+            if vertical {
+                Affine::translate((0.0, d))
+            } else {
+                Affine::translate((d, 0.0))
+            }
+        };
         let mut out: Vec<Object> = Vec::new();
         let mut kept: Vec<u8> = Vec::new();
         let mut adj = 0.0f64;
@@ -714,20 +959,23 @@ impl<'p> Walker<'_, 'p> {
             match e {
                 Object::String(bytes, f) => {
                     fmt = *f;
-                    let glyphs = self.glyphs(gs, *tm, bytes);
-                    let hits: Vec<bool> = glyphs.iter().map(|g| self.glyph_hit(&g.2)).collect();
-                    // Widths unknown: positions are only estimates, so a
-                    // string touching a box goes whole.
-                    let whole = !exact && hits.iter().any(|h| *h);
+                    let glyphs = self.glyphs(gs, *tm, bytes, vertical);
+                    let (hits, whole) = if exact {
+                        let hits: Vec<bool> = glyphs.iter().map(|g| self.glyph_hit(&g.2)).collect();
+                        (hits, false)
+                    } else {
+                        let rough = self.rough_box(gs, *tm, bytes.len(), vertical);
+                        (vec![false; glyphs.len()], self.any_overlap(&rough))
+                    };
                     if whole {
                         self.out.strings_removed_whole += 1;
                     }
                     for (g, hit) in glyphs.iter().zip(hits) {
-                        let (range, tx, _) = g;
+                        let (range, adv, _) = g;
                         if hit || whole {
                             flush_str(&mut out, &mut kept, fmt);
                             if scale.abs() > 1e-9 {
-                                adj -= tx * 1000.0 / scale;
+                                adj -= adv * 1000.0 / scale;
                             }
                             self.out.glyphs_removed += 1;
                             any = true;
@@ -735,14 +983,14 @@ impl<'p> Walker<'_, 'p> {
                             flush_adj(&mut out, &mut adj);
                             kept.extend_from_slice(&bytes[range.clone()]);
                         }
-                        *tm *= Affine::translate((*tx, 0.0));
+                        *tm *= step(*adv);
                     }
                 }
                 Object::Integer(_) | Object::Real(_) => {
                     flush_str(&mut out, &mut kept, fmt);
                     let n = num(e);
                     adj += n;
-                    *tm *= Affine::translate((-n / 1000.0 * scale, 0.0));
+                    *tm *= step(-n / 1000.0 * scale);
                 }
                 _ => {}
             }
@@ -752,13 +1000,36 @@ impl<'p> Walker<'_, 'p> {
         any.then_some(out)
     }
 
-    /// Each glyph of a string: its bytes, its advance (text space) and its
-    /// box in user space.
+    /// The widest extent (user space) a string of `n` bytes could cover
+    /// when its glyph widths can't be trusted: an em per byte plus the
+    /// spacing, along the writing direction, and a full line across it.
+    fn rough_box(&self, gs: &Gs<'p>, tm: Affine, n: usize, vertical: bool) -> KRect {
+        let size = gs.size.abs();
+        let len = n as f64 * (size + gs.tc.abs() + gs.tw.abs());
+        let r = if vertical {
+            // Glyphs hang below the pen, centred on it.
+            KRect::new(-size, gs.rise - len - size, size, gs.rise + size)
+        } else {
+            let w = len * gs.th.abs();
+            KRect::new(
+                -w * (gs.th < 0.0) as u8 as f64,
+                gs.rise - 0.5 * size,
+                w,
+                gs.rise + 1.2 * size,
+            )
+        };
+        (gs.ctm * tm).transform_rect_bbox(r)
+    }
+
+    /// Each glyph of a string: its bytes, its advance along the writing
+    /// direction (text space) and its box in user space (an estimate in a
+    /// vertical or unknown font).
     fn glyphs(
         &self,
         gs: &Gs<'p>,
         tm: Affine,
         bytes: &[u8],
+        vertical: bool,
     ) -> Vec<(std::ops::Range<usize>, f64, KRect)> {
         let trm = gs.ctm * tm;
         let mut out = Vec::new();
@@ -769,22 +1040,33 @@ impl<'p> Walker<'_, 'p> {
                 Some(f) => {
                     let (code, len) = f.read_code(bytes, off);
                     let len = len.max(1).min(bytes.len() - off);
-                    (code, len, f.code_advance(code).x)
+                    let a = f.code_advance(code);
+                    (code, len, if vertical { a.y } else { a.x })
                 }
                 // Unknown font: one byte per glyph, half an em wide.
                 None => (bytes[off] as u32, 1, 500.0),
             };
             let space = if len == 1 && code == 32 { gs.tw } else { 0.0 };
-            let tx = (w / 1000.0 * gs.size + gs.tc + space) * gs.th;
-            let gw = (w / 1000.0 * gs.size * gs.th).max(0.0);
-            let glyph = KRect::new(
-                x,
-                gs.rise - 0.22 * gs.size,
-                x + gw,
-                gs.rise + 0.75 * gs.size,
-            );
-            out.push((off..off + len, tx, trm.transform_rect_bbox(glyph)));
-            x += tx;
+            let (adv, glyph) = if vertical {
+                // Vertical displacement (usually negative: downwards).
+                let ty = w / 1000.0 * gs.size + gs.tc + space;
+                let h = gs.size.abs();
+                (ty, KRect::new(-h / 2.0, x - h, h / 2.0, x))
+            } else {
+                let tx = (w / 1000.0 * gs.size + gs.tc + space) * gs.th;
+                let gw = (w / 1000.0 * gs.size * gs.th).max(0.0);
+                (
+                    tx,
+                    KRect::new(
+                        x,
+                        gs.rise - 0.22 * gs.size,
+                        x + gw,
+                        gs.rise + 0.75 * gs.size,
+                    ),
+                )
+            };
+            out.push((off..off + len, adv, trm.transform_rect_bbox(glyph)));
+            x += adv;
             off += len;
         }
         out
@@ -828,11 +1110,17 @@ impl<'p> Walker<'_, 'p> {
                     Some(vec![op("Do", vec![Object::Name(n)])])
                 }
             },
-            b"Form" if depth < 12 => {
-                let new = self.form(id, ctm, res, depth)?;
-                let n = self.add_xobject(res, new);
-                Some(vec![op("Do", vec![Object::Name(n)])])
-            }
+            b"Form" => match self.form(id, ctm, res, depth) {
+                FormOut::Keep => None,
+                FormOut::Replace(new) => {
+                    let n = self.add_xobject(res, new);
+                    Some(vec![op("Do", vec![Object::Name(n)])])
+                }
+                FormOut::Black(ops) => {
+                    self.out.forms_blacked += 1;
+                    Some(ops)
+                }
+            },
             _ => None,
         }
     }
@@ -861,16 +1149,39 @@ impl<'p> Walker<'_, 'p> {
         ImgOut::Replace(self.doc.add_object(s))
     }
 
-    /// A rewritten copy of a Form XObject drawn with `ctm`, if it changes.
-    fn form(
+    /// What becomes of a Form XObject drawn with `ctm`: kept, a rewritten
+    /// copy, or (when it can't be read, is nested too deep or the page has
+    /// too many) black over its bounds. Each placement is worked out once.
+    fn form(&mut self, id: ObjectId, ctm: Affine, parent_res: &Dictionary, depth: u32) -> FormOut {
+        let Some(s) = self
+            .doc
+            .get_object(id)
+            .ok()
+            .and_then(|o| o.as_stream().ok())
+            .cloned()
+        else {
+            return FormOut::Keep;
+        };
+        let own_res = s.dict.has(b"Resources");
+        let key = (id, ctm.as_coeffs().map(f64::to_bits));
+        if own_res && let Some(r) = self.form_cache.get(&key) {
+            return r.clone();
+        }
+        let r = self.form_uncached(&s, ctm, parent_res, depth);
+        if own_res {
+            self.form_cache.insert(key, r.clone());
+        }
+        r
+    }
+
+    fn form_uncached(
         &mut self,
-        id: ObjectId,
+        s: &Stream,
         ctm: Affine,
         parent_res: &Dictionary,
         depth: u32,
-    ) -> Option<ObjectId> {
-        let s = self.doc.get_object(id).ok()?.as_stream().ok()?.clone();
-        let m = s
+    ) -> FormOut {
+        let matrix = s
             .dict
             .get(b"Matrix")
             .and_then(Object::as_array)
@@ -878,36 +1189,76 @@ impl<'p> Walker<'_, 'p> {
             .filter(|a| a.len() == 6)
             .map(|a| {
                 let v: Vec<f64> = a.iter().map(num).collect();
-                Affine::new([v[0], v[1], v[2], v[3], v[4], v[5]])
-            })
-            .unwrap_or(Affine::IDENTITY);
+                [v[0], v[1], v[2], v[3], v[4], v[5]]
+            });
+        let m = matrix.map(Affine::new).unwrap_or(Affine::IDENTITY);
         let fctm = ctm * m;
-        if let Ok(b) = s.dict.get(b"BBox").and_then(Object::as_array)
-            && b.len() == 4
+        let bbox = s
+            .dict
+            .get(b"BBox")
+            .and_then(Object::as_array)
+            .ok()
+            .filter(|b| b.len() == 4)
+            .map(|b| {
+                let v: Vec<f64> = b.iter().map(num).collect();
+                KRect::new(v[0], v[1], v[2], v[3]).abs()
+            });
+        if let Some(b) = bbox
+            && !self.any_overlap(&fctm.transform_rect_bbox(b))
         {
-            let v: Vec<f64> = b.iter().map(num).collect();
-            let bb = fctm.transform_rect_bbox(KRect::new(v[0], v[1], v[2], v[3]).abs());
-            if !self.any_overlap(&bb) {
-                return None;
-            }
+            return FormOut::Keep;
         }
-        let content = s
-            .decompressed_content()
-            .unwrap_or_else(|_| s.content.clone());
-        let ops = Content::decode(&content).ok()?.operations;
+        // Unreadable: black over its bounds (nothing, without bounds), never
+        // the original, which may hold what is under the box.
+        let black = || {
+            let Some(b) = bbox else {
+                return FormOut::Black(vec![]);
+            };
+            let mut ops = vec![op("q", vec![])];
+            if let Some(v) = matrix {
+                ops.push(op(
+                    "cm",
+                    v.iter().map(|&x| Object::Real(x as f32)).collect(),
+                ));
+            }
+            ops.push(op("g", vec![0.into()]));
+            ops.push(op(
+                "re",
+                vec![
+                    Object::Real(b.x0 as f32),
+                    Object::Real(b.y0 as f32),
+                    Object::Real(b.width() as f32),
+                    Object::Real(b.height() as f32),
+                ],
+            ));
+            ops.push(op("f", vec![]));
+            ops.push(op("Q", vec![]));
+            FormOut::Black(ops)
+        };
+        self.form_visits += 1;
+        if depth >= MAX_FORM_DEPTH || self.form_visits > MAX_FORM_VISITS {
+            return black();
+        }
+        let Ok(content) = s.decompressed_content_with_limit(crate::MAX_STREAM_BYTES) else {
+            return black();
+        };
+        let Ok(ops) = Content::decode(&content).map(|c| c.operations) else {
+            return black();
+        };
         let mut res = match s.dict.get(b"Resources") {
             Ok(r) => self.resolve(r).as_dict().cloned().unwrap_or_default(),
             Err(_) => parent_res.clone(),
         };
         let (new_ops, changed) = self.walk(ops, &mut res, fctm, depth + 1);
         if !changed {
-            return None;
+            return FormOut::Keep;
         }
-        let bytes = Content {
+        let Ok(bytes) = (Content {
             operations: new_ops,
-        }
-        .encode()
-        .ok()?;
+        })
+        .encode() else {
+            return black();
+        };
         let mut dict = s.dict.clone();
         for k in [&b"Filter"[..], b"DecodeParms", b"Length"] {
             dict.remove(k);
@@ -915,12 +1266,13 @@ impl<'p> Walker<'_, 'p> {
         dict.set("Resources", Object::Dictionary(res));
         let mut ns = Stream::new(dict, bytes);
         let _ = ns.compress();
-        Some(self.doc.add_object(ns))
+        FormOut::Replace(self.doc.add_object(ns))
     }
 
-    /// Removes the page's annotations that touch a box (and their popups);
-    /// returns their ids.
-    fn annotations(&mut self, page_id: ObjectId) -> HashSet<ObjectId> {
+    /// Removes the page's annotations that touch a box (and their popups):
+    /// returns the ids of those that are objects, and how many were written
+    /// straight into `/Annots`.
+    fn annotations(&mut self, page_id: ObjectId) -> (HashSet<ObjectId>, usize) {
         let annots: Vec<Object> = self
             .doc
             .get_dictionary(page_id)
@@ -928,22 +1280,31 @@ impl<'p> Walker<'_, 'p> {
             .and_then(|p| p.get(b"Annots").ok())
             .map(|a| self.resolve(a).as_array().cloned().unwrap_or_default())
             .unwrap_or_default();
-        let mut removed = HashSet::new();
-        for a in &annots {
-            let Object::Reference(id) = a else { continue };
-            let Ok(d) = self.doc.get_dictionary(*id) else {
-                continue;
-            };
+        let hits = |w: &Self, d: &Dictionary| {
             let rect = d
                 .get(b"Rect")
+                .map(|r| w.resolve(r))
                 .and_then(Object::as_array)
                 .ok()
                 .filter(|r| r.len() == 4);
-            if let Some(r) = rect {
-                let v: Vec<f64> = r.iter().map(|o| num(self.resolve(o))).collect();
-                if self.any_overlap(&KRect::new(v[0], v[1], v[2], v[3]).abs()) {
-                    removed.insert(*id);
+            rect.is_some_and(|r| {
+                let v: Vec<f64> = r.iter().map(|o| num(w.resolve(o))).collect();
+                w.any_overlap(&KRect::new(v[0], v[1], v[2], v[3]).abs())
+            })
+        };
+        let mut removed = HashSet::new();
+        let mut inline = 0;
+        for a in &annots {
+            match a {
+                Object::Reference(id) => {
+                    if let Ok(d) = self.doc.get_dictionary(*id)
+                        && hits(self, d)
+                    {
+                        removed.insert(*id);
+                    }
                 }
+                Object::Dictionary(d) if hits(self, d) => inline += 1,
+                _ => {}
             }
         }
         // Popups belong to the annotation they open from.
@@ -958,16 +1319,20 @@ impl<'p> Walker<'_, 'p> {
                 removed.insert(*id);
             }
         }
-        if !removed.is_empty() {
+        if !removed.is_empty() || inline > 0 {
             let keep: Vec<Object> = annots
                 .into_iter()
-                .filter(|a| !matches!(a, Object::Reference(id) if removed.contains(id)))
+                .filter(|a| match a {
+                    Object::Reference(id) => !removed.contains(id),
+                    Object::Dictionary(d) => !hits(self, d),
+                    _ => true,
+                })
                 .collect();
             if let Ok(p) = self.doc.get_dictionary_mut(page_id) {
                 p.set("Annots", Object::Array(keep));
             }
         }
-        removed
+        (removed, inline)
     }
 }
 
@@ -996,7 +1361,7 @@ fn remove_fields(doc: &mut Document, removed: &HashSet<ObjectId>) {
     for key in [&b"Fields"[..], b"CO"] {
         if let Ok(arr) = form.get(key).and_then(Object::as_array) {
             let arr = arr.clone();
-            let kept = prune_kids(doc, arr, removed, 0);
+            let kept = prune_kids(doc, arr, removed, 0, &mut HashSet::new());
             form.set(key, Object::Array(kept));
         }
     }
@@ -1012,11 +1377,18 @@ fn remove_fields(doc: &mut Document, removed: &HashSet<ObjectId>) {
     }
 }
 
+/// Field tree nodes visited at most when taking removed widgets out.
+const MAX_FIELD_NODES: usize = 10_000;
+
+/// `kids` without the removed widgets, and without fields left with no
+/// kids. Each node is visited once (a file can share subtrees), and at most
+/// [`MAX_FIELD_NODES`] in all.
 fn prune_kids(
     doc: &mut Document,
     kids: Vec<Object>,
     removed: &HashSet<ObjectId>,
     depth: u32,
+    seen: &mut HashSet<ObjectId>,
 ) -> Vec<Object> {
     let mut out = Vec::new();
     for k in kids {
@@ -1025,6 +1397,10 @@ fn prune_kids(
             continue;
         };
         if removed.contains(&id) {
+            continue;
+        }
+        if seen.len() >= MAX_FIELD_NODES || !seen.insert(id) {
+            out.push(k);
             continue;
         }
         let sub = doc
@@ -1036,7 +1412,7 @@ fn prune_kids(
             && depth < 32
         {
             let had = !sub.is_empty();
-            let left = prune_kids(doc, sub, removed, depth + 1);
+            let left = prune_kids(doc, sub, removed, depth + 1, seen);
             if had && left.is_empty() {
                 continue;
             }
