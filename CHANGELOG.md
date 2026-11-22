@@ -27,6 +27,14 @@ version's section into its GitHub release notes.
 - **Saving keeps the file's permissions and symlinks.** A private (0600)
   form stays private, and Extract pages can no longer overwrite the open
   file.
+- **AI agents are kept out of Settings and your questions.** They can no
+  longer change settings, see remembered details there, answer the AI
+  question or throw away unsaved changes without asking you, and they only
+  connect to your own pdfr. AI permission covers only the tool you allowed,
+  and two pdfr windows no longer undo each other's settings.
+- **Installing pdfr into an agent keeps that agent's settings file intact:**
+  its permissions, key order and comments, and a guide you changed
+  yourself.
 - **Updates are signed.** pdfr and the install script check a signature
   made by pdfr's own release build before installing anything, and refuse
   unsigned or altered downloads. Updates use a more mature encryption
