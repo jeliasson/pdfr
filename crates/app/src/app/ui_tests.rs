@@ -1044,6 +1044,7 @@ fn open_and_wait(h: &mut Harness<'_, App>, file: &str) {
         if s.doc
             .as_ref()
             .is_some_and(|d| d.path.ends_with(file) && d.detected.iter().all(|x| *x))
+            && s.opens_in_flight == 0
             && s.assist.idle()
         {
             break;
