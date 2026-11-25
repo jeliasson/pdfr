@@ -238,6 +238,16 @@ then **System Settings → Privacy & Security → Open Anyway**), the `.tar.gz`
 for any Linux (`./pdfr --register` adds it to your app menu), and `.deb` and
 `.rpm` packages.
 
+<details>
+<summary><b>On Nix or NixOS?</b> The repository is a flake.</summary>
+
+Try pdfr without installing: `nix run github:kjellberg/pdfr`. To keep it,
+`nix profile install github:kjellberg/pdfr`, or add `github:kjellberg/pdfr`
+as a flake input and use its default package. Updates come with your flake
+inputs — pdfr cannot update itself inside the Nix store.
+
+</details>
+
 **Make pdfr your PDF app:** pdfr offers this the first time you start it.
 You can also turn it on later in **Settings → General**.
 
